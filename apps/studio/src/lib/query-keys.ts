@@ -64,6 +64,12 @@ export const qk = {
 	modules: () => [...qk.all, 'module-list'] as const,
 	/** Server contract (`/api/meta`) — static per deploy, never revalidates. */
 	serverMeta: () => [...qk.all, 'server-meta'] as const,
+	/** The signed session's identity + capabilities (`/api/auth/me`). */
+	me: () => [...qk.all, 'me'] as const,
+	/** The add-on catalog + install state (`/api/addons`). */
+	addons: () => [...qk.all, 'addons'] as const,
+	/** Self-tuning index-advisor telemetry (`/api/operations`). */
+	operations: () => [...qk.all, 'operations'] as const,
 	module: (slug: string) => [...qk.all, 'module', slug] as const,
 	pages: () => [...qk.all, 'pages'] as const,
 	menus: (slug: string) => [...qk.all, 'menus', slug] as const,

@@ -3,7 +3,7 @@
  *
  * Priority:
  *   1. MMBIX_ADMIN_EMAIL + MMBIX_ADMIN_PASSWORD env vars (auto-loaded from
- *      .env.local by bin/cli.ts — written by `headless init` / `./start.sh`)
+ *      .env.local by bin/cli.ts — written by `headless init`)
  *   2. Interactive prompt (TTY only — masked password)
  *   3. Error with setup instructions (non-TTY / CI)
  */
@@ -23,7 +23,7 @@ export async function resolveAdminCredentials(): Promise<AdminCredentials> {
 	if (!isInteractive()) {
 		throw new Error(
 			'Admin credentials are not configured.\n' +
-				'  Set MMBIX_ADMIN_EMAIL and MMBIX_ADMIN_PASSWORD (e.g. run `headless init` or `./start.sh` to generate .env.local),\n' +
+				'  Set MMBIX_ADMIN_EMAIL and MMBIX_ADMIN_PASSWORD (e.g. run `headless init` to generate .env.local),\n' +
 				'  or run this command interactively and you will be prompted.',
 		);
 	}

@@ -22,6 +22,7 @@ import { D1Client, QueryBuilder, resolvePolicy, policyFeatures, DEFAULT_POLICY }
 import { requireAuth } from './auth';
 import { requireAdmin } from '@/middleware/rbac-guard';
 import { success, fail } from '@/lib/api/response';
+import { ifMatchGuard } from '@/lib/api/preconditions';
 import { CollectionService } from '@/lib/services/collection.service';
 import type { AuthContext } from '@/lib/services/auth.service';
 import type { PolicyInput } from '@mmbix/core';
@@ -90,6 +91,9 @@ app.put('/', async (c) => {
 	const db = new D1Client(c.env.DB);
 	const existing = await db.first<Record<string, unknown>>(QueryBuilder.from('_entity_schemas').select('*').where('slug', slug).toSelect());
 	if (!existing) return fail(c, 'Collection not found', 404);
+	// Optimistic concurrency — a stale `If-Match` refuses the policy write 409.
+	const conflict = ifMatchGuard(c, Number(existing._schema_version ?? 1));
+	if (conflict) return conflict;
 	let schemaJson: Record<string, unknown>;
 	try {
 		schemaJson = JSON.parse(existing.schema_json as string);
@@ -216,6 +220,8 @@ app.delete('/:feature', async (c) => {
 	const db = new D1Client(c.env.DB);
 	const existing = await db.first<Record<string, unknown>>(QueryBuilder.from('_entity_schemas').select('*').where('slug', slug).toSelect());
 	if (!existing) return fail(c, 'Collection not found', 404);
+	const conflict = ifMatchGuard(c, Number(existing._schema_version ?? 1));
+	if (conflict) return conflict;
 	let schemaJson: Record<string, unknown>;
 	try {
 		schemaJson = JSON.parse(existing.schema_json as string);

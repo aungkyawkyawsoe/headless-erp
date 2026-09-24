@@ -89,6 +89,8 @@ import { bootModuleHooks, moduleManifests, mountDomainModules } from './domain-m
 import { operationsRoutes } from './routes/operations';
 // v1.5: Runtime feature policies (headless control plane)
 import { policyRoutes } from './routes/policies';
+// Add-on registry — runtime install/remove of modules (see domain-modules).
+import { addonRoutes } from './routes/addons';
 // Generic data-quality (anomaly) surface — runs a collection's integrity rules.
 import { integrityRoutes } from './routes/integrity';
 // Code-hook registry introspection (admin-only — Studio's lifecycle-hook viewer)
@@ -460,10 +462,10 @@ app.get('/api/meta', async (c) => {
 				directory_collection: cfg.telegram.directoryCollection || null,
 				directory_field: cfg.telegram.directoryField || null,
 			},
-			// Discovery — WHAT this deployment ships. A client/ops surface learns the
-			// mounted modules (code manifests) and the enabled plugins from one read,
-			// instead of guessing or hardcoding names. Single source: the same
-			// `isModuleEnabled` / `isPluginEnabled` gates the routes use.
+			// Discovery — WHAT this BUILD makes available (the `DOMAIN_MODULES` /
+			// `PLUGINS` allowlist), I/O-free. The RUNTIME install state (what is
+			// actually installed) lives at `GET /api/addons`, which reads `_addons`;
+			// /api/meta stays a static contract with zero D1 reads.
 			modules: moduleManifests
 				.filter((m) => isModuleEnabled(c.env ?? {}, m.id))
 				.map((m) => ({ id: m.id, name: m.name, version: m.version, path: modulePath(m) })),
@@ -646,12 +648,14 @@ function pluginMigrationServiceFor(env: Record<string, unknown>): PluginMigratio
 	return svc;
 }
 app.use('*', async (c, next) => {
-	// Boot the compiled hooks of every ENABLED domain module — ONCE per isolate.
+	// Boot the compiled hooks of every INSTALLED domain module — ONCE per isolate.
 	// They fire on engine collections (not just the module's own routes), so they
 	// must be live before any route runs.
-	bootModuleHooks(c.env as Record<string, unknown>);
+	const env = (c.env ?? {}) as Record<string, unknown>;
+	const db = new D1Client((c.env as { DB: D1Database }).DB);
+	await bootModuleHooks(env, db);
 	try {
-		await pluginMigrationServiceFor(c.env as Record<string, unknown>).runPending(new D1Client((c.env as { DB: D1Database }).DB));
+		await pluginMigrationServiceFor(env).runPending(db);
 	} catch (err) {
 		console.error('[plugin-migration] failed:', err instanceof Error ? err.message : err);
 	}
@@ -706,6 +710,8 @@ app.route('/api/operations', operationsRoutes);
 app.route('/api/collections/:slug/policies', policyRoutes);
 // Generic integrity checks — bounded data-quality rules declared per collection.
 app.route('/api/collections/:slug/integrity', integrityRoutes);
+// Add-on registry — catalog + install/uninstall (admin).
+app.route('/api/addons', addonRoutes);
 // v1.7+: R2 Data Catalog (Iceberg) read-only analytics — admin, env-gated by
 // R2_SQL_TOKEN + ENABLE_R2_LAKE. Falls empty (404) when not enabled.
 app.route('/api/r2sql', r2sqlRoutes);

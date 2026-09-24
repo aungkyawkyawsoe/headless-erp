@@ -133,6 +133,60 @@ export interface ServerMeta {
 export async function getServerMeta(token: string) {
 	return api<ServerMeta>(token, '/api/meta');
 }
+
+/** `GET /api/auth/me` — the signed session's identity + capabilities. Drives
+ *  RBAC-aware UI (admin tabs, destructive actions) instead of showing controls
+ *  the API would 403. */
+export interface StudioMe {
+	user_id: string;
+	email: string;
+	role_id: string;
+	role_name: string;
+	is_admin: boolean;
+	granted_collections?: string[] | '*';
+	apps?: string[] | null;
+	employee_id?: string | null;
+}
+export async function getMe(token: string) {
+	return api<StudioMe>(token, '/api/auth/me');
+}
+
+/** Add-on catalog entry (mirrors `@mmbix/types` AddonCatalogEntry). */
+export interface AddonEntry {
+	id: string;
+	name: string;
+	version: string;
+	scope: 'platform' | 'domain' | 'ui';
+	available: boolean;
+	installed: boolean;
+	depends: string[];
+	provides: string[];
+	requires: string[];
+	extends: string[];
+}
+export interface AddonCatalogResponse {
+	addons: AddonEntry[];
+	issues: Array<{ id: string; issue: string }>;
+}
+export async function listAddons(token: string) {
+	return api<AddonCatalogResponse>(token, '/api/addons');
+}
+
+/** Self-tuning index-advisor telemetry (`GET /api/operations/index-advisor`). */
+export interface IndexAdvisorReport {
+	mode: 'auto' | 'propose_only';
+	journal: Array<{ table: string; columns: string[]; signature?: string; createdAt?: number }>;
+	candidates: Array<{ table: string; columns: string[]; count: number }>;
+}
+export async function getOperations(token: string) {
+	return api<IndexAdvisorReport>(token, '/api/operations/index-advisor');
+}
+export async function installAddon(token: string, id: string) {
+	return api<AddonCatalogResponse>(token, `/api/addons/${encodeURIComponent(id)}/install`, { method: 'POST' });
+}
+export async function uninstallAddon(token: string, id: string) {
+	return api<AddonCatalogResponse>(token, `/api/addons/${encodeURIComponent(id)}/uninstall`, { method: 'POST' });
+}
 export async function createModule(
 	token: string,
 	name: string,
@@ -497,6 +551,9 @@ export interface EntitySchema {
 	/** Auto-number pattern ("INV-" or "INV-####") — "" / null = no Doc No. */
 	naming_series?: string | null;
 	schema_json: { fields: FieldDefinition[]; actions?: unknown; policies?: { writes?: CollectionWritePolicy } & Record<string, unknown> };
+	/** Bumped on every schema/policy write — the optimistic-concurrency token
+	 *  (`If-Match`). Present on the detail read. */
+	_schema_version?: number;
 	/**
 	 * Present only when the read asked for it (`?with=relation_schemas`): every m2o
 	 * TARGET's schema, keyed by slug. It rides the focused read so the table view
@@ -569,9 +626,18 @@ export async function getCollectionPolicies(token: string, slug: string) {
 export async function setCollectionPolicies(token: string, slug: string, body: CollectionPolicy) {
 	return api<CollectionPolicy>(token, `/api/collections/${slug}/policies`, { method: 'PUT', body: JSON.stringify(body) });
 }
-export async function updateCollectionFields(token: string, slug: string, fields: FieldDefinition[], formLayout?: unknown) {
+export async function updateCollectionFields(
+	token: string,
+	slug: string,
+	fields: FieldDefinition[],
+	formLayout?: unknown,
+	/** Optimistic concurrency — the `_schema_version` the client loaded. A stale
+	 *  save is refused 409 server-side instead of clobbering another admin. */
+	ifMatch?: number,
+) {
 	const updated = await api<EntitySchema>(token, `/api/collections/${slug}`, {
 		method: 'PUT',
+		headers: ifMatch !== undefined ? { 'If-Match': `"${ifMatch}"` } : undefined,
 		body: JSON.stringify(formLayout === undefined ? { fields } : { fields, form_layout: formLayout }),
 	});
 	return updated;
@@ -1201,6 +1267,56 @@ export async function upsertDesignToken(
 
 export async function deleteDesignToken(token: string, id: string) {
 	return api<{ deleted: boolean }>(token, `/api/design-tokens/${id}`, { method: 'DELETE' });
+}
+
+/** The EFFECTIVE token set for a scope (global, or one app) — CSS variables. */
+export interface EffectiveDesignTokens {
+	id: string;
+	set_name: string;
+	tokens: Record<string, string>;
+}
+export async function getEffectiveTokens(token: string, app?: string) {
+	return api<EffectiveDesignTokens | null>(token, `/api/design-tokens/effective${app ? `?app=${encodeURIComponent(app)}` : ''}`);
+}
+
+/** Translation bundle — `module → namespace → key → string` (see the backend). */
+export type TranslationBundle = Record<string, Record<string, Record<string, string | Record<string, string>>>>;
+export async function getTranslations(token: string, lang: string, module?: string) {
+	const qs = `?lang=${encodeURIComponent(lang)}${module ? `&module=${encodeURIComponent(module)}` : ''}`;
+	return api<{ lang: string; translations: TranslationBundle }>(token, `/api/translations${qs}`);
+}
+
+/** A schema change's impact — from `/api/snapshot/diff-v2` (breaking detection). */
+export interface SchemaDiffResult {
+	collectionsModified: Array<{ slug: string; fieldChanges: Array<{ field: string; change: string }> }>;
+	summary: { totalChanges: number; breakingChanges: string[]; safeToApply: boolean };
+}
+export async function diffSchema(
+	token: string,
+	snapshot: { collections: Array<{ slug: string; name: string; fields: FieldDefinition[] }> },
+) {
+	return api<SchemaDiffResult>(token, '/api/snapshot/diff-v2', { method: 'POST', body: JSON.stringify({ snapshot }) });
+}
+
+/**
+ * Review a single collection's proposed fields against the LIVE schema.
+ *
+ * The differ compares a FULL snapshot (every collection), so a one-collection
+ * snapshot would report every OTHER collection as removed. We therefore export
+ * the live snapshot, swap in the proposed fields for `slug`, and diff that — the
+ * only changes reported are this collection's.
+ */
+export async function reviewSchemaChange(token: string, slug: string, fields: FieldDefinition[]) {
+	const snap = await api<{ collections: Array<{ slug: string; name: string; fields: FieldDefinition[] } & Record<string, unknown>> }>(
+		token,
+		'/api/snapshot/export',
+	);
+	const patched = {
+		...snap,
+		collections: snap.collections.map((c) => (c.slug === slug ? { ...c, fields } : c)),
+	};
+	const diff = await api<SchemaDiffResult>(token, '/api/snapshot/diff-v2', { method: 'POST', body: JSON.stringify({ snapshot: patched }) });
+	return diff.summary;
 }
 
 export interface ApiKeyInfo {

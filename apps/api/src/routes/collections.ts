@@ -25,6 +25,7 @@ import { cache } from '@mmbix/core';
 import { requireAuth } from './auth';
 import { requireAdmin } from '@/middleware/rbac-guard';
 import { success, fail } from '@/lib/api/response';
+import { ifMatchGuard } from '@/lib/api/preconditions';
 import { validators, sanitizeIdentifier } from '@mmbix/utils';
 import FIELD_TYPE_DEFS from '@/lib/data/field-types';
 import { validateFormulaField } from '@/lib/services/collection-schema.service';
@@ -138,6 +139,12 @@ app.put('/:slug', requireAdmin, async (c) => {
 	const db = new D1Client(c.env.DB);
 	const existing = await db.first<Record<string, unknown>>(QueryBuilder.from('_entity_schemas').select('*').where('slug', slug).toSelect());
 	if (!existing) return fail(c, 'Collection not found', 404);
+
+	// Optimistic concurrency — a client that loaded this collection sends
+	// `If-Match: <_schema_version>`; a stale save is refused 409 instead of
+	// clobbering another admin's change (see lib/api/preconditions.ts).
+	const conflict = ifMatchGuard(c, Number(existing._schema_version ?? 1));
+	if (conflict) return conflict;
 
 	// Parse old and new schema for migration diff
 	let oldSchemaJson: { fields?: Array<Record<string, unknown>>; actions?: Record<string, unknown> };

@@ -613,6 +613,25 @@ const MIGRATIONS: Migration[] = [
 			QueryBuilder.raw('ALTER TABLE _role_permissions ADD COLUMN source_module TEXT DEFAULT NULL'),
 		],
 	},
+	{
+		name: '037_addons',
+		up: [
+			// Add-on install state — the runtime half of "which add-ons ship".
+			// `DOMAIN_MODULES`/`PLUGINS` remain the BUILD allowlist (what is
+			// available); this table records what is INSTALLED at runtime. A module
+			// with no row is installed when it is in the allowlist (backward
+			// compatible); an explicit `installed = 0` row turns it off at runtime
+			// without a redeploy. Install/uninstall never delete rows (auditable).
+			sb.createTable('_addons', (t) => {
+				t.uuid('id');
+				t.text('version');
+				t.text('scope');
+				t.integer('installed').default(1);
+				t.timestamp('installed_at').nullable();
+				t.timestamp('updated_at').defaultRaw('CURRENT_TIMESTAMP');
+			}),
+		],
+	},
 ];
 
 /** Source-of-truth migration names — the CLI imports these instead of keeping a stale copy. */

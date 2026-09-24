@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell, Badge, Button, StatusBar, type Module, type NavMainItem } from '@mmbix/design-system';
 import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
 import {
 	BookOpen,
+	Blocks,
+	Activity,
 	Box,
 	Component,
 	Database,
@@ -27,6 +29,7 @@ import { dsIcon, useStudioMeta, useStudioMetaRefresh, type DesignComponent } fro
 import { appColor, smartIconFor } from '@mmbix/ui-views';
 import { authedFetch } from '../lib/api';
 import { modulesQuery } from '../lib/queries';
+import { useMe } from '../lib/use-me';
 import { isIdpManagedModule } from '../lib/idp';
 import { TemplatesTab } from '../components/admin/templates-tab';
 import { StylesTab } from '../components/admin/styles-tab';
@@ -37,6 +40,8 @@ import { StudioConfigTab } from '../components/admin/studio-config-tab';
 import { ComponentEditor } from '../components/admin/component-editor';
 import { TokensTab } from '../components/admin/tokens-tab';
 import { ApiKeysTab } from '../components/admin/api-keys-tab';
+import { AddonsTab } from '../components/admin/addons-tab';
+import { OperationsTab } from '../components/admin/operations-tab';
 import { RolesTab } from '../components/admin/roles-tab';
 import { UsersTab } from '../components/admin/users-tab';
 
@@ -49,6 +54,8 @@ const TAB_LABELS: Record<TabId, string> = {
 	viewmodes: 'View Modes',
 	config: 'Config',
 	dsexports: 'DS Exports',
+	addons: 'Add-ons',
+	operations: 'Operations',
 	tokens: 'Design Tokens',
 	apikeys: 'API Keys',
 	roles: 'Roles & Access',
@@ -56,7 +63,19 @@ const TAB_LABELS: Record<TabId, string> = {
 };
 
 type TabId =
-	'components' | 'templates' | 'styles' | 'events' | 'viewmodes' | 'config' | 'dsexports' | 'tokens' | 'apikeys' | 'roles' | 'users';
+	| 'components'
+	| 'templates'
+	| 'styles'
+	| 'events'
+	| 'viewmodes'
+	| 'config'
+	| 'dsexports'
+	| 'addons'
+	| 'operations'
+	| 'tokens'
+	| 'apikeys'
+	| 'roles'
+	| 'users';
 
 /** The settings-page module grid: the REAL app modules (HRM/WMS/…) fetched from
  *  the API plus the Settings tile — nothing hardcoded. */
@@ -66,20 +85,26 @@ const IDP_MODULE: Module = { name: 'IDP', icon: Layers, iconBackground: '#8b5cf6
 const API_DOCS_MODULE: Module = { name: 'API Docs', icon: BookOpen, iconBackground: '#0ea5e9' };
 
 /** Sidebar nav for the settings page — the admin tabs, one per nav item.
- *  Clicking one switches the active tab (they are not app routes). */
-const ADMIN_NAV: NavMainItem[] = [
-	{ title: TAB_LABELS.components, url: '#', icon: Component },
-	{ title: TAB_LABELS.templates, url: '#', icon: LayoutTemplate },
-	{ title: TAB_LABELS.styles, url: '#', icon: Palette },
-	{ title: TAB_LABELS.events, url: '#', icon: Zap },
-	{ title: TAB_LABELS.viewmodes, url: '#', icon: LayoutGrid },
-	{ title: TAB_LABELS.config, url: '#', icon: Database },
-	{ title: TAB_LABELS.dsexports, url: '#', icon: Package },
-	{ title: TAB_LABELS.tokens, url: '#', icon: Paintbrush },
-	{ title: TAB_LABELS.apikeys, url: '#', icon: KeyRound },
-	{ title: TAB_LABELS.roles, url: '#', icon: ShieldCheck },
-	{ title: TAB_LABELS.users, url: '#', icon: Users },
+ *  Clicking one switches the active tab (they are not app routes). `adminOnly`
+ *  tabs are hidden unless the session is the administrator (RBAC-aware UI). */
+const ADMIN_NAV: Array<NavMainItem & { tab: TabId; adminOnly?: boolean }> = [
+	{ tab: 'components', title: TAB_LABELS.components, url: '#', icon: Component },
+	{ tab: 'templates', title: TAB_LABELS.templates, url: '#', icon: LayoutTemplate },
+	{ tab: 'styles', title: TAB_LABELS.styles, url: '#', icon: Palette },
+	{ tab: 'events', title: TAB_LABELS.events, url: '#', icon: Zap, adminOnly: true },
+	{ tab: 'viewmodes', title: TAB_LABELS.viewmodes, url: '#', icon: LayoutGrid },
+	{ tab: 'config', title: TAB_LABELS.config, url: '#', icon: Database, adminOnly: true },
+	{ tab: 'dsexports', title: TAB_LABELS.dsexports, url: '#', icon: Package, adminOnly: true },
+	{ tab: 'addons', title: TAB_LABELS.addons, url: '#', icon: Blocks, adminOnly: true },
+	{ tab: 'operations', title: TAB_LABELS.operations, url: '#', icon: Activity, adminOnly: true },
+	{ tab: 'tokens', title: TAB_LABELS.tokens, url: '#', icon: Paintbrush },
+	{ tab: 'apikeys', title: TAB_LABELS.apikeys, url: '#', icon: KeyRound, adminOnly: true },
+	{ tab: 'roles', title: TAB_LABELS.roles, url: '#', icon: ShieldCheck, adminOnly: true },
+	{ tab: 'users', title: TAB_LABELS.users, url: '#', icon: Users, adminOnly: true },
 ];
+
+/** Tabs that require the administrator role (mirrors the API's requireAdmin). */
+const ADMIN_ONLY_TABS = new Set<TabId>(['events', 'config', 'dsexports', 'addons', 'operations', 'apikeys', 'roles', 'users']);
 
 /** Studio Admin — manage the local metadata DB (design components, props, templates). */
 export default function StudioAdminPage({ token, user }: { token: string; user: { email: string; full_name: string } }) {
@@ -92,6 +117,19 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 	// after every write — pure duplication of the provider's read.
 	const meta = providerMeta;
 	const [tab, setTab] = useState<TabId>('components');
+	// RBAC-aware UI: the admin-only tabs are hidden (and never rendered) unless the
+	// session is the administrator — the API 403s them anyway, so the UI must not
+	// offer them (least privilege). Until `/auth/me` settles they stay hidden.
+	const { resolved: meResolved, canAdminister } = useMe(token);
+	const navMain = useMemo(
+		() => ADMIN_NAV.filter((n) => !n.adminOnly || canAdminister).map(({ tab: _t, adminOnly: _a, ...rest }) => rest as NavMainItem),
+		[canAdminister],
+	);
+	// A non-admin can never sit on an admin-only tab (e.g. a deep link, or a role
+	// changed mid-session) — fall back to the first tab.
+	useEffect(() => {
+		if (meResolved && !canAdminister && ADMIN_ONLY_TABS.has(tab)) setTab('components');
+	}, [meResolved, canAdminister, tab]);
 	const [editing, setEditing] = useState<DesignComponent | null>(null);
 	const [newOpen, setNewOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -218,23 +256,27 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 
 			{tab === 'styles' && <StylesTab meta={meta} api={api} />}
 
-			{tab === 'events' && <EventsTab meta={meta} api={api} />}
+			{tab === 'events' && canAdminister && <EventsTab meta={meta} api={api} />}
 
 			{tab === 'viewmodes' && <ViewModesTab meta={meta} api={api} />}
 
-			{tab === 'config' && <StudioConfigTab meta={meta} api={api} />}
+			{tab === 'config' && canAdminister && <StudioConfigTab meta={meta} api={api} />}
 
-			{tab === 'dsexports' && <DsExportsTab meta={meta} api={api} />}
+			{tab === 'dsexports' && canAdminister && <DsExportsTab meta={meta} api={api} />}
+
+			{tab === 'addons' && canAdminister && <AddonsTab token={token} />}
+
+			{tab === 'operations' && canAdminister && <OperationsTab token={token} />}
 
 			{tab === 'tokens' && <TokensTab token={token} modules={modules} refresh={refreshMeta} />}
 
-			{tab === 'apikeys' && <ApiKeysTab token={token} />}
+			{tab === 'apikeys' && canAdminister && <ApiKeysTab token={token} />}
 
-			{tab === 'roles' && <RolesTab token={token} />}
+			{tab === 'roles' && canAdminister && <RolesTab token={token} />}
 
 			{/* Accounts are session identities, so the tab needs the signed-in email to
 			    mark (and protect) the operator's OWN row. */}
-			{tab === 'users' && <UsersTab token={token} currentEmail={user.email} />}
+			{tab === 'users' && canAdminister && <UsersTab token={token} currentEmail={user.email} />}
 
 			{/* Component editor dialog */}
 			{newOpen && (
@@ -276,7 +318,7 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 				],
 				// The sidebar nav is the settings page's own (the admin tabs) — app
 				// module menus stay off the settings page.
-				navByModule: { Settings: { navMain: ADMIN_NAV, projects: [] }, default: { navMain: ADMIN_NAV, projects: [] } },
+				navByModule: { Settings: { navMain, projects: [] }, default: { navMain, projects: [] } },
 			}}
 			disableNavItemPages
 			// Sidebar nav items ARE the admin tabs — clicking one switches the tab.

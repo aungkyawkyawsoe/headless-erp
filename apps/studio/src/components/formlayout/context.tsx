@@ -10,7 +10,7 @@ import {
 	type DragOverEvent,
 	type DragStartEvent,
 } from '@dnd-kit/core';
-import { updateCollectionFields, SYSTEM_FIELD_NAMES, type EntitySchema, type FieldDefinition } from '../../lib/api';
+import { reviewSchemaChange, updateCollectionFields, SYSTEM_FIELD_NAMES, type EntitySchema, type FieldDefinition } from '../../lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { collectionQuery } from '../../lib/queries';
 import type { FormGroup, FormTab, SerializedFormGroup, SerializedFormLayout } from './types';
@@ -630,7 +630,26 @@ export function FormLayoutProvider({
 				tabs: tabs.map((t) => ({ key: t.id, label: t.label, groups: serGroups(t.groups) })),
 				...(defaultTabId ? { default_tab: defaultTabId } : {}),
 			};
-			await updateCollectionFields(token, slug, merged, formLayout);
+			// REVIEW before APPLY: ask the server what this schema change does, and
+			// surface any BREAKING change for an explicit confirmation. Best-effort —
+			// a diff that cannot be computed must never block a legitimate save.
+			try {
+				const summary = await reviewSchemaChange(token, slug, merged);
+				const breaking = summary?.breakingChanges ?? [];
+				if (
+					breaking.length > 0 &&
+					!window.confirm(`This change has ${breaking.length} breaking change(s):\n- ${breaking.join('\n- ')}\n\nApply anyway?`)
+				) {
+					return;
+				}
+			} catch {
+				/* review is advisory */
+			}
+			// Server-enforced optimistic concurrency: send the version we just read
+			// (`current`), so a write landing between this read and the PUT is refused
+			// 409 rather than overwriting it. The confirm above is the advisory layer;
+			// `If-Match` is the hard one.
+			await updateCollectionFields(token, slug, merged, formLayout, current?._schema_version);
 			setDirty(false);
 			await refresh();
 			onSaved?.();

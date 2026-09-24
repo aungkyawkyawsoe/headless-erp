@@ -47,6 +47,8 @@ jobs:
         run: pnpm security
       - run: pnpm format:check
       - run: pnpm turbo run build
+      - name: Studio bundle budget (heavy pages stay code-split)
+        run: node scripts/check-bundle-size.mjs
 
   studio-quality:
     runs-on: ubuntu-latest
@@ -72,6 +74,25 @@ jobs:
       - name: Design-system widget registry in sync
         working-directory: packages/design-system
         run: node scripts/widgets.mjs --check
+
+  studio-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright (chromium)
+        working-directory: apps/studio
+        run: npx playwright install --with-deps chromium
+      - name: Studio E2E smoke
+        working-directory: apps/studio
+        run: pnpm run test:e2e
 
   deploy-api:
     needs: quality

@@ -116,13 +116,29 @@ apps/api/src/domain-modules/<id>/  → routes.ts  + collections
    (enabled code manifests) + `plugins` (enabled ids) advertise — client/ops က
    ဒီ deploy ဘာတွေပါလဲ တစ်ချက်တည်းနဲ့ သိ; `contract.spec.ts` ပင်။
 
-### 🟠 P2 — ကျန်သေး (frontend လိုတာ — လက်ရှိ မလိုအပ်)
+### ✅ Done (God-level — add-on model + Studio enterprise)
 
-9. **MVE template consumer** — `apps/api/src/routes/mve.ts` ရဲ့ DB-driven screen
-   templates ကို client တစ်ခုနဲ့ ပြန်ရှင်သန်။
-10. **Runtime frontend shell** — `_modules`/manifest/`/api/apps/:slug` ကနေ
-    launcher/list/form auto-generate။
-11. **OCR input** — future vertical အတွက် input widget။
+9. **Add-on Registry** ✅ — `ModuleManifest` (`scope`/`depends`/`provides`/
+   `requires`/`extends`) + `_addons` (migration 037) + `resolveAddons` graph +
+   `GET/POST /api/addons` (install/uninstall, admin)။ Route gate = allowlist ∩
+   installed; uninstall ⇒ 404 (no redeploy); `addons.spec.ts`။
+10. **Studio RBAC-aware UI** ✅ — `useMe()` + `lib/capabilities.ts`; admin-only
+    tabs hide for non-admins; `capabilities.spec.ts`။
+11. **Studio Add-ons tab** ✅ — catalog + install/remove via `/api/addons`။
+12. **Optimistic concurrency** ✅ — `If-Match: <_schema_version>` on schema/policy
+    writes ⇒ stale save **409** (current version ပါ); `ifMatchGuard` +
+    `concurrency.spec.ts`; Studio က form-layout save မှာ version ပို့။
+
+### 🟠 P2 — ကျန်သေး (Studio enterprise polish)
+
+13. **Schema draft→review→apply** — **review ✅** (save မတိုင်မီ
+    `reviewSchemaChange` → breaking-change confirm; `schema-diff.spec.ts`);
+    draft/publish workflow (snapshot staging + IDP promote) ကျန်။
+14. **i18n** — plumbing ✅ (`lib/i18n.ts` + `/api/translations`); string
+    coverage (Studio screen တိုင်း) ကျန်။
+15. **Maintainability** — god-file split **စတင် ✅** (`workbench-parts` + `builder-parts` ဖယ်; CollectionsWorkbench 1972→1883, AppDetailPage 1813→1724); ကျန် in-page monolith + inline style 1423 → design-system ဆက်လုပ်။
+16. **E2E/visual + a11y + virtualization** — **E2E smoke ✅** (Playwright + `studio-e2e` CI job), **component tests ✅** (addons-tab, CommandPalette); visual regression, a11y audit, table virtualization ကျန်။
+17. **MVE consumer / runtime frontend shell / OCR** — frontend လိုအပ်။
 
 ---
 

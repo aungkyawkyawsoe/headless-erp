@@ -25,11 +25,13 @@
 		"format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
 		"format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
 		"check": "pnpm check:infra && pnpm typecheck && pnpm lint && pnpm format:check",
+		"check:bundle": "node scripts/check-bundle-size.mjs",
 		"prepare": "husky",
 		"security": "node scripts/security-scan.mjs"
 	},
 	"devDependencies": {
 		"@mmbix/cli": "workspace:*",
+		"@playwright/test": "^1.63.0",
 		"@types/node": "^26.3.0",
 		"@typescript-eslint/eslint-plugin": "^8.68.0",
 		"@typescript-eslint/parser": "^8.68.0",

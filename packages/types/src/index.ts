@@ -115,8 +115,8 @@ export type {
 export { APP_COLLECTIONS, appRequiredCollections } from './apps';
 // Module manifest — the contract every business/vertical module declares. The
 // factory core reads these; a disabled module mounts nothing.
-export { modulePath } from './module';
-export type { ModuleManifest, ModuleRole, ModuleRoleGrant, ModuleIdentity } from './module';
+export { modulePath, resolveAddons } from './module';
+export type { ModuleManifest, ModuleRole, ModuleRoleGrant, ModuleIdentity, ModuleCollectionDef, AddonCatalogEntry } from './module';
 // Lifecycle event catalog — single source for code hooks, declarative rules,
 // the plugin manifest contract, and Studio tooling.
 export { LIFECYCLE_EVENTS, DECLARATIVE_TRIGGER_EVENTS } from './hooks';

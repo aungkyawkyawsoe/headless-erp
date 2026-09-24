@@ -51,4 +51,5 @@ apps/api/snapshots/
 # Local dev artifacts
 nohup.out
 apps/tgapp/nohup.out
-apps/tgapp/test-results/
+apps/studio/test-results/
+apps/studio/playwright-report/

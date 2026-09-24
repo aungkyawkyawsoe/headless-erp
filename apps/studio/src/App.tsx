@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -8,21 +8,29 @@ import { setUnauthorizedHandler } from './lib/api';
 import { resetStudioQueries } from './lib/query-client';
 import { resetStudioUi } from './lib/studio-store';
 import LoginPage from './pages/LoginPage';
-import AppsPage from './pages/AppsPage';
-import AppDetailPage from './pages/AppDetailPage';
-import StudioAdminPage from './pages/StudioAdminPage';
-import ApiDocsPage from './pages/ApiDocsPage';
-import IdpHomePage from './pages/IdpHomePage';
-import IdpCatalogPage from './pages/IdpCatalogPage';
-import CollectionsWorkbench from './pages/CollectionsWorkbench';
-import IdpCreatePage from './pages/IdpCreatePage';
-import IdpEnvironmentsPage from './pages/IdpEnvironmentsPage';
-import IdpDeploymentsPage from './pages/IdpDeploymentsPage';
-import IdpUsagePage from './pages/IdpUsagePage';
-import IdpAppDetailPage from './pages/IdpAppDetailPage';
-import IdpAccessPage from './pages/IdpAccessPage';
-import IdpUsersPage from './pages/IdpUsersPage';
+// Heavy authed pages are code-split: the initial shell no longer ships the whole
+// API-docs bundle (@scalar, ~2MB) or every IDP page just to render login/apps.
+const AppsPage = lazy(() => import('./pages/AppsPage'));
+const AppDetailPage = lazy(() => import('./pages/AppDetailPage'));
+const StudioAdminPage = lazy(() => import('./pages/StudioAdminPage'));
+const ApiDocsPage = lazy(() => import('./pages/ApiDocsPage'));
+const IdpHomePage = lazy(() => import('./pages/IdpHomePage'));
+const IdpCatalogPage = lazy(() => import('./pages/IdpCatalogPage'));
+const CollectionsWorkbench = lazy(() => import('./pages/CollectionsWorkbench'));
+const IdpCreatePage = lazy(() => import('./pages/IdpCreatePage'));
+const IdpEnvironmentsPage = lazy(() => import('./pages/IdpEnvironmentsPage'));
+const IdpDeploymentsPage = lazy(() => import('./pages/IdpDeploymentsPage'));
+const IdpUsagePage = lazy(() => import('./pages/IdpUsagePage'));
+const IdpAppDetailPage = lazy(() => import('./pages/IdpAppDetailPage'));
+const IdpAccessPage = lazy(() => import('./pages/IdpAccessPage'));
+const IdpUsersPage = lazy(() => import('./pages/IdpUsersPage'));
 import ThemeToggle from './components/ThemeToggle';
+import { CommandPalette } from './components/CommandPalette';
+import { useTenantTheme } from './lib/tenant-theme';
+import { useTranslation } from './lib/i18n';
+
+/** Suspense fallback for a lazy route chunk. */
+const RouteFallback = () => <div style={{ padding: '1.5rem', color: '#9ca3af', fontSize: '0.8rem' }}>Loading…</div>;
 
 const TOKEN_KEY = 'studio_token';
 const USER_KEY = 'studio_user';
@@ -63,6 +71,10 @@ const IDP_ROUTE = /^\/idp(\/.*)?$/;
 
 function AppInner({ token, user, onLogout }: { token: string; user: { email: string; full_name: string }; onLogout: () => void }) {
 	const location = useLocation();
+	// White-label: apply the deployment's effective design tokens as CSS variables.
+	useTenantTheme(token);
+	// i18n: a missing key falls back to the literal (English), never a raw key.
+	const { t } = useTranslation(token, 'en', 'studio');
 	const isStudio = STUDIO_ROUTE.test(location.pathname);
 	const isStudioAdmin = location.pathname.startsWith('/studio') || location.pathname.startsWith('/api-docs');
 	const isIdp = IDP_ROUTE.test(location.pathname);
@@ -73,50 +85,54 @@ function AppInner({ token, user, onLogout }: { token: string; user: { email: str
 	return (
 		<div style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
 			<div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+				{' '}
 				{isStudio || isStudioAdmin || isIdp ? (
 					<div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-						<Routes>
-							<Route
-								path="/apps/:slug"
-								element={
-									<StudioMetaProvider>
-										<AppDetailPage token={token} />
-									</StudioMetaProvider>
-								}
-							/>
-							<Route
-								path="/studio"
-								element={
-									<StudioMetaProvider>
-										<StudioAdminPage token={token} user={user} />
-									</StudioMetaProvider>
-								}
-							/>
-							<Route path="/api-docs" element={<ApiDocsPage token={token} />} />
-							<Route path="/idp" element={<IdpHomePage token={token} user={user} />} />
-							<Route path="/idp/catalog" element={<IdpCatalogPage token={token} user={user} />} />
-							<Route path="/idp/collections" element={<CollectionsWorkbench token={token} />} />
-							<Route path="/idp/collections/:slug" element={<CollectionsWorkbench token={token} />} />
-							<Route path="/idp/create" element={<IdpCreatePage token={token} user={user} />} />
-							<Route path="/idp/environments" element={<IdpEnvironmentsPage token={token} user={user} />} />
-							<Route path="/idp/deployments" element={<IdpDeploymentsPage token={token} user={user} />} />
-							<Route path="/idp/usage" element={<IdpUsagePage token={token} user={user} />} />
-							<Route path="/idp/access" element={<IdpAccessPage token={token} user={user} />} />
-							<Route path="/idp/users" element={<IdpUsersPage token={token} user={user} />} />
-							<Route path="/idp/:slug" element={<IdpAppDetailPage token={token} user={user} />} />
-						</Routes>
+						<Suspense fallback={<RouteFallback />}>
+							<Routes>
+								<Route
+									path="/apps/:slug"
+									element={
+										<StudioMetaProvider>
+											<AppDetailPage token={token} />
+										</StudioMetaProvider>
+									}
+								/>
+								<Route
+									path="/studio"
+									element={
+										<StudioMetaProvider>
+											<StudioAdminPage token={token} user={user} />
+										</StudioMetaProvider>
+									}
+								/>
+								<Route path="/api-docs" element={<ApiDocsPage token={token} />} />
+								<Route path="/idp" element={<IdpHomePage token={token} user={user} />} />
+								<Route path="/idp/catalog" element={<IdpCatalogPage token={token} user={user} />} />
+								<Route path="/idp/collections" element={<CollectionsWorkbench token={token} />} />
+								<Route path="/idp/collections/:slug" element={<CollectionsWorkbench token={token} />} />
+								<Route path="/idp/create" element={<IdpCreatePage token={token} user={user} />} />
+								<Route path="/idp/environments" element={<IdpEnvironmentsPage token={token} user={user} />} />
+								<Route path="/idp/deployments" element={<IdpDeploymentsPage token={token} user={user} />} />
+								<Route path="/idp/usage" element={<IdpUsagePage token={token} user={user} />} />
+								<Route path="/idp/access" element={<IdpAccessPage token={token} user={user} />} />
+								<Route path="/idp/users" element={<IdpUsersPage token={token} user={user} />} />
+								<Route path="/idp/:slug" element={<IdpAppDetailPage token={token} user={user} />} />
+							</Routes>
+						</Suspense>
 					</div>
 				) : (
 					<>
 						<main style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', width: '100%', boxSizing: 'border-box' }}>
-							<Routes>
-								<Route path="/" element={<AppsPage token={token} user={user} onLogout={onLogout} />} />
-								<Route path="*" element={<Navigate to="/" replace />} />
-							</Routes>
+							<Suspense fallback={<RouteFallback />}>
+								<Routes>
+									<Route path="/" element={<AppsPage token={token} user={user} onLogout={onLogout} />} />
+									<Route path="*" element={<Navigate to="/" replace />} />
+								</Routes>
+							</Suspense>
 						</main>
 					</>
 				)}
-
 				{/* Thin studio toolbar — one small bar under every authed surface. The
 				 * theme control rides its right edge so light/dark is one click away. */}
 				<div
@@ -132,10 +148,12 @@ function AppInner({ token, user, onLogout }: { token: string; user: { email: str
 						background: 'var(--mmbix-card, #ffffff)',
 					}}
 				>
-					<span style={{ fontSize: '0.68rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Theme</span>
+					<span style={{ fontSize: '0.68rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>{t('studio.shell.theme', 'Theme')}</span>
 					<ThemeToggle />
 				</div>
 			</div>
+			{/* Command palette — mounted once, available on every authed surface. */}
+			<CommandPalette token={token} />
 		</div>
 	);
 }

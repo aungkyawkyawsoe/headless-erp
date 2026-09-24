@@ -180,6 +180,31 @@ export const serverMetaQuery = (token: string) =>
 		staleTime: Infinity,
 	});
 
+/** The signed session's identity + capabilities — drives RBAC-aware UI. */
+export const meQuery = (token: string) =>
+	queryOptions({
+		queryKey: qk.me(),
+		queryFn: () => api.getMe(token),
+		enabled: live(token),
+		staleTime: 60_000,
+	});
+
+/** The add-on catalog + runtime install state. */
+export const addonsQuery = (token: string) =>
+	queryOptions({
+		queryKey: qk.addons(),
+		queryFn: () => api.listAddons(token),
+		enabled: live(token),
+	});
+
+/** Self-tuning index-advisor telemetry (admin). */
+export const operationsQuery = (token: string) =>
+	queryOptions({
+		queryKey: qk.operations(),
+		queryFn: () => api.getOperations(token),
+		enabled: live(token),
+	});
+
 export const moduleQuery = (token: string, slug: string | null | undefined) =>
 	queryOptions({
 		queryKey: qk.module(slug ?? ''),
