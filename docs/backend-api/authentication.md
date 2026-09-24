@@ -55,7 +55,7 @@ user.employee_id)` — exactly as a Telegram login embeds its directory row. Eve
   resolves its actor from the signed token, so without the link the session could
   read but not act.
 - **Sign-in is directory-gated.** The account may only sign in while the employee
-  it names is LIVE in `hrm_employees` (not soft-deleted, not `active: false`). An
+  it names is LIVE in `directory` (not soft-deleted, not `active: false`). An
   unlinked account is unaffected — that is a legitimate shape (the bootstrap
   admin).
 - **Revocation is per-request and immediate.** `verifyToken` →
@@ -71,12 +71,12 @@ user.employee_id)` — exactly as a Telegram login embeds its directory row. Eve
 contact HR to restore access`, which is actionable instead of a lie about the
   password.
 
-## Telegram Mini App Login (approval-gated)
+## client app Login (approval-gated)
 
 `POST /api/auth/telegram`
 
 Exchanges the Telegram WebApp `initData` for access. The **employee directory**
-(`hrm_employees.etg_id` — config-driven via `TELEGRAM_DIRECTORY_COLLECTION` /
+(`directory.etg_id` — config-driven via `TELEGRAM_DIRECTORY_COLLECTION` /
 `TELEGRAM_DIRECTORY_FIELD`) is the source of truth for approval:
 
 - `etg_id` **exists** in the directory → `_users` row + Employee role provisioned, JWT issued (`approved`).
@@ -85,7 +85,7 @@ Exchanges the Telegram WebApp `initData` for access. The **employee directory**
 > **Revocation:** the directory gate is _live_ — removing the employee's `etg_id`
 > (or deleting the row) revokes the session immediately. `GET /api/auth/me` then
 > returns `401` for the still-valid JWT, so clients that check their session on
-> load (the Telegram mini app does) log the user out; the next `POST
+> load (the Telegram client app does) log the user out; the next `POST
 /api/auth/telegram` falls back to `pending`.
 
 All logins (Telegram + email/password) resolve to the **single `_users` table** — one RBAC model. `telegram_requests` is an approval staging queue, not a user table.
@@ -99,7 +99,7 @@ All logins (Telegram + email/password) resolve to the **single `_users` table** 
 > never re-runs login, so a collection added to the list by a deploy would
 > otherwise stay absent from that role's `_role_permissions` and the screen would
 > sit in its read-error state forever (e.g. _"Couldn't read the stock
-> balances"_ when `mro_inventory` was granted in config but never written for the
+> balances"_ when `inventory` was granted in config but never written for the
 > existing session's role).
 
 **Request:**
@@ -209,7 +209,7 @@ channel.
 The stamp is itself cached for ~1 second, so the worst-case propagation is ~1s
 (and immediate for the isolate that served the write, which calls
 `invalidateAuthzVersion()`). Signing in does **not** count as an authz write: the
-`last_login` touch uses raw SQL so it never evicts these caches. The mini app also
+`last_login` touch uses raw SQL so it never evicts these caches. The client app also
 re-reads `/auth/me` on resume (`refreshMe()`), so a change lands without a manual
 reload.
 
@@ -266,4 +266,4 @@ On limit exceeded: `429` with `{"success": false, "error": "Rate limit exceeded"
 - Secret: `JWT_SECRET` env var, falling back to `ADMIN_PASSWORD`
 - Payload: `{ jti, user_id, iat, exp, employee_id? }`
 
-`employee_id` is present for a directory-provisioned (Telegram) session AND for a password session linked to an employee (`_users.employee_id`), and names the `hrm_employees` row that session acts as. It is signed into the token at login, so it is tamper-proof and costs no extra DB read to trust — this is what the MRO audit actor (`by_user` / `approved_by` / `issued_by`) and the `policies.actor_fields` stamp are bound to, instead of a client-supplied id. It is NOT taken on trust for the life of the token: `verifyToken` re-validates it against the live directory on every request and refuses the bearer when the employee is gone (see _The account acts as an employee_ above). Admin / unlinked password / external-provider sessions carry no `employee_id` (see `AuthContext` in `@mmbix/types`).
+`employee_id` is present for a directory-provisioned (Telegram) session AND for a password session linked to an employee (`_users.employee_id`), and names the `directory` row that session acts as. It is signed into the token at login, so it is tamper-proof and costs no extra DB read to trust — this is what the MRO audit actor (`by_user` / `approved_by` / `issued_by`) and the `policies.actor_fields` stamp are bound to, instead of a client-supplied id. It is NOT taken on trust for the life of the token: `verifyToken` re-validates it against the live directory on every request and refuses the bearer when the employee is gone (see _The account acts as an employee_ above). Admin / unlinked password / external-provider sessions carry no `employee_id` (see `AuthContext` in `@mmbix/types`).

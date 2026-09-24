@@ -79,11 +79,11 @@ describe('/auth/me reflects role access changes without a cache window', () => {
 		await me(token); // warm anything that would cache the summary
 
 		await env.DB.prepare('INSERT INTO _role_permissions (id, role_id, collection_slug, can_read) VALUES (?, ?, ?, 1)')
-			.bind(crypto.randomUUID(), roleId, 'hrm_projects')
+			.bind(crypto.randomUUID(), roleId, 'projects')
 			.run();
 
 		const after = await me(token);
-		expect(after.granted_collections).toContain('hrm_projects');
+		expect(after.granted_collections).toContain('projects');
 	});
 
 	it('reflects an app_access change written directly to the DB on the very next call', async () => {

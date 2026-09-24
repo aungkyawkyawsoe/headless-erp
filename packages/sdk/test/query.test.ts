@@ -4,7 +4,7 @@ import type { Filter } from '../src/query';
 
 interface Row {
 	id: string;
-	employee_tg_id: string;
+	person_id: string;
 	type: 'check-in' | 'check-out';
 	timestamp: string;
 	status: string;
@@ -13,8 +13,8 @@ interface Row {
 
 describe('serializeFilter', () => {
 	it('serializes flat conditions as filter[field][_op]=value', () => {
-		const params = serializeFilter<Row>({ employee_tg_id: { _eq: '42' }, type: { _eq: 'check-in' } });
-		expect(params.toString()).toContain('filter%5Bemployee_tg_id%5D%5B_eq%5D=42');
+		const params = serializeFilter<Row>({ person_id: { _eq: '42' }, type: { _eq: 'check-in' } });
+		expect(params.toString()).toContain('filter%5Bperson_id%5D%5B_eq%5D=42');
 		expect(params.toString()).toContain('filter%5Btype%5D%5B_eq%5D=check-in');
 	});
 
@@ -66,7 +66,7 @@ describe('serializeFilter', () => {
 	});
 
 	it('skips undefined conditions', () => {
-		const params = serializeFilter<Row>({ employee_tg_id: { _eq: undefined as never, _gte: 'x' } });
+		const params = serializeFilter<Row>({ person_id: { _eq: undefined as never, _gte: 'x' } });
 		expect(params.toString()).not.toContain('_eq%5D=');
 		expect(params.toString()).toContain('_gte%5D=x');
 	});
@@ -99,11 +99,11 @@ describe('serializeQuery', () => {
 
 	it('joins filter + pagination into one query string', () => {
 		const qs = serializeQuery<Row>({
-			filter: { employee_tg_id: { _eq: '7' } },
+			filter: { person_id: { _eq: '7' } },
 			limit: 10,
 			sort: '-timestamp',
 		}).toString();
-		expect(qs).toContain('filter%5Bemployee_tg_id%5D%5B_eq%5D=7');
+		expect(qs).toContain('filter%5Bperson_id%5D%5B_eq%5D=7');
 		expect(qs).toContain('limit=10');
 	});
 

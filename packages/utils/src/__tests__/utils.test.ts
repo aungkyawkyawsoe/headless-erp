@@ -39,7 +39,7 @@ describe('reserved SQL word prevention', () => {
 	it('slug validator rejects reserved words', () => {
 		expect(validators.slug('order', 'slug').valid).toBe(false);
 		expect(validators.slug('values', 'slug').valid).toBe(false);
-		expect(validators.slug('hr_shifts', 'slug').valid).toBe(true);
+		expect(validators.slug('shifts', 'slug').valid).toBe(true);
 	});
 
 	it('keyword list is non-trivial and lowercase', () => {

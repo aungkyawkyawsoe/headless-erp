@@ -36,14 +36,13 @@
 
 | Doc                                                                                                 | What It Covers                                                             |
 | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| [API Reference Index](backend-api/README.md)                                                        | All 17 API references in one place                                         |
+| [API Reference Index](backend-api/README.md)                                                        | Every API reference in one place                                           |
 | [Authentication](backend-api/authentication.md)                                                     | Login, JWT, RBAC, rate limits, dev token                                   |
 | [Entities API](backend-api/entities.md)                                                             | Collection + item CRUD, filters, pagination, **read batch (`/api/query`)** |
 | [Client SDK](backend-api/sdk.md)                                                                    | `@mmbix/sdk` — typed client, `mmbix-typegen`, offline queue, React hooks   |
 | [Users, Roles & Permissions](backend-api/users-roles-permissions.md)                                | User management + RBAC                                                     |
 | [Search](backend-api/search.md) · [Audit](backend-api/audit.md) · [Reports](backend-api/reports.md) | Discovery & governance                                                     |
 | [Webhooks](backend-api/webhooks.md) · [Scheduler](backend-api/scheduler.md)                         | Events & automation                                                        |
-| [Directus → D1 Sync](backend-api/directus-sync.md)                                                    | One-way external HR → `hrm_employees` sync (REST, idempotent)               |
 | [tRPC Layer](backend-api/trpc.md)                                                                   | Type-safe RPC with end-to-end types                                        |
 
 ### Backend Plugins — declarative enterprise features (`apps/api`)
@@ -92,7 +91,7 @@
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Bundle (gzip)     | ~224 KB                                                                                                                                                                                                |
 | Cold start        | ~5 ms                                                                                                                                                                                                  |
-| Tests             | **733 passing** on `dev` (core 287 · api 81 · compute 68 · utils 50 · sdk 87 · sdk-react 14 · design-system 42 · studio 75 · tgapp 24 · cli 5)                                                         |
+| Tests             | **733 passing** on `dev` (core 287 · api 81 · compute 68 · utils 50 · sdk 87 · sdk-react 14 · design-system 42 · studio 75 · client app 24 · cli 5)                                                    |
 | Field types       | 40                                                                                                                                                                                                     |
 | Plugins           | 20                                                                                                                                                                                                     |
 | Compute functions | 150 (13 groups, tree-shaken sub-path imports)                                                                                                                                                          |

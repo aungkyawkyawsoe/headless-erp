@@ -5,7 +5,7 @@ import type { MveTemplate, MveTemplateRecord } from '@mmbix/types';
 /**
  * MVE Template Service — CRUD for MiniApp module templates (`_mve_templates`).
  *
- * One row per miniapp module key (slug = 'vehicle/trips', …).
+ * One row per app module key (slug = 'orders/trips', …).
  * `config_json` holds the JSON-serializable template bundle (list / form /
  * editForm / dashboard). `version` bumps on every write so clients revalidate
  * with If-None-Match instead of guessing TTLs — same freshness contract as

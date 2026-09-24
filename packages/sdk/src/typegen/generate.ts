@@ -3,8 +3,8 @@
  *
  * The generated file is the single source of truth for both compile-time types
  * AND runtime validation (Zod) — one output, zero drift. It powers:
- *   - typed `client.items('hr_attendance')` (Schema map + per-collection types)
- *   - `schemas.hr_attendance.parse(...)` runtime purification of API responses
+ *   - typed `client.items('records')` (Schema map + per-collection types)
+ *   - `schemas.records.parse(...)` runtime purification of API responses
  */
 import type { RawCollection, RawField } from './schema';
 
@@ -172,7 +172,7 @@ function tsTypeFor(field: RawField): string {
 	return 'string';
 }
 
-/** Collection "hr_attendance" → "HrAttendance" (collision-safe suffix). */
+/** Collection "records" → "HrAttendance" (collision-safe suffix). */
 export function pascalName(slug: string): string {
 	const base = slug
 		.split(/[^a-zA-Z0-9]+/)
@@ -301,7 +301,7 @@ function headerFor(meta?: TypegenSourceMeta): string {
  *   import type { Schema } from './generated/schema';
  *   import { Schemas } from './generated/schema';
  *   createClient<Schema>({ ... });
- *   Schemas.hr_attendance.parse(response); // runtime purification
+ *   Schemas.records.parse(response); // runtime purification
  */`,
 	].join('\n');
 }

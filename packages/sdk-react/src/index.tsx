@@ -203,8 +203,8 @@ export function useItem<Schema extends Record<string, Record<string, unknown>>, 
  * degrade to `[]` so a failing source never blanks the view.
  *
  *   const { data } = useView({
- *     cards: { collection: 'hr_attendance', query: { filter: {...}, limit: 24 } },
- *     hero:  { collection: 'hr_employees',  query: { fields: ['name_mm'] } },
+ *     cards: { collection: 'orders', query: { filter: {...}, limit: 24 } },
+ *     hero:  { collection: 'customers',  query: { fields: ['name_mm'] } },
  *   });
  *   data.cards // rows for the cards source
  */

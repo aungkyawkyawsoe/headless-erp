@@ -50,8 +50,8 @@ All routes: **admin-only**, base `/api/collections/:slug/policies`.
 - `writes.freeze_when`: `{ field, values[] }` — a **state-conditional** freeze. Once `row[field]` is one of `values`, the generic entity API refuses update / delete / restore with `403` (checked on the already-cached schema, so zero extra reads). This is what makes a POSTED document immutable (`{ field: "doc_status", values: ["confirmed"] }`): a confirmed GRN, goods issue or transfer can never be silently rewritten. Declared with a missing/empty `field` or a non-`string[]`/empty `values` → `400`. `append_only` freezes a whole table; `freeze_when` freezes a row only once it reaches a terminal state — the complement you want for a status-machine header.
 - `writes.confirmable`: opt-in to the **generic `draft → confirmed`** transition. `confirmed` is a posted state a domain service owns (MRO stock documents), so the engine's core `doc_status` machine deliberately refuses it from `/api/entities` by default — a plain REST write must never forge a posted document. A record whose only "workflow" is _edit → confirm_ sets `true` (paired with `freeze_when` on `doc_status=confirmed` for a server-enforced one-way lock). The vehicle maintenance log is the reference: `confirmable: true` + `freeze_when { field: "doc_status", values: ["confirmed"] }`, so a job stays editable while `draft` and is immutable once confirmed. Must be a boolean (`400` otherwise); never set it on a service-owned document.
 - `search.mode`: `"contains"` (default, any collection — `LIKE '%term%'`, unindexed) or `"prefix"` (`LIKE 'term%'`, served by an ordinary index when `search.fields` names indexed columns). `"prefix"` is the type-ahead shape ERP list screens use; it applies **only** when at least one declared field is a real column, otherwise the read falls back to `"contains"`. `search.fields` is the list of columns the term matches (an array of non-empty names, `400` otherwise). Either way the term is **escaped**, so a literal `%`/`_` in the query matches its own bytes instead of every row.
-- `actor_fields`: a list of field names the engine stamps with the **authenticated employee** on create (and refuses to let a non-admin reassign on update) — so a reporter/requester can never be forged. The HR provisioner (`apps/api/scripts/provision-hr-schema.mjs`) snapshots this on the rows that record WHO filed them: `hrm_attendances` (a punch) and the three request collections (`hrm_leaves` / `hrm_overtimes` / `hrm_early_leaves`) all declare `["employee"]`, so a forged `employee` in the body is overwritten and an identity with no directory row is refused `403`. Applied idempotently (greenfield create + `PUT /policies` reconcile).
-- **A punch's TIME is server-owned.** `hrm_attendances` is written through the generic entity API only via `POST /api/hr/attendances/punch` (server-resolved identity + geo), and a compiled time-lock hook (`apps/api/src/domain-modules/hr/attendance-time-lock.ts`) re-stamps `check_in` / `check_out` with the **server clock on every write path** — so a client can never backdate its own punch. A trusted-root admin (`auth.is_admin`) is exempt, keeping a deliberate back-fill / correction possible.
+- `actor_fields`: a list of field names the engine stamps with the **authenticated employee** on create (and refuses to let a non-admin reassign on update) — so a reporter/requester can never be forged. The HR provisioner (`apps/api/scripts/provision-hr-schema.mjs`) snapshots this on the rows that record WHO filed them: `records` (a punch) and the three request collections (`leave_requests` / `overtime_requests` / `early_leave_requests`) all declare `["employee"]`, so a forged `employee` in the body is overwritten and an identity with no directory row is refused `403`. Applied idempotently (greenfield create + `PUT /policies` reconcile).
+- **A punch's TIME is server-owned.** `records` is written through the generic entity API only via `POST /api/hr/attendances/punch` (server-resolved identity + geo), and a compiled time-lock hook (`apps/api/src/domain-modules/hr/attendance-time-lock.ts`) re-stamps `check_in` / `check_out` with the **server clock on every write path** — so a client can never backdate its own punch. A trusted-root admin (`auth.is_admin`) is exempt, keeping a deliberate back-fill / correction possible.
 - **Row filters (`_role_permissions.row_filters`) are the row-level gate, and they cover WRITES too.** Every update / delete / restore runs `checkRowFilterAccess`, so the Telegram role's self filter (`employee eq $CURRENT_USER.employee_id`, set by `ensureRoleRowFilters` in `apps/api/src/routes/auth-telegram.ts`) stops both reading another employee's punches/requests AND touching their rows. A single-table filter cannot express "self OR subordinate" (and a self filter would block an approver's WRITE), so the manager's cross-employee scope lives in the server feeds instead — `GET /api/hr/requests` (list + search) and `POST /api/hr/requests/:kind/:id/decide` — which read/write privileged and enforce the reporting line themselves.
 - Passing `null` for a top-level feature via `PUT` **disposes** it (removes it from the policy → falls back to default).
 - Unknown feature names → `400`.
@@ -90,9 +90,78 @@ curl $API/collections/orders/policies/resolved -H "Authorization: Bearer $TOKEN"
 | `offline_reads` | Advertises `X-Offline-Max-Age` so a client MAY persist the read body on-device                                  |
 | `writes`        | Row lock: `service`-only / `append_only` / `frozen_fields` / `freeze_when` / generic `confirmable` on mutations |
 | `search`        | How the global `?search=` term matches (`contains` vs index-backed `prefix`)                                    |
+| `integrity`     | Declarative data-quality rules (orphan / aggregate_mismatch / duplicate / stale) — see below                    |
 | `actor_fields`  | Creator-attribution fields stamped from the signed session on create                                            |
 | `audit`         | `_audit_log` write toggle (also settable via the legacy `audit_enabled`)                                        |
 | `hooks`         | Declarative server-hooks dispatch toggle                                                                        |
+
+---
+
+## Integrity (generic anomaly engine)
+
+A collection declares `policies.integrity.rules` and the engine runs them as
+**bounded** reads — no domain code. `GET /api/collections/:slug/integrity`
+(read-gated on the collection; `{ enabled: false }` when nothing is declared).
+
+| Method | Path                               | Purpose                              |
+| ------ | ---------------------------------- | ------------------------------------ |
+| `GET`  | `/api/collections/:slug/integrity` | Run the collection's integrity rules |
+
+**Rule types** (all identifiers are validated against the live schema before any
+SQL, so a rule can neither reference an unknown table/column nor inject SQL):
+
+| Type                 | Shape                                                                   | Detects                                            |
+| -------------------- | ----------------------------------------------------------------------- | -------------------------------------------------- |
+| `orphan`             | `{ type, field }` — a declared `m2o`                                    | FK value pointing at a missing parent row          |
+| `aggregate_mismatch` | `{ type, field, child: { collection, fk, field }, fn: 'sum'\|'count' }` | stored field ≠ SUM/COUNT over a child              |
+| `duplicate`          | `{ type, fields: string[] }`                                            | rows sharing the same key value(s)                 |
+| `stale`              | `{ type, field?, max_age_days }`                                        | timestamp older than N days (default `updated_at`) |
+
+```jsonc
+// PUT /api/collections/orders/policies
+{
+	"integrity": {
+		"enabled": true,
+		"limit": 100, // max violating rows per rule (probes 1 past → `truncated`)
+		"rules": [
+			{ "type": "orphan", "field": "customer" },
+			{
+				"type": "aggregate_mismatch",
+				"field": "total",
+				"child": { "collection": "order_lines", "fk": "order_ref", "field": "amount" },
+				"fn": "sum",
+			},
+			{ "type": "duplicate", "fields": ["code"] },
+			{ "type": "stale", "field": "updated_at", "max_age_days": 30 },
+		],
+	},
+}
+```
+
+```jsonc
+// GET /api/collections/orders/integrity
+{
+  "enabled": true,
+  "checked": 4,
+  "violations": 3,
+  "results": [
+    { "rule": { "type": "aggregate_mismatch", "field": "total", ... }, "count": 1, "truncated": false, "rows": [{ "id": "…", "stored": 100, "derived": 40 }] }
+  ],
+  "errors": [] // malformed rules are isolated here, not fatal
+}
+```
+
+> **Cost:** every rule is LIMIT-bounded (one row past the limit reports
+> `truncated`). `aggregate_mismatch` is the heaviest (one parent ⋈ child
+> `GROUP BY`, served by an index on the FK). Integrity is OFF until declared.
+
+### Permission lineage
+
+Every `_role_permissions` row records **who wrote it** — `source`
+(`admin` | `provisioner` | `manifest`) and `source_module` (the owning module id,
+when a `ModuleManifest` declared the grant). Both are returned by
+`GET /api/users/permissions/:role_id`, so "where did this role's read on `X` come
+from?" is answerable. Existing rows are `null` until rewritten.
 
 ---
 

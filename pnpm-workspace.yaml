@@ -14,8 +14,8 @@ allowBuilds:
 #   "typescript": "catalog:"            → resolves to the catalog: value below
 #   "wrangler": "catalog:wrangler"       → explicit named entry (same result)
 #
-# Versioned from the repo's actual installed ranges (apps/api + apps/tgapp
-# are the reference). All workspace packages use TypeScript 7 for `tsc`;
+# Versioned from the repo's actual installed ranges (apps/api is the
+# reference). All workspace packages use TypeScript 7 for `tsc`;
 # the root package.json pins `typescript` to the TS 6.0 API alias
 # (npm:@typescript/typescript6) so typescript-eslint can run side-by-side
 # (TS 7.0 ships no programmatic API yet — see MSFT's TS 7 announcement).

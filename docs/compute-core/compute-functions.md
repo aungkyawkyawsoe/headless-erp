@@ -5,7 +5,7 @@
 > **every declarative surface**: workflow guards, server-function rules, linkage
 > `calculate`, formula fields, decision-table `compute` actions, KPI expressions
 > — and directly importable from TypeScript anywhere (API worker, plugin
-> workers, miniapp BFF, Studio browser, CLI).
+> workers, client app BFF, Studio browser, CLI).
 
 Full inventory at runtime: `computeFunctionNames()` from `@mmbix/compute`.
 
@@ -35,7 +35,7 @@ Full inventory at runtime: `computeFunctionNames()` from `@mmbix/compute`.
 
 `@mmbix/compute` is **pure web-standard JavaScript** (Math/Date/String/Array/RegExp/JSON
 only — zero workerd/Cloudflare APIs, zero IO), so it runs **anywhere**: API worker,
-plugin workers, miniapp BFF, the Studio (browser), and the CLI.
+plugin workers, client app BFF, the Studio (browser), and the CLI.
 
 Every group is a **sub-path export** — bundlers tree-shake so you ship only what
 you import (measured, minified):

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Checkbox, Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList, Input } from '@mmbix/design-system';
 import { ArrowLeft, Plus, Save } from 'lucide-react';
 import { createUser, updateUser, type StudioUser, type UpdateStudioUserInput } from '../../lib/api';
-import { itemsQuery, rolesQuery, usersQuery } from '../../lib/queries';
+import { itemsQuery, rolesQuery, serverMetaQuery, usersQuery } from '../../lib/queries';
 import { invalidateUsers } from '../../lib/query-client';
 import {
 	displayNameOf,
@@ -87,7 +87,7 @@ interface FormState {
 	fullName: string;
 	password: string;
 	roleId: string;
-	/** The `hrm_employees` row this account signs in as; `''` = not linked. */
+	/** The directory row this account signs in as; `''` = not linked. */
 	employeeId: string;
 	disabled: boolean;
 }
@@ -102,8 +102,13 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 	// in the Studio reads. Opening this tab twice therefore costs zero reads.
 	const usersQ = useQuery(usersQuery(token));
 	const rolesQ = useQuery(rolesQuery(token));
+	const metaQ = useQuery(serverMetaQuery(token));
 	const users = useMemo(() => usersQ.data ?? [], [usersQ.data]);
 	const roles = useMemo(() => rolesQ.data ?? [], [rolesQ.data]);
+	// The employee-directory collection is CONFIG-DRIVEN server-side (advertised
+	// on `/api/meta`) — never a hardcoded name. Empty ⇒ this deployment has no
+	// directory, so the employee column is absent (accounts stay administrable).
+	const directory = metaQ.data?.identity?.directory_collection ?? '';
 
 	// ── The employee directory, read by LOOKUP — never as a roster ────────────
 	//
@@ -114,25 +119,25 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 	// staff. The roster read this replaces pulled every employee (a 500-row ceiling)
 	// over the wire to label a couple of rows.
 	//
-	// A deployment with no `hrm_employees` collection (the factory core,
-	// `DOMAIN_MODULES=none`) fails whichever read actually runs — deliberately NOT a
-	// hard error: accounts stay administrable and the employee control says so.
+	// A deployment with no configured directory collection fails whichever read
+	// actually runs — deliberately NOT a hard error: accounts stay administrable
+	// and the employee control says so.
 	const linkLookup = useMemo(() => employeeLinkLookup(users), [users]);
 	const linkedQ = useQuery({
-		...itemsQuery(token, 'hrm_employees', {
+		...itemsQuery(token, directory, {
 			fields: EMPLOYEE_FIELDS,
 			limit: 500,
 			filters: { id: { operator: '_in', value: linkLookup.ids.join(',') } },
 		}),
-		enabled: !!token && linkLookup.ids.length > 0,
+		enabled: !!token && !!directory && linkLookup.ids.length > 0,
 	});
 	const linkedTgQ = useQuery({
-		...itemsQuery(token, 'hrm_employees', {
+		...itemsQuery(token, directory, {
 			fields: EMPLOYEE_FIELDS,
 			limit: 500,
 			filters: { etg_id: { operator: '_in', value: linkLookup.tgIds.join(',') } },
 		}),
-		enabled: !!token && linkLookup.tgIds.length > 0,
+		enabled: !!token && !!directory && linkLookup.tgIds.length > 0,
 	});
 
 	// The picker's own search — the one directory read whose size follows what is
@@ -145,14 +150,14 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 		return () => clearTimeout(t);
 	}, [employeeTerm]);
 	const employeeSearchQ = useQuery({
-		...itemsQuery(token, 'hrm_employees', {
+		...itemsQuery(token, directory, {
 			search: employeeSearch.trim(),
 			fields: EMPLOYEE_FIELDS,
 			limit: EMPLOYEE_SEARCH_LIMIT,
 		}),
 		// Below the floor a term matches most of the directory — the read this picker
 		// exists to avoid — so nothing is asked for until a name starts to be a name.
-		enabled: !!token && employeeSearch.trim().length >= EMPLOYEE_SEARCH_MIN,
+		enabled: !!token && !!directory && employeeSearch.trim().length >= EMPLOYEE_SEARCH_MIN,
 	});
 
 	const searchRows = useMemo(() => (employeeSearchQ.data?.rows ?? []) as unknown as EmployeeRow[], [employeeSearchQ.data]);
@@ -160,7 +165,9 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 		() => [...((linkedQ.data?.rows ?? []) as unknown as EmployeeRow[]), ...((linkedTgQ.data?.rows ?? []) as unknown as EmployeeRow[])],
 		[linkedQ.data, linkedTgQ.data],
 	);
-	const directoryAvailable = !(linkedQ.error ?? linkedTgQ.error ?? employeeSearchQ.error);
+	// A directory is available when the server advertises one AND no directory
+	// read has failed (a missing table degrades to "no directory", never a crash).
+	const directoryAvailable = !!directory && !(linkedQ.error ?? linkedTgQ.error ?? employeeSearchQ.error);
 
 	const roleNames = useMemo(() => roleNameMap(roles), [roles]);
 	const roleNameOf = useMemo(
@@ -574,10 +581,7 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 			)}
 
 			{!directoryAvailable && (
-				<p style={note}>
-					No employee directory in this deployment (<code>hrm_employees</code>) — accounts can still be managed, and a link is shown by its
-					id.
-				</p>
+				<p style={note}>No employee directory in this deployment — accounts can still be managed, and a link is shown by its id.</p>
 			)}
 
 			{usersQ.isLoading ? (

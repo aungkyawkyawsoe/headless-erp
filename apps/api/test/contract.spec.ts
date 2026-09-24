@@ -52,4 +52,16 @@ describe('platform contract (GET /api/meta)', () => {
 		const body = (await res.json()) as { data: { aggregate: { max_groups: number } } };
 		expect(body.data.aggregate.max_groups).toBe(MAX_AGGREGATE_GROUPS);
 	});
+
+	it('advertises the enabled modules + plugins (deployment discovery)', async () => {
+		const res = await SELF.fetch('http://localhost/api/meta');
+		const body = (await res.json()) as {
+			data: { modules: Array<{ id: string; path: string }>; plugins: string[] };
+		};
+		// The IDP module is enabled in the test env (DOMAIN_MODULES=idp).
+		expect(body.data.modules.map((m) => m.id)).toContain('idp');
+		expect(body.data.modules.find((m) => m.id === 'idp')?.path).toBe('/api/idp');
+		// PLUGINS unset ⇒ every plugin ships.
+		expect(body.data.plugins).toContain('workflow');
+	});
 });

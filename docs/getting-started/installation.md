@@ -16,7 +16,7 @@ headless/
 ├── apps/
 │   ├── api/            ← The API worker (this documentation)
 │   ├── studio/         ← UI Studio — schema designer / page builder (dev tool)
-│   └── tgapp/          ← Telegram Mini App frontend (Vite + Tailwind + BFF worker)
+│   └── client app/          ← client app frontend (Vite + Tailwind + BFF worker)
 ├── packages/
 │   ├── core/           ← Query builder, schema builder, entity engine
 │   ├── types/          ← Shared TypeScript types
@@ -36,7 +36,7 @@ pnpm install
 ## 2. Configure Bindings
 
 **Do not hand-edit the wrangler configs.** `apps/api/wrangler.jsonc`,
-`apps/tgapp/wrangler.jsonc` and the test-only `apps/api/wrangler.testco.jsonc`
+`the client app/wrangler.jsonc` and the test-only `apps/api/wrangler.testco.jsonc`
 are **generated** from one env file per environment — `infra/env.prod`
 (production) and `infra/env.testco` (tests/local dev). Change the prefix or any
 resource name in the env file, then regenerate:
@@ -52,7 +52,7 @@ name: workers, D1, R2, queues, analytics dataset, domain, and non-secret vars:
 ```bash
 CF_ACCOUNT_ID=…                 # account id
 WORKER_API=mff-sys-api           # API worker name
-WORKER_MINIAPP=mff-sys-miniapp   # Mini App worker name
+WORKER_MINIAPP=mff-sys-client app   # client app worker name
 D1_NAME=mff-sys-db               # D1 database name
 D1_ID=<your-d1-database-id>      # set after `wrangler d1 create`
 R2_BUCKET=mff-sys-media          # R2 bucket

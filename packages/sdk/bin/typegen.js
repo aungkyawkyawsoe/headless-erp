@@ -321,7 +321,7 @@ function headerFor(meta) {
  *   import type { Schema } from './generated/schema';
  *   import { Schemas } from './generated/schema';
  *   createClient<Schema>({ ... });
- *   Schemas.hr_attendance.parse(response); // runtime purification
+ *   Schemas.records.parse(response); // runtime purification
  */`
   ].join("\n");
 }

@@ -7,7 +7,7 @@
  * Neither exists in a static production build, so this worker provides both:
  *
  *   - Cloudflare Assets serve the built SPA (`assets.not_found_handling:
- *     single-page-application`), exactly like the tgapp worker.
+ *     single-page-application`), exactly like the client app worker.
  *   - `/api/*` + `/trpc/*` are proxied to the core API worker through the
  *     private `API` service binding (no CORS, no public API exposure).
  *   - `/__studio/*` re-implements the dev plugin's metadata routes against a

@@ -5,16 +5,15 @@ analytics dataset, custom domain, account, non-secret vars) is declared in **one
 committed env file per environment**. The wrangler configs are **generated**
 from it — never hand-edit them.
 
-| Source of truth (edit this) | Generates (do not edit)                                                                |
-| --------------------------- | -------------------------------------------------------------------------------------- |
-| `infra/env.prod`            | `apps/api/wrangler.jsonc` · `apps/tgapp/wrangler.jsonc` · `apps/studio/wrangler.jsonc` |
-| `infra/env.testco`          | `apps/api/wrangler.testco.jsonc` (test-only, isolated)                                 |
+| Source of truth (edit this) | Generates (do not edit)                                  |
+| --------------------------- | -------------------------------------------------------- |
+| `infra/env.prod`            | `apps/api/wrangler.jsonc` · `apps/studio/wrangler.jsonc` |
+| `infra/env.testco`          | `apps/api/wrangler.testco.jsonc` (test-only, isolated)   |
 
 ```text
 infra/env.prod ──┐
                  ├─► scripts/gen-wrangler.mjs ──► apps/api/wrangler.jsonc
-infra/env.testco ┘                              ├─► apps/tgapp/wrangler.jsonc
-                                                └─► apps/studio/wrangler.jsonc
+infra/env.testco ┘                              └─► apps/studio/wrangler.jsonc
 ```
 
 ```bash
@@ -171,8 +170,8 @@ curl -s https://app.mfflogistics.com/health                        # expect 200
 #    Log in: POST /api/auth/login { username: dev@mmbics.com, password: <ADMIN_PASSWORD> }
 #    — first login re-creates the admin row (deleted on D1 push for secret
 #    self-heal) and re-creates any empty bootstrap tables. Then sanity-check
-#    the pushed data, e.g. GET /api/entities/mro_items?limit=5 and
-#    /api/entities/veh_fleets?limit=5 (expect seeded rows, not empty).
+#    the pushed data, e.g. GET /api/entities/records?limit=5 and
+#    /api/entities/vehicles?limit=5 (expect seeded rows, not empty).
 #    Finally open the Mini App from Telegram (BotFather menu button) and sign
 #    in with a real Telegram session — initData is validated against the
 #    TELEGRAM_BOT_TOKEN secret now set on mff-sys-api.

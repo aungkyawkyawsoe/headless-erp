@@ -15,6 +15,8 @@ export type {
 	OfflineReadsPolicy,
 	WritesPolicy,
 	SearchPolicy,
+	IntegrityPolicy,
+	IntegrityRule,
 } from './policy/policy-resolver';
 export { MigrationRunner, MIGRATION_NAMES } from './db/migrations';
 export { configureDbLiveness, dbVerifiedWithin, invalidateDbLiveness, markDbVerified } from './db/db-liveness';

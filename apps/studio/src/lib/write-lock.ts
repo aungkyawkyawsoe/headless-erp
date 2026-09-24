@@ -4,7 +4,7 @@ import type { EntitySchema } from './api';
  * The Studio's view of a collection's engine-enforced WRITE policy
  * (`schema_json.policies.writes`) — the SAME document the entity API honours, so
  * the data table never offers a create / edit / delete the server would refuse
- * (e.g. "mro_inbound_lines is maintained by its domain service and cannot be
+ * (e.g. "order_lines is maintained by its domain service and cannot be
  * written through the generic entity API").
  *
  * `serviceOnly` ⇒ no generic writes at all (create included). `appendOnly` ⇒ rows

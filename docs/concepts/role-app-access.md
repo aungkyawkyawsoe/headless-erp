@@ -8,7 +8,7 @@
 
 ## Why a dedicated role→app field (not collection-read gating)
 
-Verised live: base `Employee` role read-grants ~54 collections (mro__, veh__, serials,…) — so deriving boards from read-grants alone cannot separate HR vs warehouse staff. Design B instead stores, **per role**, the exact mini-app ids that role may open. Predictable, auditable, and does not force tightening live read-grants (which would 403 existing screens).
+Verified live: a base role can read-grant dozens of collections — so deriving boards from read-grants alone cannot separate one team from another. Design B instead stores, **per role**, the exact client app ids that role may open. Predictable, auditable, and does not force tightening live read-grants (which would 403 existing screens).
 
 ## Schema & API (backend)
 
@@ -21,7 +21,7 @@ Verised live: base `Employee` role read-grants ~54 collections (mro__, veh__, se
   - `granted_collections` — role's read-grant collection slugs (`'*'` admin),
   - `apps` — parsed `_roles.app_access` list (admin ⇒ null ⇒ all).
 
-## Mini-App (tgapp)
+## Mini-App (client app)
 
 - `launcher/registry.ts`: unchanged app ids (DB uses them).
 - `launcher/launcher-page.tsx allowedApps(me)`: admin / `apps` null ⇒ all tiles; `apps` list ⇒ only those registry ids. While `/auth/me` loads a spinner is shown; on failure it degrades to **all** tiles (never lock out on a hiccup). Dock keeps only allowed pinned apps.
@@ -35,7 +35,7 @@ Verised live: base `Employee` role read-grants ~54 collections (mro__, veh__, se
 
 - `scripts/reconcile-storekeeper-role.mjs` — idempotent: ensures the **Storekeeper** role, its collection write grants, its `app_access` board.
   `node scripts/reconcile-storekeeper-role.mjs <url> <token> --bind <etg…>` also binds the listed employees' auth users onto Storekeeper.
-- `scripts/reconcile-tgapp-role-permissions.mjs` — ensures the base **Employee** role reads the tgapp-facing collections (unchanged behaviour).
+- `scripts/reconcile-client app-role-permissions.mjs` — ensures the base **Employee** role reads the client app-facing collections (unchanged behaviour).
 
 ## If a role opens every app (no curated board)
 
@@ -47,7 +47,7 @@ The RBAC editor is available as **IDP → Roles & Access** (`#/idp/access`, the 
 
 - Left pane lists every role (`GET /api/users/roles`); pick one or click **New role** (`POST`).
 - **Description** + **Mini-app board**: “Every app” vs individual app checkboxes — writes the curated id list via `PUT /api/users/roles/:id` (`app_access: null` = every app).
-- **Collection permissions** table (from `_role_permissions`): per collection, the six flags read/write/create/delete/approve/submit as checkboxes. Toggling only marks the draft; each row’s **Save** posts the **complete six-flag set** in one `POST /api/users/permissions` upsert so editing one flag never resets the others. Existing field whitelists (`field_restrictions`) and row filters carry over untouched. Read-only grants, e.g. `mro_suppliers`, display `read` checked and everything else off.
+- **Collection permissions** table (from `_role_permissions`): per collection, the six flags read/write/create/delete/approve/submit as checkboxes. Toggling only marks the draft; each row’s **Save** posts the **complete six-flag set** in one `POST /api/users/permissions` upsert so editing one flag never resets the others. Existing field whitelists (`field_restrictions`) and row filters carry over untouched. Read-only grants, e.g. `suppliers`, display `read` checked and everything else off.
 - “Add permission” dropdown lists the real entity collection slugs; adding defaults to a read-only grant.
 
 It edits **role-level** access (`_roles.app_access`) and **per-role** collection grants — not which `_users` hold a role (manage that via `PUT /api/users/:id { role_id }`, docs above). Like every RBAC tool in this repo it talks to the validated users/permissions endpoints; raw D1 writes are never used for real edits.
@@ -55,4 +55,4 @@ It edits **role-level** access (`_roles.app_access`) and **per-role** collection
 - Role-grants write-persisted (**24 rows**, 13 `can_write`) on Storekeeper.
 - `/auth/me` as a non-admin Storekeeper returns the curated `apps` list.
 - Browser: Employee-bound account shows HR/HR‑request board; after binding to Storekeeper + re-login, the launcher shows only tyres / store-requests / inbounds / outbounds / stock-moves / adjustments / stocks / group (+ attendance / approval / settings) and hides HR admin, licenses, insurance, incidents.
-- Gates: api/core/types/tgapp typecheck + tgapp build + auth-gate + mro-inventory tests green.
+- Gates: api/core/types/client app typecheck + client app build + auth-gate + mro-inventory tests green.

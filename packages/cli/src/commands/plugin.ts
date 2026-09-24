@@ -13,7 +13,7 @@ async function createFrontendPlugin(): Promise<void> {
 
 	const id = (await p.text({
 		message: 'Plugin ID (kebab-case)',
-		placeholder: 'hrm',
+		placeholder: 'orders',
 		validate(value) {
 			if (!value) return 'Plugin ID is required';
 			if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(value)) return 'Must be kebab-case';

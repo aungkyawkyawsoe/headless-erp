@@ -53,7 +53,7 @@ function templateKeys(template: string | undefined): string[] {
  *
  * The projection NEVER exceeds `MAX_FIELD_SELECTIONS` (the engine's `?fields=`
  * ceiling). Each m2o costs ~18 entries (its id + the 16 conventional display
- * columns + template keys), so a relation-heavy collection — `mro_serial_events`
+ * columns + template keys), so a relation-heavy collection — `serial_events`
  * has 6 m2o fields → 103 entries — used to blow the cap and fail the WHOLE list
  * read with `Too many field selections (max 100)`. The budget is spent
  * anchors-first, then COLUMN-MAJOR over the fallback candidates, so every

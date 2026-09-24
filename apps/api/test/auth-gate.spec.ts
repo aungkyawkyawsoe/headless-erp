@@ -7,7 +7,7 @@ import { AuthService } from '../src/lib/services/auth.service';
 /**
  * Telegram session revocation contract:
  *
- * The directory (hrm_employees.etg_id) is the source of truth for "approved".
+ * The directory (directory.etg_id) is the source of truth for "approved".
  * Removing the employee's etg_id must revoke the session IMMEDIATELY — GET
  * /api/auth/me 401s (the mini app validates on every load and logs the user
  * out), and the next login falls back to `pending`.
@@ -63,7 +63,7 @@ async function loginAs(tgId: number, firstName = 'Test'): Promise<string> {
 
 /** Create a directory employee carrying the given etg_id; returns its row id. */
 async function createEmployee(body: Record<string, unknown>): Promise<string> {
-	const res = await SELF.fetch(`${BASE_URL}/api/entities/hrm_employees`, {
+	const res = await SELF.fetch(`${BASE_URL}/api/entities/directory`, {
 		method: 'POST',
 		headers: { ...JSON_HEADERS, ...ADMIN },
 		body: JSON.stringify(body),
@@ -77,15 +77,14 @@ describe('telegram session revocation (directory gate on /api/auth/me)', () => {
 	let token: string;
 
 	beforeAll(async () => {
-		// Seed the directory: hrm_employees collection + a row carrying the etg_id
-		// (the default directory gate model — the hr_*→hrm_* rename moved the
-		// Telegram link onto etg_id).
+		// Seed the directory: the configured directory collection + a row carrying
+		// the tg-id field (TELEGRAM_DIRECTORY_COLLECTION / _FIELD fixtures).
 		const coll = await SELF.fetch(`${BASE_URL}/api/collections`, {
 			method: 'POST',
 			headers: { ...JSON_HEADERS, ...ADMIN },
 			body: JSON.stringify({
-				name: 'hrm_employees',
-				slug: 'hrm_employees',
+				name: 'directory',
+				slug: 'directory',
 				fields: [
 					{ name: 'etg_id', type: 'text', required: false },
 					{ name: 'name_mm', type: 'text', required: false },
@@ -96,7 +95,7 @@ describe('telegram session revocation (directory gate on /api/auth/me)', () => {
 		});
 		expect(coll.status).toBe(201);
 
-		const row = await SELF.fetch(`${BASE_URL}/api/entities/hrm_employees`, {
+		const row = await SELF.fetch(`${BASE_URL}/api/entities/directory`, {
 			method: 'POST',
 			headers: { ...JSON_HEADERS, ...ADMIN },
 			body: JSON.stringify({ etg_id: String(TG_ID), name_mm: 'Test User' }),
@@ -127,7 +126,7 @@ describe('telegram session revocation (directory gate on /api/auth/me)', () => {
 
 	it('revokes the session once the etg_id is removed from the directory', async () => {
 		// Admin removes the employee's telegram link (sets etg_id to null).
-		const clear = await SELF.fetch(`${BASE_URL}/api/entities/hrm_employees/${directoryId}`, {
+		const clear = await SELF.fetch(`${BASE_URL}/api/entities/directory/${directoryId}`, {
 			method: 'PUT',
 			headers: { ...JSON_HEADERS, ...ADMIN },
 			body: JSON.stringify({ etg_id: null }),
@@ -178,7 +177,7 @@ describe('directory gate — a deleted or deactivated employee loses access', ()
 		expect((await me(deletedToken)).status).toBe(200);
 
 		// The row survives a soft delete (audit) — the gate must still revoke.
-		const del = await SELF.fetch(`${BASE_URL}/api/entities/hrm_employees/${deletedId}`, {
+		const del = await SELF.fetch(`${BASE_URL}/api/entities/directory/${deletedId}`, {
 			method: 'DELETE',
 			headers: ADMIN,
 		});
@@ -188,7 +187,7 @@ describe('directory gate — a deleted or deactivated employee loses access', ()
 	});
 
 	it('a deactivated employee (active=false) can no longer read the session', async () => {
-		const off = await SELF.fetch(`${BASE_URL}/api/entities/hrm_employees/${inactiveId}`, {
+		const off = await SELF.fetch(`${BASE_URL}/api/entities/directory/${inactiveId}`, {
 			method: 'PUT',
 			headers: { ...JSON_HEADERS, ...ADMIN },
 			body: JSON.stringify({ active: false }),
@@ -229,7 +228,7 @@ describe('directory heal — a token minted under a dead employee re-binds to th
 		expect(embedded.employee_id).toBe(rowA);
 
 		// Re-point the Telegram link to a LIVE row while the (24h) token survives.
-		await SELF.fetch(`${BASE_URL}/api/entities/hrm_employees/${rowA}`, { method: 'DELETE', headers: ADMIN });
+		await SELF.fetch(`${BASE_URL}/api/entities/directory/${rowA}`, { method: 'DELETE', headers: ADMIN });
 		const rowB = await createEmployee({ etg_id: String(TG_HEAL), name_mm: 'Heal B' });
 
 		// The stale (pre-heal contract) token still carries rowA — verifyToken must
@@ -251,7 +250,7 @@ describe('directory heal — a token minted under a dead employee re-binds to th
 describe('directory → RBAC role sync (the "changed the role but the tile is missing" report)', () => {
 	const TG_SYNC = 81818181;
 	/**
-	 * The admin edits `hrm_employees.role` (Studio or raw SQL) while a long-lived
+	 * The admin edits `directory.role` (Studio or raw SQL) while a long-lived
 	 * JWT keeps the WebView alive: `/auth/me` must re-sync `_users.role_id` from
 	 * the directory and report the NEW role's grants — otherwise the launcher keeps
 	 * painting the old role's tiles (e.g. Projects missing after a promotion).
@@ -277,7 +276,7 @@ describe('directory → RBAC role sync (the "changed the role but the tile is mi
 
 		// The admin promotes the employee at the DIRECTORY — the reported workflow
 		// (an out-of-band edit, exactly what a D1/Studio change is).
-		const promote = await SELF.fetch(`${BASE_URL}/api/entities/hrm_employees/${rowId}`, {
+		const promote = await SELF.fetch(`${BASE_URL}/api/entities/directory/${rowId}`, {
 			method: 'PUT',
 			headers: { ...JSON_HEADERS, ...ADMIN },
 			body: JSON.stringify({ role: 'Administrator' }),

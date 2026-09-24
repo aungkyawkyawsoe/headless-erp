@@ -40,8 +40,8 @@ mmbix-typegen --schema ./schema.json --out ./src/generated
 import { z } from 'zod';
 
 export const HrAttendanceSchema = z.object({ ... });          // per collection
-export type Schema = { 'hr_attendance': z.infer<typeof HrAttendanceSchema>; ... };
-export const Schemas = { 'hr_attendance': HrAttendanceSchema, ... };
+export type Schema = { 'records': z.infer<typeof HrAttendanceSchema>; ... };
+export const Schemas = { 'records': HrAttendanceSchema, ... };
 ```
 
 - **Zero drift** — one source of truth: types are inferred FROM the Zod
@@ -49,7 +49,7 @@ export const Schemas = { 'hr_attendance': HrAttendanceSchema, ... };
 - **Typed client** — `createClient<Schema>({ ... })` type-checks every
   `items(...)` call, filter, sort and field projection against the generated
   types (see [Client SDK](../backend-api/sdk.md)).
-- **Runtime purification** — `Schemas.hr_attendance.parse(row)` validates any
+- **Runtime purification** — `Schemas.records.parse(row)` validates any
   API response at runtime.
 - **Computed fields** — stored formulas (`store: true`) are typed by their
   `result_type` (`number` → `z.number()`, `boolean` →

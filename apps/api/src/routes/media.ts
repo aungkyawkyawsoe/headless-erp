@@ -139,7 +139,7 @@ app.post('/upload/:token', async (c) => {
 // ── Library list ──────────────────────────────────────────
 // GET /api/media?limit=&offset=&mime=image — authenticated list of `_media`
 // assets (newest-first). The Studio media-library gallery browses what is
-// already stored (R2 assets the tgapp displays), not just what this session
+// already stored (R2 assets the client app displays), not just what this session
 // uploads.
 
 app.get('/', requireAuth, async (c) => {

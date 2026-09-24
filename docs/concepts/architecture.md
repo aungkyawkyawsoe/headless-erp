@@ -152,7 +152,7 @@ Mitigations already in place:
 - Response caching is per-collection opt-in (`policies.cache.enabled`); row and
   field restrictions are enforced at read time, never cached across users — the
   response-cache key includes an auth fingerprint.
-- The miniapp adds client-side pull-to-refresh + 30 s list caches, so a stale
+- The client app adds client-side pull-to-refresh + 30 s list caches, so a stale
   read self-heals on the next refresh.
 - The DO-backed rate limiter (`RATE_LIMIT_DO`) is the in-repo pattern for
   cross-isolate state.

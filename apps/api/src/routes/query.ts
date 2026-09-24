@@ -6,7 +6,7 @@
  * in PARALLEL through the same entity engine (row filters + field
  * restrictions + response cache apply per collection automatically) and
  * returns one keyed payload. This is the generic form of the hand-crafted
- * `/api/hr/attendance/summary` consolidation — any view can now batch its
+ * `/api/orders/summary` consolidation — any view can now batch its
  * reads without writing a bespoke endpoint.
  *
  * Per-key error isolation: a failing collection (missing, permission denied,

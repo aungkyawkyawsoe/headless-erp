@@ -15,7 +15,7 @@ export interface QueuedMutation {
 	/** Client UUID — replay-safe identity (POST bodies carry it as `id`). */
 	id: string;
 	method: 'POST' | 'PUT' | 'DELETE';
-	/** Path relative to the API base, e.g. `/entities/hr_attendance`. */
+	/** Path relative to the API base, e.g. `/entities/records`. */
 	path: string;
 	body?: unknown;
 	/** Optimistic-concurrency token captured when the write was queued. */

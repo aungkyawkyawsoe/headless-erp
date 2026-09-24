@@ -17,11 +17,8 @@ Workers + D1 + R2). All routes under `/api/*` require
 | [Export / Import](export-import.md)                      | JSON/CSV export, JSON/CSV import                                              |
 | [Media](media.md)                                        | File upload/serve via R2                                                      |
 | [Webhooks](webhooks.md)                                  | HMAC-signed event notifications                                               |
-| [Directus Sync](directus-sync.md)                        | One-way external HR → `hrm_employees` sync (REST, idempotent)                 |
 | [Scheduler](scheduler.md)                                | Cron-based scheduled jobs                                                     |
 | [Modules](modules.md)                                    | Module grouping, menus, views                                                 |
 | [Saved Views](views.md)                                  | User presets for filters/sorts/columns                                        |
-| [Meeting Tasks + Follow-up](tasks-follow-up.md)          | Task tracking, digests, Telegram push                                         |
-| [MRO Inventory](mro-inventory.md)                        | Multi-line in/out/transfer/adjustment docs, confirm gate, batch/serial/expiry |
 | [tRPC Layer](trpc.md)                                    | Type-safe RPC with end-to-end types                                           |
 | [Runtime Policies & Ops](policies-operations.md)         | Per-collection feature toggles + index-advisor telemetry                      |

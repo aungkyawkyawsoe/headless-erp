@@ -191,9 +191,9 @@ app.get('/me', requireAuth, async (c) => {
 	const ctx = c.get('auth');
 
 	// Telegram sessions are directory-gated (same gate as POST /auth/telegram):
-	// approved ⇔ a directory row still matches the tg_id (default
-	// hrm_employees.etg_id, config-driven). Removing the employee's etg_id revokes
-	// the session → 401 here, and the mini app (which validates on every load)
+	// approved ⇔ a directory row still matches the tg_id (config-driven
+	// collection/field). Removing the employee's tg link revokes
+	// the session → 401 here, and the client (which validates on every load)
 	// logs the user out. Runs in dev too, so dev demonstrates the same
 	// approval/revocation contract as production.
 	//
@@ -201,12 +201,12 @@ app.get('/me', requireAuth, async (c) => {
 	// re-validates the account's `_users.employee_id` link on EVERY request and
 	// refuses the token outright when that employee is gone — so an offboarded
 	// employee is logged out of the web app exactly like a Telegram user whose
-	// etg_id was removed. Nothing extra is needed here; this handler only has to
+	// tg link was removed. Nothing extra is needed here; this handler only has to
 	// resolve the TELEGRAM directory row and report the employee the session acts as.
 	const env = (c.env ?? {}) as Record<string, unknown>;
 	const tgId = tgIdFromEmail(ctx.email);
 	// The directory row IS the acting employee: surface its id so a dashboard can
-	// start its employee-scoped reads without a second `hrm_employees` lookup
+	// start its employee-scoped reads without a second directory lookup
 	// (the tg id → employee hop was a full serial round trip on every visit).
 	let employeeId: string | null = null;
 	// The role the response reports (and the grants it composes) — the directory
@@ -223,16 +223,16 @@ app.get('/me', requireAuth, async (c) => {
 		}
 		employeeId = directory.id;
 		// Directory → `_users.role_id` sync. The session's long-lived JWT froze the
-		// role at login; without this, changing `hrm_employees.role` (admin edit or
-		// SQL) never reached the mini app — the launcher kept painting the old
-		// role's tiles (e.g. Projects missing after a promotion to Administrator).
+		// role at login; without this, changing the directory's role value (admin edit or
+		// SQL) never reached the client — the launcher kept painting the old
+		// role's tiles (e.g. a missing tile after a promotion to Administrator).
 		const synced = await syncDirectoryRole(db, ctx, directory.role, cfg);
 		effectiveRole = { id: synced.id, name: synced.name };
 		effectiveIsAdmin = synced.name === 'Administrator' || synced.isSystem;
 		// Re-apply the config-owned role grants here, not ONLY at login: the JWT is
-		// long-lived and the WebView keeps it, so an existing session would never
-		// re-run `POST /auth/telegram` and a grant added by a deploy (e.g.
-		// `mro_inventory`, which the stock kiosk reads) would stay absent from
+		// long-lived and the client keeps it, so an existing session would never
+		// re-run `POST /auth/telegram` and a grant added by a deploy (a collection
+		// listed in TELEGRAM_ROLE_COLLECTIONS) would stay absent from
 		// `_role_permissions` — the screen keeps its read-error state forever.
 		// Like `roleAuthSummary` below, this is deliberately uncached: it runs about
 		// once per app load, and a stale answer here looks exactly like a broken
@@ -264,7 +264,7 @@ app.get('/me', requireAuth, async (c) => {
 	//     the dev-token path) → sees everything: sentinel '*' meaning "no filter"
 	// The collection slugs this role can READ + the mini-app launcher ids this
 	// role may OPEN. Both come from `_role_permissions` / `_roles.app_access`
-	// (DB is the single source of truth — the tgapp never keeps its own
+	// (DB is the single source of truth — the client app never keeps its own
 	// role→access table). Sentinel values: an admin (or a role with no curated
 	// grants) sees everything → '*' for collections / null for apps.
 	//

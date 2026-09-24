@@ -191,7 +191,7 @@ describe('schema reads are not amplified (D1 statement counts)', () => {
 		// A relation name in the projection DOES fetch (so the skip is not blanket).
 		const withRelation: FieldDefinition[] = [
 			{ name: 'plate_no', type: 'text' },
-			{ name: 'vehicle', type: 'm2o', related_collection: 'veh_fleets' },
+			{ name: 'vehicle', type: 'm2o', related_collection: 'vehicles' },
 		];
 		await resolver.resolveRelations([], withRelation, 'cms_x', 50, parseFieldSelection(['vehicle']));
 		expect(schemaFetches, 'a selected relation ⇒ schema fetch').toBe(1);
@@ -214,7 +214,7 @@ describe('schema reads are not amplified (D1 statement counts)', () => {
 	it('sweeps in a single-column index for a field the schema marks index:true', async () => {
 		const table = 'cms_idx_sweep_probe';
 		// A table that predates the flag: the column exists, the index does not —
-		// exactly the state of `hrm_employees.etg_id` (261 rows read per /auth/me).
+		// exactly the state of `directory.etg_id` (261 rows read per /auth/me).
 		await env.DB.prepare(
 			`CREATE TABLE IF NOT EXISTS "${table}" (id TEXT PRIMARY KEY, etg_id TEXT, deleted_at TEXT, created_at TEXT)`,
 		).run();

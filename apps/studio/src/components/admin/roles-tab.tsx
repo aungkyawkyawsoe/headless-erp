@@ -4,52 +4,16 @@ import { Badge, Button, Checkbox, Input } from '@mmbix/design-system';
 import { Plus, Save, Search, ShieldCheck } from 'lucide-react';
 import { createRole, updateRole, getRolePermissions, setPermission, type RolePermission } from '../../lib/api';
 import { appRequiredCollections } from '../../lib/app-collections';
-import { collectionsQuery, rolesQuery } from '../../lib/queries';
+import { collectionsQuery, modulesQuery, rolesQuery } from '../../lib/queries';
 import { invalidateRoles } from '../../lib/query-client';
 
 /**
- * The mini-app launcher boards a role may open. These are the launcher ids from
- * `apps/tgapp/src/modules/launcher/registry.ts` — the DB (`_roles.app_access`)
+ * The launcher/app boards a role may open. These are the module slugs from the
+ * DB module registry (`_modules`, served by `GET /api/modules`) — `_roles.app_access`
  * stores exactly those ids, and a checkbox here writes that id array
- * (null = every app).
- *
- * KEEP IN SYNC WITH THE REGISTRY. A tile that exists in the launcher but not
- * here can never be granted OR revoked from the UI: the role silently keeps
- * whatever the DB already holds, with no control to change it. `projects` was
- * missing for exactly that reason — the Employee role HAD `projects` in its
- * stored array, but the board rendered no checkbox, so the app was
- * unreachable in the mini-app with nothing here to explain why. `profile` is the
- * mirror case: this board offers it although no launcher tile uses that id.
- *
- * `roles-tab.APP_CATALOG` has no runtime link to the registry (separate app +
- * separate bundle), so this drift is not compiler-caught — check this list
- * whenever a launcher tile is added or removed.
+ * (null = every module). Deriving the catalog from the registry means a module
+ * added in the Studio appears here with no code change and no drift.
  */
-const APP_CATALOG: Array<{ id: string; label: string }> = [
-	{ id: 'attendance', label: 'Attendance' },
-	{ id: 'approval', label: 'Approval' },
-	{ id: 'hr', label: 'Employees' },
-	{ id: 'vehicles', label: 'Vehicles' },
-	{ id: 'daily-odo', label: 'Daily ODO' },
-	{ id: 'fluid', label: 'Fluid' },
-	{ id: 'licenses', label: 'Licenses' },
-	{ id: 'insurance', label: 'Insurance' },
-	{ id: 'tyres', label: 'Tyres' },
-	{ id: 'store-requests', label: 'Store Requests' },
-	{ id: 'maintenance', label: 'Maintenance' },
-	{ id: 'emergency', label: 'Incidents' },
-	{ id: 'item-categories', label: 'Item Groups' },
-	{ id: 'reports', label: 'Stock' },
-	{ id: 'outbounds', label: 'Outbounds' },
-	{ id: 'inbounds', label: 'Inbounds' },
-	{ id: 'stock-moves', label: 'Stock Moves' },
-	{ id: 'adjustments', label: 'Adjustments' },
-	{ id: 'movements', label: 'Movement' },
-	// Projects — the HR project/task board (`hrm_projects` → `hrm_tasks`).
-	{ id: 'projects', label: 'Projects' },
-	{ id: 'profile', label: 'Profile' },
-	{ id: 'settings', label: 'Settings' },
-];
 
 /** CRUD/special flags on a `_role_permissions` row (record access per collection). */
 const FLAG_KEYS = ['can_read', 'can_write', 'can_create', 'can_delete', 'can_approve', 'can_submit'] as const;
@@ -86,8 +50,11 @@ export function RolesTab({ token }: { token: string }) {
 	// hits, so opening this tab twice costs zero reads.
 	const rolesQ = useQuery(rolesQuery(token));
 	const collectionsQ = useQuery(collectionsQuery(token));
+	const modulesQ = useQuery(modulesQuery(token));
 	const roles = useMemo(() => rolesQ.data ?? [], [rolesQ.data]);
 	const library = useMemo(() => (collectionsQ.data ?? []).map((c) => c.slug).sort(), [collectionsQ.data]);
+	// The app-access board derives from the module registry — no hardcoded list.
+	const appCatalog = useMemo(() => (modulesQ.data ?? []).map((m) => ({ id: m.slug, label: m.name })), [modulesQ.data]);
 	const [roleId, setRoleId] = useState('');
 	const [msg, setMsg] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -458,7 +425,7 @@ export function RolesTab({ token }: { token: string }) {
 										padding: '0.45rem 0.55rem',
 									}}
 								>
-									{APP_CATALOG.map((a) => {
+									{appCatalog.map((a) => {
 										const on = draftApps?.includes(a.id) ?? false;
 										return (
 											<label

@@ -122,6 +122,17 @@ export interface ModuleInfo {
 export async function listModules(token: string) {
 	return api<ModuleInfo[]>(token, '/api/modules');
 }
+
+/** `GET /api/meta` — the server's advertised contract (pagination, limits, and
+ *  the config-driven identity directory). No hardcoded collection names. */
+export interface ServerMeta {
+	platform: string;
+	version: string;
+	identity?: { directory_collection: string | null; directory_field: string | null };
+}
+export async function getServerMeta(token: string) {
+	return api<ServerMeta>(token, '/api/meta');
+}
 export async function createModule(
 	token: string,
 	name: string,
@@ -610,7 +621,7 @@ export async function listServerHooks(token: string, collection?: string) {
 export interface StudioCodeHook {
 	/** The registering plugin/builder (e.g. "veh-relink"). */
 	plugin_id: string;
-	/** The collection the hook FIRES on (e.g. "veh_permits"). */
+	/** The collection the hook FIRES on (e.g. "orders"). */
 	collection: string;
 	/** Lifecycle stage: after_insert | after_update | before_insert | … */
 	event: string;
@@ -1114,7 +1125,7 @@ export interface StudioUser {
 	/** `disabled` is refused at sign-in (and its live tokens 401 on the next
 	 *  request) — see `AuthService.login` / `verifyToken`. */
 	status?: 'active' | 'disabled';
-	/** The `hrm_employees` row this account signs in AS (the web employee link).
+	/** The the directory row this account signs in AS (the web employee link).
 	 *  Null for the bootstrap admin and for Telegram accounts, whose acting
 	 *  employee comes from the token's `tg-<id>` address instead. */
 	employee_id?: string | null;

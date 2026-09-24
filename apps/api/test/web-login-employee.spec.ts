@@ -102,15 +102,15 @@ beforeAll(async () => {
 		method: 'POST',
 		body: JSON.stringify({
 			name: 'HRM Employees',
-			slug: 'hrm_employees',
+			slug: 'directory',
 			fields: [field('name_en', 'text', { required: true }), field('name_mm', 'text'), field('active', 'boolean', { default: 'true' })],
 		}),
 	});
-	expect(res.status, res.body.error ?? 'create hrm_employees').toBe(201);
+	expect(res.status, res.body.error ?? 'create directory').toBe(201);
 
 	const insert = async (row: Record<string, unknown>) => {
 		const cols = Object.keys(row);
-		await exec(`INSERT INTO cms_hrm_employees (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, ...cols.map((c) => row[c]));
+		await exec(`INSERT INTO cms_directory (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, ...cols.map((c) => row[c]));
 	};
 	await insert({ id: EMP_A, name_en: 'Web Employee A', active: 1 });
 	await insert({ id: EMP_B, name_en: 'Web Employee B', active: 1 });
@@ -187,7 +187,7 @@ describe('a web account signs in as its employee', () => {
 		expect((await me(token)).status).toBe(200);
 
 		// HR deactivates the employee — the offboarding act.
-		await exec('UPDATE cms_hrm_employees SET active = 0 WHERE id = ?', EMP_A);
+		await exec('UPDATE cms_directory SET active = 0 WHERE id = ?', EMP_A);
 
 		// The token minted moments ago is refused on its very next request: the link
 		// is re-validated per request, never cached behind a TTL.
@@ -202,7 +202,7 @@ describe('a web account signs in as its employee', () => {
 		expect(refused.body.error ?? '').toMatch(/no longer linked to an active employee/i);
 
 		// Reversible: restoring the employee restores the web sign-in.
-		await exec('UPDATE cms_hrm_employees SET active = 1 WHERE id = ?', EMP_A);
+		await exec('UPDATE cms_directory SET active = 1 WHERE id = ?', EMP_A);
 		const restored = await login('web-revoke@test.local', PASSWORD);
 		expect(restored.status, restored.body.error ?? 'login').toBe(200);
 		expect((await me(restored.body.data.token)).body.data.employee_id).toBe(EMP_A);
@@ -222,7 +222,7 @@ describe('a web account signs in as its employee', () => {
 		const token = signedIn.body.data.token;
 
 		// A soft-deleted row survives for audit but is NOT a live identity.
-		await exec('UPDATE cms_hrm_employees SET deleted_at = ? WHERE id = ?', new Date().toISOString(), EMP_B);
+		await exec('UPDATE cms_directory SET deleted_at = ? WHERE id = ?', new Date().toISOString(), EMP_B);
 
 		expect((await me(token)).status).toBe(401);
 		expect((await login('web-softdeleted@test.local', PASSWORD)).status).toBe(401);

@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { SELF } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
+import { pluginHookRegistry } from '@/core/plugin-hooks';
 
 /**
  * Change envelope — every write response names the collections it changed, so a
@@ -103,37 +104,23 @@ describe('change envelope (meta.changed)', () => {
 	});
 
 	it('includes a collection a fire-and-forget hook writes (denorm)', async () => {
-		// The MRO fleet-care hooks (veh-care-denorm) run after_* on odo writes and
-		// update `veh_fleets.last_odo` — declared via `writesTo: ['veh_fleets']`.
-		// They complete AFTER the response is built, so the envelope must capture
-		// the declaration at dispatch time or the client never refreshes the fleet.
-		//
-		// The three care columns must EXIST for the hook's UPDATE to land: the envelope
-		// is built from the hook's DECLARATION, so without them this test still passed
-		// while the write itself failed (`no such column: last_odo`) — it asserted the
-		// declaration of a write that never happened. Production provisions these in
-		// `scripts/provision-hr-schema.mjs`; the fixture has to as well.
-		await createCollection('veh_fleets', 'VEH Fleets', [
-			field('plate_no', 'text', { required: true }),
-			field('last_odo', 'number'),
-			field('last_engine_oil', 'number'),
-			field('last_gear_oil', 'number'),
-		]);
-		await createCollection('veh_odo_months', 'VEH Odo Months', [
-			field('vehicle', 'm2o', { related_collection: 'veh_fleets', required: true }),
-			field('month', 'text'),
-			field('readings', 'longtext'),
-		]);
+		// A compiled after_insert hook that REWRITES another collection (declared via
+		// `writesTo`) runs fire-and-forget, so it completes AFTER the response is
+		// built. The envelope must capture the declaration at dispatch time or the
+		// client never refreshes the target collection.
+		await createCollection('orders', 'Orders', [field('title', 'text', { required: true })]);
+		await createCollection('order_stats', 'Order Stats', [field('count', 'number')]);
 
-		const fleet = await api('/api/entities/veh_fleets', { method: 'POST', body: JSON.stringify({ plate_no: 'ENV-1' }) });
-		expect(fleet.status).toBe(201);
-
-		const res = await api('/api/entities/veh_odo_months', {
-			method: 'POST',
-			body: JSON.stringify({ vehicle: fleet.body.data.id, month: '2026-09', readings: '[]' }),
+		pluginHookRegistry.createAPI('test-denorm').on({
+			collection: 'orders',
+			event: 'after_insert',
+			writesTo: ['order_stats'],
+			handler: async () => {},
 		});
+
+		const res = await api('/api/entities/orders', { method: 'POST', body: JSON.stringify({ title: 'a' }) });
 		expect(res.status).toBe(201);
-		expect(res.body.meta?.changed?.collections).toContain('veh_odo_months');
-		expect(res.body.meta?.changed?.collections).toContain('veh_fleets');
+		expect(res.body.meta?.changed?.collections).toContain('orders');
+		expect(res.body.meta?.changed?.collections).toContain('order_stats');
 	});
 });

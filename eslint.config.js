@@ -54,7 +54,6 @@ export default [
 			'**/worker-configuration.d.ts',
 			// Generated artifacts
 			'packages/design-system/src/components/widgets/index.ts',
-			'apps/tgapp/src/generated/**',
 		],
 	},
 	{
@@ -81,43 +80,6 @@ export default [
 		languageOptions: { parser: tsparser, parserOptions: { ecmaVersion: 2024, sourceType: 'module' } },
 		plugins: TS_PLUGINS,
 		rules: { ...BASE_RULES, '@typescript-eslint/no-explicit-any': 'warn' },
-	},
-	{
-		// tgapp module screens — forbid re-implementing the shared primitives.
-		//
-		// The biggest consistency defects came from copy-paste: ~10 modules
-		// hand-rolled the search kiosk (`searchPill` + a suggestions state machine)
-		// instead of using the shared `<SearchKiosk>`, and a list page re-declared
-		// its own `EmptyState`. Both are now errors so the drift cannot return; a
-		// genuine exception must carry an `eslint-disable-next-line` with a reason.
-		files: ['apps/tgapp/src/modules/**/*.{ts,tsx}'],
-		languageOptions: { parser: tsparser, parserOptions: { ecmaVersion: 2024, sourceType: 'module' } },
-		plugins: TS_PLUGINS,
-		rules: {
-			...BASE_RULES,
-			'@typescript-eslint/no-explicit-any': 'warn',
-			'no-restricted-syntax': [
-				'error',
-				{
-					selector: "VariableDeclarator[id.name='searchPill'], FunctionDeclaration[id.name='searchPill']",
-					message:
-						'Hand-rolled search kiosk — use the shared <SearchKiosk> (shared/components/search-kiosk.tsx) instead of a local searchPill.',
-				},
-				{
-					selector: "FunctionDeclaration[id.name='EmptyState'], FunctionDeclaration[id.name='FilteredEmptyState']",
-					message:
-						'Use the shared EmptyState / FilteredEmptyState (shared/components/empty-state.tsx) instead of a local copy.',
-				},
-				{
-					// The card frame literal — the SSOT is CARD_FRAME / DENSE_CARD_FRAME
-					// (shared/components/card.tsx). The negative lookahead allows the
-					// intentionally-different translucent surfaces (`bg-card/50`…).
-					selector: 'Literal[value=/rounded-(2xl|xl) border border-border bg-card(?!\\/)/]',
-					message:
-						'Card frame literal — use CARD_FRAME (rounded-2xl) or DENSE_CARD_FRAME (rounded-xl) from shared/components/card.tsx.',
-				},
-			],
-		},
 	},
 	{
 		// Storybook stories legitimately call hooks inside lowercase `render`/`Template`

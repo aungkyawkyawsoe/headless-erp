@@ -27,8 +27,8 @@ export type DocStatus =
 	| 'approved'
 	| 'cancelled'
 	// Posted/confirmed state — the terminal lock a collection freezes on
-	// (`writes.freeze_when` on doc_status=confirmed). MRO domain services set it
-	// directly; a generic collection (e.g. veh_maintenance_logs) reaches it with a
+	// (`writes.freeze_when` on doc_status=confirmed). A domain service may set it
+	// directly; any generic collection can reach it with a
 	// plain draft → confirmed write.
 	| 'confirmed'
 	// Approval plugin extensions
@@ -316,7 +316,7 @@ export interface UserRecord {
 	full_name: string;
 	role_id: string;
 	status: 'active' | 'disabled';
-	/** The `hrm_employees` row this account acts as — the web-sign-in identity.
+	/** The directory row this account acts as — the web-sign-in identity.
 	 *  Null for the bootstrap admin and for Telegram accounts, whose acting
 	 *  employee is derived from the token's `tg-<id>` email instead. */
 	employee_id?: string | null;
@@ -355,6 +355,13 @@ export interface RolePermissionRecord {
 	can_submit: boolean; // Can move doc_status to "submitted"
 	field_restrictions?: string | null; // JSON array of hidden field names
 	row_filters?: string | null; // JSON object with filter conditions
+	/**
+	 * Permission lineage — WHO wrote this grant. `source` is the kind
+	 * (`admin` | `provisioner` | `manifest`), `source_module` the owning module id
+	 * when a module declared it. Nullable: rows written before lineage existed.
+	 */
+	source?: string | null;
+	source_module?: string | null;
 	created_at: string;
 	updated_at: string;
 }

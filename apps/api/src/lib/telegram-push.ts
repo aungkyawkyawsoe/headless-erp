@@ -1,13 +1,13 @@
 /**
  * Telegram Push — best-effort bot messages to employees.
  *
- * Private 1:1 bot chats use the user's Telegram id as the chat id, so an
- * employee's `hr_employees.tg_id` is all we need — no chat_id capture or
+ * Private 1:1 bot chats use the user's Telegram id as the chat id, so the
+ * directory row's tg-id field is all we need — no chat_id capture or
  * /start webhook required.
  *
  * Never throws: a missing token (local dev), a network failure, or a bot
  * error logs and returns `{ ok: false }` so callers keep the durable in-app
- * `hr_notifications` fallback without crashing.
+ * notification fallback without crashing.
  */
 
 /** Minimal env surface the pusher reads (cast to Record<string, unknown> at call sites). */

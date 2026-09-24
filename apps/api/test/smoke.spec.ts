@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { SELF } from 'cloudflare:test';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { APP_VERSION, MAX_AGGREGATE_GROUPS } from '@mmbix/config';
 
 const DEV_USER_ID = '00000000-0000-4000-8000-000000000000';
@@ -87,84 +87,5 @@ describe('API smoke', () => {
 		expect(body.success).toBe(false);
 		expect(body.error).toContain('initData is required');
 		expect(body.error).toContain('TELEGRAM_BOT_TOKEN');
-	});
-
-	it('guards the MRO aggregate routes behind auth', async () => {
-		// The item-groups hub + movement screens read RAW /api/mro report routes
-		// (never the entity API). Like every /api route they must 401 anonymously.
-		for (const path of ['/api/mro/catalog/groups', '/api/mro/movement/groups', '/api/mro/assets/holder']) {
-			const res = await SELF.fetch(`${BASE_URL}${path}`);
-			expect(res.status, path).toBe(401);
-		}
-	});
-
-	describe('MRO aggregate reads — provisioned schema', () => {
-		// The MRO report routes read real D1 tables that are NOT created by worker
-		// migrations — collections are provisioned through the same validated
-		// engine API the apply script uses (POST /api/collections; see
-		// test/mro-inventory.spec.ts). This nested scope seeds ONLY the two tables
-		// the group-directory query joins, so the smoke stays small and green on a
-		// fresh test DB (previously this route 500'd "no such table" here).
-		const AUTH = { Authorization: 'Bearer dev-token' };
-		const POST_JSON = (body: unknown) => ({
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...AUTH },
-			body: JSON.stringify(body),
-		});
-
-		let groupId = '';
-		let emptyGroupId = '';
-
-		beforeAll(async () => {
-			// Engine rule: a field is NOT NULL unless `required: false` is explicit.
-			const text = (name: string) => ({ name, type: 'text', required: false });
-			const provision = async (slug: string, name: string, fields: Array<Record<string, unknown>>) => {
-				const res = await SELF.fetch(`${BASE_URL}/api/collections`, POST_JSON({ name, slug, description: null, fields }));
-				expect(res.status, `provision ${slug}`).toBe(201);
-			};
-			await provision('mro_item_name', 'MRO Item Name', [text('name_en'), text('name_mm'), text('tracking')]);
-			await provision('mro_item_model', 'MRO Item Model', [
-				text('name_en'),
-				{ name: 'item_name', type: 'm2o', required: true, related_collection: 'mro_item_name' },
-			]);
-
-			// One master WITH a live SKU (must be listed, count 1) + one empty master
-			// (must be excluded) — the exact semantics of the group-directory read.
-			const group = await SELF.fetch(`${BASE_URL}/api/entities/mro_item_name`, POST_JSON({ name_en: 'Smoke Group' }));
-			expect(group.status).toBe(201);
-			groupId = ((await group.json()) as { data: { id: string } }).data.id;
-			const model = await SELF.fetch(`${BASE_URL}/api/entities/mro_item_model`, POST_JSON({ name_en: 'Smoke Item', item_name: groupId }));
-			expect(model.status).toBe(201);
-			const empty = await SELF.fetch(`${BASE_URL}/api/entities/mro_item_name`, POST_JSON({ name_en: 'Empty Smoke Group' }));
-			expect(empty.status).toBe(201);
-			emptyGroupId = ((await empty.json()) as { data: { id: string } }).data.id;
-		});
-
-		it('GET /api/mro/catalog/groups lists masters with live SKUs + counts', async () => {
-			const res = await SELF.fetch(`${BASE_URL}/api/mro/catalog/groups`, { headers: AUTH });
-			expect(res.status).toBe(200);
-			const body = (await res.json()) as { success: boolean; data: { rows: Array<Record<string, unknown>> } };
-			expect(body.success).toBe(true);
-			const rows = body.data.rows;
-			expect(Array.isArray(rows)).toBe(true);
-			// The seeded master is listed ONCE with its live-SKU count; the SKU-less
-			// master is listed TOO (count 0) — the hub is the only place a group is
-			// managed, so a freshly created group must not vanish.
-			const seeded = rows.filter((row) => row.id === groupId);
-			expect(seeded).toHaveLength(1);
-			expect(seeded[0]?.name_en).toBe('Smoke Group');
-			expect(Number(seeded[0]?.count)).toBe(1);
-			const emptyRow = rows.find((row) => row.id === emptyGroupId);
-			expect(emptyRow).toBeTruthy();
-			expect(Number(emptyRow?.count)).toBe(0);
-			for (const row of rows) {
-				expect(typeof row.id).toBe('string');
-				expect(row).toHaveProperty('name');
-				expect(row).toHaveProperty('name_en');
-				expect(row).toHaveProperty('name_mm');
-				expect(typeof row.count).toBe('number');
-				expect((row.count as number) >= 0).toBe(true);
-			}
-		});
 	});
 });

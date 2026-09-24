@@ -99,10 +99,36 @@ export interface ResolvedPolicy {
 	offlineReads: OfflineReadsPolicy;
 	writes: WritesPolicy;
 	search: SearchPolicy;
+	integrity: IntegrityPolicy;
 	/** Fields stamped with the authenticated employee on create (see PolicyInput). */
 	actorFields: string[];
 	audit: boolean;
 	hooks: boolean;
+}
+
+/**
+ * Integrity (anomaly) rules — declarative, bounded data-quality checks the
+ * generic engine can run for ANY collection, with no domain code. Each rule is
+ * a bounded read (LIMIT), so a big table never turns a check into a full scan it
+ * cannot finish. The engine validates every identifier against the collection's
+ * own schema + the declared collections, so a rule can never reference an
+ * unknown table/column (and can never inject SQL).
+ */
+export type IntegrityRule =
+	/** A declared m2o field whose value points at a missing parent row. */
+	| { type: 'orphan'; field: string }
+	/** A stored field that should equal an aggregate over a child collection. */
+	| { type: 'aggregate_mismatch'; field: string; child: { collection: string; fk: string; field: string }; fn: 'sum' | 'count' }
+	/** Rows sharing the same value(s) on a key set (beyond a unique constraint). */
+	| { type: 'duplicate'; fields: string[] }
+	/** Rows whose timestamp field is older than `max_age_days`. */
+	| { type: 'stale'; field?: string; max_age_days: number };
+
+export interface IntegrityPolicy {
+	enabled: boolean;
+	/** Max violating rows returned per rule (bounds the read). */
+	limit: number;
+	rules: IntegrityRule[];
 }
 
 /** The per-collection shape stored in schema_json.policies (partial, optional). */
@@ -120,6 +146,8 @@ export interface PolicyInput {
 	};
 	/** How `?search=` matches, and over which fields (see SearchPolicy). */
 	search?: { mode?: 'contains' | 'prefix'; fields?: string[] };
+	/** Declarative data-quality rules (see IntegrityPolicy). */
+	integrity?: { enabled?: boolean; limit?: number; rules?: IntegrityRule[] };
 	/** Creator-attribution fields forced to the session employee (e.g. `reported_by`). */
 	actor_fields?: string[];
 	audit?: { enabled?: boolean };
@@ -139,6 +167,7 @@ export interface PolicyDefaults {
 		confirmable: boolean;
 	};
 	search: { mode: 'contains' | 'prefix'; fields: string[] };
+	integrity: { enabled: boolean; limit: number; rules: IntegrityRule[] };
 	actorFields: string[];
 	audit: boolean;
 	hooks: boolean;
@@ -157,6 +186,9 @@ export const DEFAULT_POLICY: PolicyDefaults = {
 	// Substring search by default (any collection); a large, searched collection
 	// opts into the index-backed `prefix` shape with explicit `fields`.
 	search: { mode: 'contains', fields: [] },
+	// Integrity checks are OFF until a collection declares rules (declarative
+	// data-quality, never an implicit cost).
+	integrity: { enabled: false, limit: 100, rules: [] },
 	// No field is actor-stamped unless the collection declares it.
 	actorFields: [],
 	audit: false,
@@ -205,6 +237,18 @@ export function resolvePolicy(input: PolicyInput | undefined, defaults: PolicyDe
 				? input.search.fields.filter((f): f is string => typeof f === 'string')
 				: defaults.search.fields,
 		},
+		integrity: {
+			enabled: input?.integrity?.enabled ?? defaults.integrity.enabled,
+			limit:
+				typeof input?.integrity?.limit === 'number' && Number.isFinite(input.integrity.limit) && input.integrity.limit > 0
+					? Math.min(Math.floor(input.integrity.limit), 1000)
+					: defaults.integrity.limit,
+			// Only well-formed rules survive resolution — the executor still
+			// validates each identifier against the schema before touching SQL.
+			rules: Array.isArray(input?.integrity?.rules)
+				? input.integrity.rules.filter((r): r is IntegrityRule => !!r && typeof (r as { type?: unknown }).type === 'string')
+				: defaults.integrity.rules,
+		},
 		actorFields: Array.isArray(input?.actor_fields)
 			? input.actor_fields.filter((f): f is string => typeof f === 'string')
 			: defaults.actorFields,
@@ -215,5 +259,5 @@ export function resolvePolicy(input: PolicyInput | undefined, defaults: PolicyDe
 
 /** The set of feature names a caller can discover for a collection (headless). */
 export function policyFeatures(): string[] {
-	return ['auto_index', 'cache', 'offline_reads', 'writes', 'search', 'actor_fields', 'audit', 'hooks'];
+	return ['auto_index', 'cache', 'offline_reads', 'writes', 'search', 'integrity', 'actor_fields', 'audit', 'hooks'];
 }

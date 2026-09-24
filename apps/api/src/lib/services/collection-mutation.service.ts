@@ -685,7 +685,7 @@ export class ItemMutationService {
 		// Plugin hooks: on_change + after_update (fire-and-forget). The PRE-update row
 		// rides along as `_existing` — the SAME sentinel `before_update` / `validate`
 		// hooks already read — so an after_update hook can tell the document MOVED
-		// (e.g. a permit re-assigned to another vehicle) and repair the owner it LEFT,
+		// (e.g. a child re-assigned to another parent) and repair the owner it LEFT,
 		// not only the new one. A COPY is passed: `item` is the response body.
 		const postUpdateHookDoc = { ...item, _existing: existing as Record<string, unknown> };
 		pluginHookRegistry.dispatchFireAndForget(collectionSlug, 'on_change', postUpdateHookDoc, this.db, this.getAuth());
@@ -898,8 +898,8 @@ export class ItemMutationService {
 		await this.recalcAffectedParents(collectionSlug, id, tableName);
 
 		// Lifecycle: after_delete — the row just left every live read, so a
-		// denormalized pointer ranked BY this collection (e.g. veh_fleets
-		// .last_license) must be recomputed NOW. AWAITED, unlike the after_update
+		// denormalized pointer ranked BY this collection (e.g. a parent's
+		// "latest child" pointer) must be recomputed NOW. AWAITED, unlike the after_update
 		// fire-and-forget above: a delete is the only signal that the pointer's
 		// TARGET vanished, and dropping the recompute leaves it aimed at a trashed row
 		// — which every reader resolves to null and shows as "no document", hiding a
@@ -954,8 +954,8 @@ export class ItemMutationService {
 		await this.recalcAffectedParents(collectionSlug, id, tableName);
 
 		// Lifecycle: after_restore — the row is live again, so a denormalized pointer
-		// ranked by this collection (veh_fleets.last_license…) may now rank it first
-		// again. Awaited for the same reason as after_delete (see softDeleteItem).
+		// ranked by this collection (a parent's "latest child" pointer) may now rank
+		// it first again. Awaited for the same reason as after_delete (see softDeleteItem).
 		await pluginHookRegistry.dispatchFireAndForget(
 			collectionSlug,
 			'after_restore',
@@ -1010,7 +1010,7 @@ export class ItemMutationService {
 
 		// Lifecycle: after_delete — same reason as softDeleteItem: a denormalized
 		// pointer ranked by this collection must be recomputed now the row is gone
-		// (and it must happen while we still hold the pre-delete row's `vehicle`).
+		// (and it must happen while we still hold the pre-delete row's parent link).
 		await pluginHookRegistry.dispatchFireAndForget(
 			collectionSlug,
 			'after_delete',

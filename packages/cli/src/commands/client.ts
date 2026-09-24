@@ -465,10 +465,9 @@ export function deployClient(prefix: string, target?: string | string[], prod?: 
 	if (d1Id) process.env.D1_DATABASE_ID = d1Id;
 
 	const apps = path.join(projectRoot(), 'apps');
-	const targets: Array<{ name: string; dir: string; build?: string[] }> = [
-		{ name: 'api', dir: path.join(apps, 'api') },
-		{ name: 'miniapp', dir: path.join(apps, 'miniapp'), build: ['pnpm', 'build'] },
-	];
+	// Deploy targets. The factory ships the API worker as the client's stack; a
+	// client's own frontend/app is project-specific and deployed separately.
+	const targets: Array<{ name: string; dir: string; build?: string[] }> = [{ name: 'api', dir: path.join(apps, 'api') }];
 
 	// Resolve the selection: array → those in order; string 'all' → everything; string name → one
 	const selected = Array.isArray(target)
@@ -477,7 +476,7 @@ export function deployClient(prefix: string, target?: string | string[], prod?: 
 			? targets.filter((t) => t.name === target)
 			: targets;
 	if (selected.length === 0) {
-		console.error(pc.red(`  No deployable targets selected. Options: api, miniapp, all`));
+		console.error(pc.red(`  No deployable targets selected. Options: api, all`));
 		process.exit(1);
 	}
 
@@ -866,7 +865,7 @@ export function registerClientCommands(program: Command): void {
 		.command('deploy')
 		.description('Deploy a client — guided when run without arguments')
 		.argument('[prefix]', 'Client prefix (e.g. acme). Omit for guided selection')
-		.option('-t, --target <name>', 'Deploy only: api | miniapp | all', 'all')
+		.option('-t, --target <name>', 'Deploy only: api | all', 'all')
 		.option('--prod', 'Production deploy: IS_DEV=false + strong password policy')
 		.action(async (prefix: string | undefined, opts: { target: string; prod?: boolean }, command: Command) => {
 			let pfx = prefix;

@@ -4,9 +4,9 @@
  * Shared by the login route (auth-telegram.ts), the REST `/auth/me` handler and
  * the tRPC `auth.me` mirror: a Telegram-provisioned session (email
  * `tg-<id>@telegram.local`) is valid only while a directory row matches the
- * tg_id (config-driven TELEGRAM_DIRECTORY_COLLECTION / TELEGRAM_DIRECTORY_FIELD,
- * default `hrm_employees.etg_id`). Removing the employee's etg_id REVOKES the
- * session — session-status endpoints 401, and the mini app (which validates on
+ * tg_id (config-driven TELEGRAM_DIRECTORY_COLLECTION / TELEGRAM_DIRECTORY_FIELD).
+ * Removing the employee's tg link REVOKES the
+ * session — session-status endpoints 401, and the client (which validates on
  * every load) logs the user out.
  *
  * The gate runs in EVERY environment, dev included: a Telegram-provisioned
@@ -15,9 +15,21 @@
  */
 import { D1Client, QueryBuilder } from '@mmbix/core';
 import type { AppConfig } from '@mmbix/config';
+import { getConfig } from '@mmbix/config';
 import { collectionTable } from '@/lib/utils/table-name';
 
 const TG_EMAIL_RE = /^tg-([^@]+)@telegram\.local$/;
+
+/** The configured employee-directory collection ('' ⇒ no directory / feature
+ *  disabled). Read lazily so this module never needs an env parameter; the
+ *  config middleware initializes it on every request path. */
+function directoryCollection(): string {
+	try {
+		return getConfig().telegram.directoryCollection || '';
+	} catch {
+		return '';
+	}
+}
 
 /** The tg_id carried by a Telegram-provisioned session email, or null for any
  *  other identity (admin, password, external provider). */
@@ -37,8 +49,8 @@ export interface DirectoryEmployee {
 /**
  * The directory is the source of truth for "approved": a row whose
  * `directoryField` matches the tg_id exists in `directoryCollection`
- * (config-driven — TELEGRAM_DIRECTORY_COLLECTION / TELEGRAM_DIRECTORY_FIELD,
- * default `hrm_employees.etg_id`) ⇔ the Telegram user may sign in. The
+ * (config-driven — TELEGRAM_DIRECTORY_COLLECTION / TELEGRAM_DIRECTORY_FIELD)
+ * ⇔ the Telegram user may sign in. The
  * collection may not exist on a fresh DB — treat that as "nothing is
  * approved" (null), never 500.
  *
@@ -105,7 +117,11 @@ export async function findDirectoryEmployee(db: D1Client, tgId: number | string,
  * the same revoke semantics the tg gate applies.
  */
 export async function findLiveEmployeeById(db: D1Client, employeeId: string): Promise<{ id: string } | null> {
-	const table = collectionTable('hrm_employees');
+	const collection = directoryCollection();
+	// No directory configured ⇒ the employee-link gate is OFF; the token's
+	// embedded id is trusted (there is nothing to validate it against).
+	if (!collection) return { id: employeeId };
+	const table = collectionTable(collection);
 	// Richest selection first — `active` may predate a deployment's directory.
 	try {
 		const row = await db.first<{ id: string; active?: unknown }>(

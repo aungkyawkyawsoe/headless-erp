@@ -59,7 +59,7 @@ startup (`registerBuiltinHandlers()`, done automatically by the plugin).
 | **Lake export**             | `lake.export`       | `{ collection \| table, prefix, batch? }`                                                    | Keyset-paginated (`id > lastId`) JSONL export to R2 under `prefix/<stamp>/NNNN.jsonl` — bulk data-dump to the lake, chunked and resumable.                                                                                                        |
 
 ```bash
-# Every hour, post the new order count to the Telegram bot (miniapp digest)
+# Every hour, post the new order count to the Telegram bot (client app digest)
 curl -X POST http://localhost:8788/api/scheduler/tasks -H "Authorization: Bearer dev-token" \
   -H "Content-Type: application/json" \
   -d '{"type":"http.request","cron":"0 * * * *","payload":{"url":"https://api.telegram.org/bot<TOKEN>/sendMessage","body":{"chat_id":"…","text":"Hourly digest"}}}'

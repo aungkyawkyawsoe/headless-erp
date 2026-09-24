@@ -171,6 +171,15 @@ export const modulesQuery = (token: string) =>
 		enabled: live(token),
 	});
 
+/** Server contract — static per deploy, so it never goes stale in a session. */
+export const serverMetaQuery = (token: string) =>
+	queryOptions({
+		queryKey: qk.serverMeta(),
+		queryFn: () => api.getServerMeta(token),
+		enabled: live(token),
+		staleTime: Infinity,
+	});
+
 export const moduleQuery = (token: string, slug: string | null | undefined) =>
 	queryOptions({
 		queryKey: qk.module(slug ?? ''),

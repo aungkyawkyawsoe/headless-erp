@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * "serviceable vehicle" filter (`unit_type._null`).
  *
  * The vehicle-document registers (licenses / insurances) are deliberately
- * VEHICLE-FIRST and do NOT use it: their contract is one card per `veh_fleets`
+ * VEHICLE-FIRST and do NOT use it: their contract is one card per `vehicles`
  * row — which is the actual "show every car" requirement (#9/#10) — so a document
  * with no vehicle has no truck to appear under. It is left out on purpose rather
  * than surfaced as an "Unassigned" group, because that would cost a second read

@@ -24,7 +24,7 @@ describe('items api — guard-warning acknowledgement', () => {
 			calls.push(options ?? {});
 			return { data: { id: 'row-1' } as unknown as T };
 		};
-		const items = createItemsApi<Record<string, unknown>>('mro_requisitions', request);
+		const items = createItemsApi<Record<string, unknown>>('orders', request);
 		return { calls, items };
 	}
 

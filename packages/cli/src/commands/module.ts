@@ -143,127 +143,6 @@ interface ModuleTemplate {
 }
 
 const TEMPLATES: Record<string, ModuleTemplate> = {
-	hrm: {
-		id: 'hrm',
-		label: 'HR Management',
-		description: 'HR management module',
-		moduleSwitcher: 'HRM',
-		icon: 'Users',
-		entities: {
-			departments: {
-				name: 'Departments',
-				fields: [
-					F.text('name', 'Name', true),
-					F.text('code', 'Code'),
-					F.m2o('parent_department', 'departments', 'Parent Department'),
-					F.boolean('is_group', 'Is Group'),
-				],
-			},
-			designations: {
-				name: 'Designations',
-				fields: [F.text('name', 'Name', true), F.text('code', 'Code'), F.longtext('description', 'Description')],
-			},
-			'leave-types': {
-				name: 'Leave Types',
-				fields: [
-					F.text('name', 'Name', true),
-					F.number('max_days_per_year', 'Max Days Per Year'),
-					F.boolean('is_paid', 'Is Paid'),
-					F.longtext('description', 'Description'),
-				],
-			},
-		},
-	},
-	accounting: {
-		id: 'accounting',
-		label: 'Accounting',
-		description: 'Accounting module',
-		moduleSwitcher: 'Accounting',
-		icon: 'Calculator',
-		entities: {
-			account: {
-				name: 'Account',
-				fields: [
-					F.text('account_name', 'Account Name', true),
-					F.text('code', 'Code'),
-					F.select('account_type', ['Asset', 'Liability', 'Equity', 'Income', 'Expense'], 'Account Type'),
-					F.m2o('parent_account', 'account', 'Parent Account'),
-					F.boolean('is_group', 'Is Group'),
-				],
-			},
-			'journal-entry': {
-				name: 'Journal Entry',
-				fields: [
-					F.datetime('posting_date', 'Posting Date', true),
-					F.text('reference', 'Reference'),
-					F.currency('total_debit', 'Total Debit'),
-					F.currency('total_credit', 'Total Credit'),
-					F.select('status', ['Draft', 'Submitted', 'Cancelled'], 'Status'),
-				],
-			},
-			customer: {
-				name: 'Customer',
-				fields: [
-					F.text('customer_name', 'Customer Name', true),
-					F.text('email', 'Email'),
-					F.text('phone', 'Phone'),
-					F.boolean('is_active', 'Is Active'),
-				],
-			},
-			supplier: {
-				name: 'Supplier',
-				fields: [
-					F.text('supplier_name', 'Supplier Name', true),
-					F.text('email', 'Email'),
-					F.text('phone', 'Phone'),
-					F.boolean('is_active', 'Is Active'),
-				],
-			},
-		},
-	},
-	wms: {
-		id: 'wms',
-		label: 'Warehouse Management',
-		description: 'Warehouse, items, stock entries',
-		moduleSwitcher: 'WMS',
-		icon: 'Warehouse',
-		entities: {
-			warehouses: {
-				name: 'Warehouses',
-				fields: [
-					F.text('name', 'Name', true),
-					F.text('code', 'Code'),
-					F.text('location', 'Location'),
-					F.m2o('parent', 'warehouses', 'Parent Warehouse'),
-					F.boolean('is_group', 'Is Group'),
-				],
-			},
-			items: {
-				name: 'Items',
-				fields: [
-					F.text('name', 'Item Name', true),
-					F.text('code', 'Item Code'),
-					F.select('category', ['Raw Material', 'Finished Good', 'Consumable', 'Spare Part'], 'Category'),
-					F.select('uom', ['pcs', 'kg', 'ltr', 'box'], 'Unit of Measure'),
-					F.m2o('default_warehouse', 'warehouses', 'Default Warehouse'),
-					F.number('reorder_level', 'Reorder Level'),
-					F.boolean('is_active', 'Is Active'),
-				],
-			},
-			'stock-entries': {
-				name: 'Stock Entries',
-				fields: [
-					F.m2o('item', 'items', 'Item', true),
-					F.m2o('warehouse', 'warehouses', 'Warehouse', true),
-					F.select('entry_type', ['receipt', 'issue', 'transfer', 'adjustment'], 'Entry Type'),
-					F.number('qty', 'Qty', true),
-					F.currency('rate', 'Rate'),
-					F.datetime('entry_date', 'Entry Date'),
-					F.select('status', ['draft', 'submitted', 'cancelled'], 'Status'),
-				],
-			},
-		},
-	},
 	cms: {
 		id: 'cms',
 		label: 'Content Management',
@@ -591,7 +470,7 @@ export function registerModuleCommands(program: Command): void {
 	moduleCmd
 		.command('create')
 		.description('Create a full module: entities via API + frontend plugin (optional microservice worker)')
-		.option('-t, --template <id>', 'Use a built-in template (hrm, accounting) — non-interactive')
+		.option('-t, --template <id>', 'Use a built-in template (cms) — non-interactive')
 		.option('-w, --worker', 'Also scaffold a plugin worker microservice')
 		.action(async (opts: { template?: string; worker?: boolean }) => {
 			try {

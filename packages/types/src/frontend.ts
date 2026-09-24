@@ -1,6 +1,6 @@
 /**
  * Frontend-facing API contract types — the shapes the mini app
- * (apps/tgapp) exchanges with the REST API. Kept here (not in the app) so
+ * (the client app) exchanges with the REST API. Kept here (not in the app) so
  * backend handlers and the frontend client can never drift: both reference the
  * same field/response definitions.
  */

@@ -11,7 +11,7 @@ export interface AuthContext {
 	email: string;
 	is_admin: boolean;
 	/**
-	 * The `hrm_employees` row this session acts as, when the identity is a
+	 * The directory row this session acts as, when the identity is a
 	 * directory-provisioned employee (Telegram login). Embedded in the signed JWT
 	 * at login, so it is tamper-proof and costs no DB read to trust — this is what
 	 * makes an audit actor (`by_user` / `approved_by` / `issued_by`) un-forgeable.
@@ -21,7 +21,7 @@ export interface AuthContext {
 	/**
 	 * The Telegram user id this session belongs to, DERIVED from the
 	 * `tg-<id>@telegram.local` email on every request (never a token claim). It
-	 * lets a row filter scope a personal inbox (`hr_notifications.tg_id`) to the
+	 * lets a row filter scope a personal inbox to the
 	 * signed session without exposing another employee's rows. Absent for
 	 * password / admin / external identities.
 	 */

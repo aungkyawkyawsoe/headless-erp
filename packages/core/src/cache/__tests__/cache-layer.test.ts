@@ -277,8 +277,8 @@ describe('CacheLayer', () => {
 	});
 
 	it('an entry under several tags is dropped by ANY one of them', () => {
-		cache.set('read', 'x', 60_000, ['veh_fleets', 'mro_item_model']);
-		cache.invalidateTag('mro_item_model');
+		cache.set('read', 'x', 60_000, ['vehicles', 'catalog']);
+		cache.invalidateTag('catalog');
 		expect(cache.get('read')).toBeUndefined();
 	});
 

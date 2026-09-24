@@ -1,5 +1,5 @@
 /**
- * Shared page-block renderer — how a block renders at runtime (apps/tgapp)
+ * Shared page-block renderer — how a block renders at runtime (the client app)
  * and in the builder (apps/studio). One implementation, so "what you design is
  * what you get".
  *

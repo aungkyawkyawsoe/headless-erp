@@ -81,10 +81,10 @@ export interface UpdateUserInput {
 	role_id?: string;
 	status?: 'active' | 'disabled';
 	/**
-	 * The `hrm_employees` row a PASSWORD session acts as — the link that lets a
-	 * web sign-in punch, file leave, or move stock. Unlike `role_id`, this one is
+	 * The directory row a PASSWORD session acts as — the link that lets a
+	 * web sign-in act under a directory identity. Unlike `role_id`, this one is
 	 * nullable AND un-settable: `null`/`''` clears the link, `undefined` leaves it
-	 * alone. That asymmetry is deliberate — an account with no employee is a
+	 * alone. That asymmetry is deliberate — an account with no directory row is a
 	 * legitimate state (the bootstrap admin), and "unlink" is the fix for a
 	 * binding made to the wrong person.
 	 */
@@ -111,6 +111,9 @@ export interface SetPermissionInput {
 	can_submit?: boolean;
 	field_restrictions?: string;
 	row_filters?: string;
+	/** Lineage — the writer kind (`admin` default) and owning module id. */
+	source?: string;
+	source_module?: string | null;
 }
 
 // ─── Auth Service ─────────────────────────────────────
@@ -667,6 +670,8 @@ export class AuthService {
 				can_submit: input.can_submit ?? false,
 				field_restrictions: input.field_restrictions ?? null,
 				row_filters: input.row_filters ?? null,
+				source: input.source ?? 'admin',
+				source_module: input.source_module ?? null,
 			} as Partial<RolePermissionRecord>);
 
 			PermissionEvaluator.invalidateBusinessCache(input.role_id);
@@ -692,6 +697,8 @@ export class AuthService {
 					can_submit: input.can_submit ?? false,
 					field_restrictions: input.field_restrictions ?? null,
 					row_filters: input.row_filters ?? null,
+					source: input.source ?? 'admin',
+					source_module: input.source_module ?? null,
 				} as Partial<RolePermissionRecord>);
 				PermissionEvaluator.invalidateBusinessCache(input.role_id);
 				invalidateAuthzVersion();

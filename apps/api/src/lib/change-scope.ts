@@ -3,7 +3,7 @@
  *
  * A write does not only change the row it targets: server hooks, cascade
  * recalcs, lookup/computed derivation and denorm hooks may touch OTHER
- * collections (e.g. an odometer log advances `veh_fleets.last_odo`). Those
+ * collections (e.g. a log row advancing a parent's denormalized total). Those
  * writes already call `invalidateCollectionReads(...)` to drop the server's read
  * cache; this module turns that same signal into a machine-readable envelope the
  * client can act on — instead of the client blindly invalidating a whole domain.

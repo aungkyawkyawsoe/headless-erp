@@ -29,7 +29,15 @@ const ENSURES = `CREATE TABLE IF NOT EXISTS _migrations (id TEXT PRIMARY KEY, na
 const ALTER_ADD_COLUMN = /^ALTER\s+TABLE\s+(\S+)\s+ADD\s+COLUMN\s+(\S+)/i;
 
 export class PluginMigrationService {
-	constructor(private readonly migrations: PluginMigration[]) {}
+	/**
+	 * @param migrations the migrations to apply (already filtered to enabled plugins)
+	 * @param guardKey   per-enabled-set discriminator so two differently-gated
+	 *                   services in one isolate do not share a guard flag.
+	 */
+	constructor(
+		private readonly migrations: PluginMigration[],
+		private readonly guardKey = '',
+	) {}
 
 	/** Apply any pending plugin migrations. Returns the names that were applied. */
 	async runPending(db: D1Client): Promise<string[]> {
@@ -39,14 +47,14 @@ export class PluginMigrationService {
 		// Serialize concurrent first-request migrations. Hono middleware can fire
 		// in parallel (and D1 has no advisory locks); without this, two requests
 		// that both pass the guard would re-apply ALTER ADD COLUMN and crash.
-		const inflight = g[GUARD_RUN];
+		const inflight = g[GUARD_RUN + this.guardKey];
 		if (typeof inflight === 'object' && inflight !== null) return inflight;
 		const run = this.#runPending(db);
-		g[GUARD_RUN] = run;
+		g[GUARD_RUN + this.guardKey] = run;
 		try {
 			return await run;
 		} finally {
-			delete g[GUARD_RUN];
+			delete g[GUARD_RUN + this.guardKey];
 		}
 	}
 
@@ -65,7 +73,7 @@ export class PluginMigrationService {
 		// dedupe window lapses. Querying `_migrations`/`_entity_schemas` with
 		// `LIMIT 1` is a bounded point read, and a MISSING table raises
 		// "no such table" — which is exactly the wiped-database signal.
-		if (g[GUARD]) {
+		if (g[GUARD + this.guardKey]) {
 			try {
 				await db.first<{ m: number | null; e: number | null }>({
 					sql: 'SELECT (SELECT 1 FROM _migrations LIMIT 1) AS m, (SELECT 1 FROM _entity_schemas LIMIT 1) AS e',
@@ -77,7 +85,7 @@ export class PluginMigrationService {
 			} catch {
 				// A marker table is missing — wiped (or partially wiped) database.
 				// Clear BOTH guards so the plugin AND core migrations re-run.
-				g[GUARD] = false;
+				g[GUARD + this.guardKey] = false;
 				invalidateDbLiveness();
 			}
 		}
@@ -104,7 +112,7 @@ export class PluginMigrationService {
 			run.push(migration.name);
 		}
 
-		g[GUARD] = true;
+		g[GUARD + this.guardKey] = true;
 		if (run.length > 0) console.error(`[plugin-migration] applied: ${run.join(', ')}`);
 		return run;
 	}

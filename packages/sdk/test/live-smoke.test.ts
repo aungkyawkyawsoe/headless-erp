@@ -9,9 +9,9 @@
  *
  * Two independent gates, so one missing thing does not mute the rest:
  *   - `apiUp`     — is a dev API answering at all?
- *   - `hrReady`   — is the opt-in HR vertical seeded (its assertions need it)?
+ *   - `itemsReady` — is a `items` collection seeded (its assertions need it)?
  * The offline-reads smoke additionally DISCOVERS any readable collection, so it
- * runs on a stock dev database with no HR seed.
+ * runs on a stock dev database with no seed.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ConditionalResponseCache, createClient, memoryResponseCacheStorage, memoryTokenStorage } from '../src/index';
@@ -20,11 +20,11 @@ import { Schemas, type Schema } from './schema';
 const API = 'http://localhost:8788/api';
 const AUTH = { Authorization: 'Bearer dev-token' };
 const JSON_AUTH = { ...AUTH, 'Content-Type': 'application/json' };
-const HR_COLLECTION = 'hr_attendance';
+const COLLECTION = 'items';
 
 describe('live SDK smoke (dev API)', () => {
 	let apiUp = false;
-	let hrReady = false;
+	let itemsReady = false;
 	/** First readable collection in the dev schema — the policy toggle works on any. */
 	let anyCollection = '';
 
@@ -40,17 +40,17 @@ describe('live SDK smoke (dev API)', () => {
 			return;
 		}
 
-		// A healthy dev API without `hr_attendance` is a valid state (the HR vertical
-		// is an opt-in reference module) — probe it so only HR assertions skip.
+		// A healthy dev API without the `items` fixture is a valid state — probe it
+		// so only the fixture assertions skip.
 		try {
-			const probe = await fetch(`${API}/entities/${HR_COLLECTION}?limit=1`, {
+			const probe = await fetch(`${API}/entities/${COLLECTION}?limit=1`, {
 				headers: AUTH,
 				signal: AbortSignal.timeout(2_000),
 			});
-			hrReady = probe.status !== 404;
-			if (!hrReady) console.warn(`live-smoke: ${HR_COLLECTION} not seeded — HR assertions skipped`);
+			itemsReady = probe.status !== 404;
+			if (!itemsReady) console.warn(`live-smoke: ${COLLECTION} not seeded — fixture assertions skipped`);
 		} catch {
-			hrReady = false;
+			itemsReady = false;
 		}
 
 		try {
@@ -64,34 +64,32 @@ describe('live SDK smoke (dev API)', () => {
 	});
 
 	it('typed client lists real rows against the entity engine', async () => {
-		if (!apiUp || !hrReady) return; // skip silently when no dev server / no HR seed
+		if (!apiUp || !itemsReady) return; // skip silently when no dev server / no seed
 		const client = createClient<Schema>({ baseUrl: API, tokenStorage: memoryTokenStorage() });
 		client.tokenStorage.set('dev-token'); // IS_DEV dev-token — admin
 
-		const result = await client.items(HR_COLLECTION).list({
-			filter: { employee_tg_id: { _eq: '1' } },
-			fields: ['id', 'type', 'timestamp', 'status'],
+		const result = await client.items(COLLECTION).list({
+			fields: ['id', 'name', 'status'],
 			limit: 3,
-			sort: '-timestamp',
+			sort: '-created_at',
 		});
 		expect(Array.isArray(result.data)).toBe(true);
 		if (result.data.length > 0) {
 			const row = result.data[0];
 			expect(typeof row.id).toBe('string');
-			expect(row.type === 'check-in' || row.type === 'check-out').toBe(true);
 		}
 		expect(typeof result.meta.limit).toBe('number');
 	}, 15_000);
 
 	it('generated Zod schemas parse real API rows (nullable columns OK)', async () => {
-		if (!apiUp || !hrReady) return; // skip silently when no dev server / no HR seed
+		if (!apiUp || !itemsReady) return; // skip silently when no dev server / no seed
 		const client = createClient<Schema>({ baseUrl: API, tokenStorage: memoryTokenStorage() });
 		client.tokenStorage.set('dev-token');
 
-		const rows = await client.items(HR_COLLECTION).list({ limit: 5, sort: '-timestamp' });
+		const rows = await client.items(COLLECTION).list({ limit: 5, sort: '-created_at' });
 		for (const row of rows.data) {
 			// The runtime "purify" layer: a real row must satisfy the generated schema.
-			const parsed = Schemas.hr_attendance.parse(row);
+			const parsed = Schemas.items.parse(row);
 			expect(parsed.id).toBe(row.id);
 		}
 	}, 15_000);

@@ -60,7 +60,7 @@ export interface CreateCollectionInput {
 	sort_field?: string;
 	show_in_dropdown?: boolean;
 	system_field_options?: SystemFieldOptions;
-	/** Composite (multi-column) DB indexes — e.g. [{ columns: ['status', 'superior_tg_id'] }]. */
+	/** Composite (multi-column) DB indexes — e.g. [{ columns: ['status', 'manager_id'] }]. */
 	composite_indexes?: { name?: string; columns: string[] }[];
 	/** Declarative status machine — e.g. { field: 'status', transitions: { pending: ['approved','rejected'] } }. */
 	status_machine?: { field: string; transitions: Record<string, string[]> };

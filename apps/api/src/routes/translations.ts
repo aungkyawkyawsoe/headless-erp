@@ -44,7 +44,7 @@ function getServices(c: Context) {
 	return { db, collSvc: new CollectionService(db, auth) };
 }
 
-// ─── GET /api/translations?lang=my&module=hrm ──────────────
+// ─── GET /api/translations?lang=my&module=orders ──────────────
 
 // 🔒 lang/module are interpolated into the R2 key (`translations/${lang}/${module}.json`)
 // — strict charset validation prevents authenticated users from reading arbitrary

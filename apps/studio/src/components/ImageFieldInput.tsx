@@ -88,7 +88,7 @@ const overlayReveal = 'opacity-0 transition-opacity duration-150 ease-out group-
  *
  * The field stores a URL string — either an R2-served asset (`/api/media/…`,
  * uploaded here or already in the `_media` library) or an external CDN URL.
- * This single value is exactly what the tgapp already renders via `<img>`, so
+ * This single value is exactly what the client app already renders via `<img>`, so
  * an image set here shows verbatim on the phones.
  *
  * Three sources, unified into the one string:

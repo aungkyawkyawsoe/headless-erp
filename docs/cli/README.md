@@ -55,9 +55,9 @@ headless db collections
 ```
 
 **How module registration works:** `module create` creates the entity
-collections via `POST /api/entities`, writes a self-contained mini app plugin
-under `apps/tgapp/src/plugins/<id>/`, and registers the module in the
-backend (`POST /api/modules`). The mini app sidebar dock is **DB-driven** — it
+collections via `POST /api/entities`, writes a self-contained client app plugin
+under `the client app/src/plugins/<id>/`, and registers the module in the
+backend (`POST /api/modules`). The client app sidebar dock is **DB-driven** — it
 reads `GET /api/modules`, so a scaffolded module appears there without editing
 any barrel file.
 
@@ -141,18 +141,18 @@ headless init .        # same, explicit
 #   apps/api/.dev.vars          → ADMIN_*/JWT_SECRET (git-ignored)
 #   apps/api/wrangler.jsonc     → worker name, D1 database_name + placeholder
 #                                ids, R2 bucket, queues, analytics dataset
-#   apps/tgapp/wrangler.jsonc → worker name + API service binding
+#   the client app/wrangler.jsonc → worker name + API service binding
 #   .env.local                  → CLI login defaults (MMBIX_*)
 # Non-interactive (CI):
 headless init . --db-name my-saas-db --admin-email admin@acme.com --admin-name "Acme Admin" --admin-password 'Strong#Pass123'
 
-pnpm dev            # API :8788 · miniapp :5175
+pnpm dev            # API :8788 · client app :5175
 # login with the email/password you chose (or printed at the end of init)
 ```
 
 What you get:
 
-- Full monorepo: `apps/api`, `apps/tgapp`, `packages/*`
+- Full monorepo: `apps/api`, `the client app`, `packages/*`
 - Auth, users/roles, media, saved views, search, reports, audit
 - Full API documentation in `docs/` — start with the [API README](../README.md) and the [collection engine architecture](../concepts/architecture.md) (facade + collaborators, read/write pipelines, performance patterns)
 - No demo data — the database starts as a clean slate (`db seed` only resets it)

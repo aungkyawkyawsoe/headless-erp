@@ -1,7 +1,7 @@
 /**
  * Field formatting — the single source of truth for how record values are
  * rendered as display strings. Shared by the Studio previews (apps/studio) and
- * the runtime pages (apps/tgapp) so preview == runtime.
+ * the runtime pages (the client app) so preview == runtime.
  *
  * Handles every engine field type:
  *   - relations (m2o/m2a → label via display_template `{{name}}` or a smart

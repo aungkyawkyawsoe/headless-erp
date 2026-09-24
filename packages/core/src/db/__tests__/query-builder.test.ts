@@ -130,9 +130,9 @@ describe('QueryBuilder.toInsertMany + onConflict', () => {
 	});
 
 	it('quotes reserved-keyword column names (e.g. `in`) so inserts/upserts work', () => {
-		const stmt = QueryBuilder.from('hr_shifts').onConflict(['id'], 'update').toInsert({ in: '08:00:00', name: 'Shift' });
+		const stmt = QueryBuilder.from('shifts').onConflict(['id'], 'update').toInsert({ in: '08:00:00', name: 'Shift' });
 		expect(stmt.sql).toBe(
-			'INSERT INTO hr_shifts ("in", "name") VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET "in" = excluded."in", "name" = excluded."name"',
+			'INSERT INTO shifts ("in", "name") VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET "in" = excluded."in", "name" = excluded."name"',
 		);
 	});
 });

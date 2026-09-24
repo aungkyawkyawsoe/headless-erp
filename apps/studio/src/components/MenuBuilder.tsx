@@ -78,47 +78,13 @@ function fromTree(nodes: Node[]): MenuNode[] {
 }
 
 /**
- * Icon per collection slug — mirrors the Mini App's per-module icons
- * (apps/tgapp/src/shared/config/launcher-apps.ts) so the Studio's fallback
- * menu tree shows the same glyphs the runtime launcher does. Unknown slugs get
- * a generic folder glyph. Any lucide name works because MenuIcon falls back to
- * the CDN glyph for names not in the local APP_ICONS map.
+ * Icon per collection slug — an OPTIONAL override map. A headless factory ships
+ * it EMPTY: every collection falls back to a generic folder glyph, and any lucide
+ * name works because MenuIcon falls back to the CDN glyph for names not in the
+ * local APP_ICONS map. Add entries here (or a project-local copy) to give
+ * specific slugs their own icon.
  */
-const COLLECTION_ICONS: Record<string, string> = {
-	// HR
-	org_companies: 'building-2',
-	hr_employees: 'users',
-	hr_task_comments: 'messages-square',
-	hr_requests: 'file-text',
-	hr_departments: 'building-2',
-	hr_notifications: 'bell',
-	hr_designations: 'briefcase',
-	hr_attendance: 'fingerprint',
-	hr_shifts: 'calendar',
-	hr_tasks: 'list-todo',
-	// Vehicle
-	vehicle_vehicles: 'car',
-	vehicle_permits: 'scroll-text',
-	vehicle_insurances: 'shield',
-	vehicle_tyres: 'circle-dot',
-	vehicle_tyre_events: 'circle-dot',
-	vehicle_maintenance: 'wrench',
-	vehicle_incidents: 'siren',
-	vehicle_fuel_logs: 'fuel',
-	vehicle_disposals: 'package-x',
-	vehicle_trips: 'route',
-	vehicle_issue_types: 'alert-triangle',
-	// Store
-	store_items: 'package',
-	store_categories: 'folder-open',
-	store_item_models: 'package',
-	store_locations: 'map-pin',
-	store_purchases: 'shopping-cart',
-	store_requests: 'shopping-cart',
-	store_request_items: 'shopping-cart',
-	store_usage: 'arrow-right-left',
-	store_writeoffs: 'package-x',
-};
+const COLLECTION_ICONS: Record<string, string> = {};
 
 /**
  * Build a default menu tree from a module's attached collections — used when the

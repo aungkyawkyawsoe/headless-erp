@@ -142,10 +142,10 @@
 		"ADMIN_USERNAME": "dev@mmbics.com",
 		/**
 		 * Table prefix + business modules served by this worker.
-		 * DOMAIN_MODULES default when unset: 'hr'; 'none' = pure factory.
+		 * DOMAIN_MODULES default when unset: 'idp'; 'none' = pure factory.
 		 */
 		"TABLE_PREFIX": "cms_",
-		"DOMAIN_MODULES": "hr,idp,mro",
+		"DOMAIN_MODULES": "idp",
 		// PBKDF2 cost for NEW password hashes — lowered from the 600k code default
 		// because 600k PBKDF2 throws on this deployment (500 on login/verify).
 		// Stored hashes always verify at their own iteration count.

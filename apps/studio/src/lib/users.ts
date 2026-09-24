@@ -76,7 +76,7 @@ export const IDENTITY_KIND_LABEL: Record<IdentityKind, string> = {
  * employee id.
  *
  * Mirrors what the mini app already shows for an employee
- * (`apps/tgapp/src/modules/employees/data/api.ts`: `name_mm ?? name_en`), so the
+ * (a client names an employee `name_mm` then `name_en`), so the
  * same person cannot read one way in the Users table and another in the app. The
  * Burmese name leads because it is the one the crew uses day to day.
  */
@@ -86,7 +86,7 @@ export function employeeLabelOf(employee: { id: string; name_mm?: unknown; name_
 	return mm || en || employee.id;
 }
 
-/** `hrm_employees.id` → display name, for the one employee read the tab makes. */
+/** directory `.id` → display name, for the one employee read the tab makes. */
 export function employeeNameMap(employees: Array<{ id: string; name_mm?: unknown; name_en?: unknown }>): Map<string, string> {
 	return new Map(employees.map((employee) => [employee.id, employeeLabelOf(employee)]));
 }

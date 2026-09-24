@@ -13,7 +13,7 @@
  * Anti-collision discipline: a LIST key must NEVER be a prefix of its DETAIL
  * key, or invalidating the list silently invalidates every detail. `invalidateQueries`
  * matches by prefix, so `['studio','collections']` would also match
- * `['studio','collections','hrm_employees']`. Hence the explicit `-list` / singular
+ * `['studio','collections','orders']`. Hence the explicit `-list` / singular
  * split: the registry list and a single schema are disjoint subtrees, as are the
  * module list and one module. The rows/items pair is the ONE deliberate prefix.
  */
@@ -54,14 +54,16 @@ export const qk = {
 
 	// ── Live report execution ───────────────────────────────
 	// A report is an AGGREGATE over ONE collection (`StudioReportDef.collection`),
-	// so its key is scoped by that collection: a row write in `hrm_employees`
-	// re-runs the pivot previews over `hrm_employees` and NOTHING else. `key` is the
+	// so its key is scoped by that collection: a row write in `orders`
+	// re-runs the pivot previews over `orders` and NOTHING else. `key` is the
 	// canonical JSON of the definition — the definition IS the identity.
 	reportsFor: (slug: string) => [...qk.all, 'report', slug] as const,
 	report: (slug: string, key: string) => [...qk.all, 'report', slug, key] as const,
 
 	// ── App workbench ────────────────────────────────
 	modules: () => [...qk.all, 'module-list'] as const,
+	/** Server contract (`/api/meta`) — static per deploy, never revalidates. */
+	serverMeta: () => [...qk.all, 'server-meta'] as const,
 	module: (slug: string) => [...qk.all, 'module', slug] as const,
 	pages: () => [...qk.all, 'pages'] as const,
 	menus: (slug: string) => [...qk.all, 'menus', slug] as const,

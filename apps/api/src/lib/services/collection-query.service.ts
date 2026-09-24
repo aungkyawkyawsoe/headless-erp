@@ -310,7 +310,7 @@ export class ItemQueryService {
 		const o2mLimit = Number.isFinite(parsedO2mLimit) && parsedO2mLimit > 0 ? Math.min(Math.trunc(parsedO2mLimit), 500) : 50;
 		// When the caller projected columns (?fields=), resolve ONLY the relations
 		// those columns reference — never the whole schema's relation graph. This
-		// makes ?fields= skip unused O2M/M2O fetches (e.g. the Fleet list asks for
+		// makes ?fields= skip unused O2M/M2O fetches (e.g. a list asks for
 		// `permits,insurances` and stops paying for `maintenance/trips/fuel_logs`).
 		// With no selection at all the lean default applies (no relations).
 		items = await this.relations.resolveRelations(
@@ -542,7 +542,7 @@ export class ItemQueryService {
 		const flat = parsed.filters.map((f) => f.field);
 		// The ORDER BY column: a TRAILING sort column is what lets the planner serve
 		// the order from the index instead of building a temp B-tree on every page —
-		// the `?sort=plate_no` fleet list case. A default created_at/updated_at sort
+		// the `?sort=name` list case. A default created_at/updated_at sort
 		// is already covered by the (deleted_at, created_at, id) backfill index.
 		const sort = parsed.sorts[0] && !['created_at', 'updated_at'].includes(parsed.sorts[0].field) ? parsed.sorts[0].field : '';
 		// Nothing worth indexing: a lone filter (a field-level index already covers

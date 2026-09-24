@@ -34,8 +34,8 @@ Emits `src/generated/schema.ts` — the **single source of truth**:
 
 ```ts
 export const HrAttendanceSchema = z.object({ ... });
-export type Schema = { 'hr_attendance': z.infer<typeof HrAttendanceSchema>; ... };
-export const Schemas = { 'hr_attendance': HrAttendanceSchema, ... };
+export type Schema = { 'records': z.infer<typeof HrAttendanceSchema>; ... };
+export const Schemas = { 'records': HrAttendanceSchema, ... };
 ```
 
 - Types are `z.infer<schema>` — **compile-time and runtime can never diverge**;
@@ -67,19 +67,19 @@ if (login.status === 'approved') {
 await client.auth.loginPassword(email, password);
 
 // Typed CRUD — compile-time checked against the generated Schema
-const page = await client.items('hr_attendance').list({
-	filter: { employee_tg_id: { _eq: tgId }, timestamp: { _gte: iso } },
+const page = await client.items('records').list({
+	filter: { person_id: { _eq: tgId }, timestamp: { _gte: iso } },
 	fields: ['id', 'type', 'timestamp', 'status'], // dot paths expand relations
 	sort: '-timestamp',
 	limit: 24,
 });
-const next = await client.items('hr_attendance').list({ cursor: page.meta.next_cursor });
+const next = await client.items('records').list({ cursor: page.meta.next_cursor });
 
-const created = await client.items('hr_attendance').create(
+const created = await client.items('records').create(
 	{ type: 'check-in', timestamp: new Date().toISOString() },
 	{ id: uuid(), idempotencyKey: 'k1' }, // replay-safe
 );
-const updated = await client.items('hr_attendance').update(
+const updated = await client.items('records').update(
 	id,
 	{ note: 'x' },
 	{ ifMatch: created.updated_at }, // optimistic concurrency (409 on stale)
@@ -87,17 +87,17 @@ const updated = await client.items('hr_attendance').update(
 
 // One view = ONE round trip — batch every read the view renders (POST /api/query)
 const { results } = await client.queryMany([
-	{ key: 'cards', collection: 'hr_attendance', query: { limit: 24, sort: '-timestamp' } },
+	{ key: 'cards', collection: 'records', query: { limit: 24, sort: '-timestamp' } },
 	{ key: 'hero', collection: 'hr_employees', query: { fields: ['name_mm'] } },
 ]);
 // results: [{ key: 'cards', ok: true, data: [...] }, ...] — per-key error isolation
 
 // Permission-aware pruning — never ask for fields the role can't see
 const allowed = await client.fieldRestrictions('hr_employees'); // ['id','name',...] | null
-await client.pruneFields('hr_attendance', ['id', 'salary']); // -> ['id'] when salary hidden
+await client.pruneFields('records', ['id', 'salary']); // -> ['id'] when salary hidden
 
 // Runtime purification — parse any API response with the generated schema
-Schemas.hr_attendance.parse(row);
+Schemas.records.parse(row);
 ```
 
 ## 4. Composable client (Directus-style `.with()`)
@@ -270,15 +270,15 @@ switch or a token rotation never warns about writes that do not exist.
 
 ```ts
 const { data } = useView({
-	cards: { collection: 'hr_attendance', query: { filter: { employee_tg_id: { _eq: tgId } }, limit: 24 } },
+	cards: { collection: 'records', query: { filter: { person_id: { _eq: tgId } }, limit: 24 } },
 	hero: { collection: 'hr_employees', query: { fields: ['name_mm', 'photo_url'] } },
 });
 // data.cards / data.hero — ONE round trip total.
 ```
 
-## 10. Worked example — the miniapp pattern
+## 10. Worked example — the client app pattern
 
-`apps/tgapp` routes EVERY data operation through one app-wide client
+`the client app` routes EVERY data operation through one app-wide client
 (`src/shared/api/sdk.ts`): entity CRUD (`sdk.items(...)`), auth (`sdk.auth.*`),
 list reads (the `sdkListPage` / `sdkListAll` / `sdkListAllPages` bridges),
 server actions + media (`sdk.request`), plus the offline queue / error toasts /

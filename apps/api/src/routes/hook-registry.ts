@@ -4,7 +4,7 @@
  * Read-only admin surface for the COMPILED lifecycle hooks registered at boot
  * (and at runtime by plugins). Unlike `/api/server-functions` (the DECLARATIVE
  * JSON rules stored in `_server_functions`), these hooks are TypeScript handlers
- * living in the worker — veh-relink (fleet current-doc pointers), the
+ * living in the worker — a domain module's denorm/guard hooks, and the
  * `pluginHookRegistry` registrations plugins make via `ctx.hooks.on`. There is
  * no database row to list, so Studio reads this endpoint instead.
  *

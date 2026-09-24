@@ -4,7 +4,7 @@ import { cache } from '../cache-layer';
 
 describe('ResponseCache helpers', () => {
 	it('fnv1a is deterministic and collision-resistant enough for cache keys', () => {
-		expect(fnv1a('hr_tasks?filter[assignee_tg_id][_eq]=2')).toBe(fnv1a('hr_tasks?filter[assignee_tg_id][_eq]=2'));
+		expect(fnv1a('orders?filter[assignee][_eq]=2')).toBe(fnv1a('orders?filter[assignee][_eq]=2'));
 		expect(fnv1a('a')).not.toBe(fnv1a('b'));
 		expect(fnv1a('')).toBe(fnv1a(''));
 	});
@@ -31,12 +31,12 @@ describe('read-invalidation observer (change-envelope seam)', () => {
 		const seen: Array<[string, string | undefined]> = [];
 		setReadInvalidationObserver((collection, id) => seen.push([collection, id]));
 
-		invalidateCollectionReads('mro_inbounds', 'inv-1');
-		invalidateCollectionReads('mro_inventory');
+		invalidateCollectionReads('orders', 'inv-1');
+		invalidateCollectionReads('stock');
 
 		expect(seen).toEqual([
-			['mro_inbounds', 'inv-1'],
-			['mro_inventory', undefined],
+			['orders', 'inv-1'],
+			['stock', undefined],
 		]);
 	});
 

@@ -3,7 +3,7 @@
 The reusable engine layer — **headless, tree-shaken, import-what-you-use**.
 Pure functions and the safe rule engine that every declarative surface plugs
 into. No Cloudflare APIs, no IO — runs in the API worker, plugin workers,
-miniapp BFF, Studio (browser) and the CLI.
+client app BFF, Studio (browser) and the CLI.
 
 | Doc                                             | What It Covers                                                         |
 | ----------------------------------------------- | ---------------------------------------------------------------------- |

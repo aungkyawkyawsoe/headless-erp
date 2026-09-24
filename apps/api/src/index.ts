@@ -4,11 +4,11 @@
  * Modular by configuration. To disable a feature, comment out its line.
  * Bundle impact: ~2-5KB per feature group, ~10KB base.
  */
-import { Hono } from 'hono';
+import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import { D1Client, QueryBuilder, setReadInvalidationObserver, configureDbLiveness } from '@mmbix/core';
-import { initConfig, buildConfig, isModuleEnabled as cfgIsModuleEnabled, APP_VERSION, MAX_AGGREGATE_GROUPS } from '@mmbix/config';
-import { API_ERROR_CODES } from '@mmbix/types';
+import { initConfig, buildConfig, isPluginEnabled, isModuleEnabled, APP_VERSION, MAX_AGGREGATE_GROUPS } from '@mmbix/config';
+import { API_ERROR_CODES, modulePath } from '@mmbix/types';
 import { AuthService, type AuthContext } from '@/lib/services/auth.service';
 
 // Shared middleware
@@ -33,7 +33,6 @@ import type { SchedulerEnv } from '@mmbix/scheduler';
 // Scheduled + queue handlers
 import { runScheduledBackup } from './scheduled/backup';
 import { runAuditRetention } from './scheduled/maintenance';
-import { runTaskDigest } from './domain-modules/hr/task-engine.service';
 import { webhookQueueConsumer, type WebhookQueueMessage } from './queue/webhook-queue';
 
 // Durable Object classes must be exported from the entrypoint (wrangler requirement)
@@ -84,12 +83,14 @@ import { customBlockRoutes } from './routes/custom-blocks';
 import { mveRoutes } from './routes/mve';
 // v1.6: Query batch — one-view-one-round-trip reads (generic consolidation)
 import { queryRoutes } from './routes/query';
-// Domain-module registry (config-gated business verticals)
-import { mountDomainModules } from './domain-modules';
+// Domain-module registry (config-gated verticals — ships the IDP admin module)
+import { bootModuleHooks, moduleManifests, mountDomainModules } from './domain-modules';
 // v1.5: Operations & self-tuning telemetry (index-advisor observability)
 import { operationsRoutes } from './routes/operations';
 // v1.5: Runtime feature policies (headless control plane)
 import { policyRoutes } from './routes/policies';
+// Generic data-quality (anomaly) surface — runs a collection's integrity rules.
+import { integrityRoutes } from './routes/integrity';
 // Code-hook registry introspection (admin-only — Studio's lifecycle-hook viewer)
 import { hookRegistryRoutes } from './routes/hook-registry';
 // v1.7+: R2 Data Catalog (Iceberg) read-only analytics client — env-gated.
@@ -150,13 +151,6 @@ import type { PluginContext } from '@mmbix/types/worker';
 // export,media,scheduler,reports,audit,webhooks}). These features are implemented in
 // src/routes/*.ts with proper auth middleware — the plugin versions lacked auth
 // enforcement and caused route conflicts. The 14 plugins below are the only registrations.
-
-/** Domain-module gate — the API is a GENERIC entity engine; /api/hr + /api/mro
- *  are business modules. DOMAIN_MODULES env (default 'hr', 'none' = pure
- *  factory) controls which ship. Delegates to @mmbix/config (single source). */
-function isModuleEnabled(env: unknown, module: string): boolean {
-	return cfgIsModuleEnabled((env ?? {}) as Record<string, unknown>, module);
-}
 
 // ─── App ──────────────────────────────────────────────
 
@@ -458,6 +452,22 @@ app.get('/api/meta', async (c) => {
 			version: APP_VERSION,
 			pagination: { default_page_size: cfg.api.defaultLimit, max_page_size: cfg.api.maxLimit },
 			aggregate: { max_groups: MAX_AGGREGATE_GROUPS },
+			// Identity contract — the configured employee-directory collection +
+			// field (config-driven, may be null). Clients that need to resolve an
+			// account's acting employee read it from here instead of hardcoding a
+			// collection name.
+			identity: {
+				directory_collection: cfg.telegram.directoryCollection || null,
+				directory_field: cfg.telegram.directoryField || null,
+			},
+			// Discovery — WHAT this deployment ships. A client/ops surface learns the
+			// mounted modules (code manifests) and the enabled plugins from one read,
+			// instead of guessing or hardcoding names. Single source: the same
+			// `isModuleEnabled` / `isPluginEnabled` gates the routes use.
+			modules: moduleManifests
+				.filter((m) => isModuleEnabled(c.env ?? {}, m.id))
+				.map((m) => ({ id: m.id, name: m.name, version: m.version, path: modulePath(m) })),
+			plugins: plugins.filter((p) => isPluginEnabled(c.env ?? {}, p.id)).map((p) => p.id),
 			rate_limits: {
 				anonymous: RATE_LIMIT_TIERS.anonymous,
 				authenticated: RATE_LIMIT_TIERS.authenticated,
@@ -616,14 +626,32 @@ const plugins = [
 	jobsPlugin(),
 ];
 
-// Plugin-declared D1 migrations run once per isolate (tracked in _migrations).
-// Registered BEFORE core routes so plugin tables (e.g. _server_functions,
-// _workflows, _marketplace_plugins) exist by the time the entity pipeline
-// touches them from any route — core routes included.
-const pluginMigrationService = new PluginMigrationService(plugins.flatMap((p) => p.migrations ?? []));
+// Plugin-declared D1 migrations run once per isolate (tracked in _migrations),
+// FILTERED to the plugins this deployment enables (`PLUGINS`). Registered BEFORE
+// core routes so plugin tables (e.g. _server_functions, _workflows,
+// _marketplace_plugins) exist by the time the entity pipeline touches them from
+// any route — core routes included.
+const pluginMigrationServices = new Map<string, PluginMigrationService>();
+function pluginMigrationServiceFor(env: Record<string, unknown>): PluginMigrationService {
+	const enabled = plugins.filter((p) => isPluginEnabled(env, p.id));
+	const key = enabled.map((p) => p.id).join(',');
+	let svc = pluginMigrationServices.get(key);
+	if (!svc) {
+		svc = new PluginMigrationService(
+			enabled.flatMap((p) => p.migrations ?? []),
+			key,
+		);
+		pluginMigrationServices.set(key, svc);
+	}
+	return svc;
+}
 app.use('*', async (c, next) => {
+	// Boot the compiled hooks of every ENABLED domain module — ONCE per isolate.
+	// They fire on engine collections (not just the module's own routes), so they
+	// must be live before any route runs.
+	bootModuleHooks(c.env as Record<string, unknown>);
 	try {
-		await pluginMigrationService.runPending(new D1Client((c.env as { DB: D1Database }).DB));
+		await pluginMigrationServiceFor(c.env as Record<string, unknown>).runPending(new D1Client((c.env as { DB: D1Database }).DB));
 	} catch (err) {
 		console.error('[plugin-migration] failed:', err instanceof Error ? err.message : err);
 	}
@@ -667,8 +695,8 @@ app.route('/api/api-keys', apiKeyRoutes);
 app.route('/api/custom-blocks', customBlockRoutes);
 // v1.2: MVE templates (MiniApp module layouts)
 app.route('/api/mve', mveRoutes);
-// v1.3+ Domain modules (hr/store) — config-gated business verticals mounted
-// from domain-modules/ (the factory core stays domain-agnostic).
+// v1.3+ Domain modules — config-gated verticals mounted from domain-modules/
+// (the factory core stays domain-agnostic). Ships the IDP admin module.
 mountDomainModules(app);
 // v1.6: Query batch — one-view-one-round-trip reads (generic consolidation)
 app.route('/api/query', queryRoutes);
@@ -676,11 +704,13 @@ app.route('/api/query', queryRoutes);
 app.route('/api/operations', operationsRoutes);
 // v1.5: Runtime feature policies — enable/configure/dispose per collection
 app.route('/api/collections/:slug/policies', policyRoutes);
+// Generic integrity checks — bounded data-quality rules declared per collection.
+app.route('/api/collections/:slug/integrity', integrityRoutes);
 // v1.7+: R2 Data Catalog (Iceberg) read-only analytics — admin, env-gated by
 // R2_SQL_TOKEN + ENABLE_R2_LAKE. Falls empty (404) when not enabled.
 app.route('/api/r2sql', r2sqlRoutes);
 
-// ─── Plugin Routes (composable enterprise features) ───
+// ─── Plugin Routes (composable enterprise features; env-gated by PLUGINS) ───
 
 for (const plugin of plugins) {
 	// Note: plugins access DB via c.env.DB at request time, not via ctx.d1.
@@ -697,7 +727,21 @@ for (const plugin of plugins) {
 		(ctx as unknown as Record<string, unknown>)._migrations = plugin.migrations;
 	}
 	const reg = plugin.register(ctx);
-	if (reg.routes) for (const r of reg.routes) app.route(r.path, r.handler);
+	if (reg.routes)
+		for (const r of reg.routes) {
+			// Per-request gate: a plugin disabled via `PLUGINS` answers 404 and
+			// exposes no reachable route. Registered BEFORE the handler so it covers
+			// both the exact path and every subpath.
+			const gate = async (c: Context, next: Next) => {
+				if (!isPluginEnabled(c.env as Record<string, unknown>, plugin.id)) {
+					return c.json({ success: false, error: `Route not found: ${c.req.method} ${c.req.path}` }, 404);
+				}
+				await next();
+			};
+			app.use(r.path, gate);
+			app.use(`${r.path}/*`, gate);
+			app.route(r.path, r.handler);
+		}
 }
 
 // Code-hook registry introspection — read-only, admin-gated. Reads the compiled
@@ -888,19 +932,6 @@ const workerHandlers = {
 				if (pruned > 0) console.info(`[scheduled] event deliveries pruned ${pruned} rows`);
 			} catch (err) {
 				console.error('[scheduled] event deliveries prune failed:', err instanceof Error ? err.message : String(err));
-			}
-		}
-		// HR module: meeting-task follow-up digest — part of the HR business
-		// module, gated by DOMAIN_MODULES ('hr' must be enabled). Cron 08:30
-		// (wrangler.jsonc) so the 02:00 nightly backup never fires morning
-		// reminders. The service degrades gracefully when hr_* collections
-		// aren't seeded yet.
-		if (isModuleEnabled(e, 'hr') && controller.cron === '30 8 * * *') {
-			try {
-				const result = await runTaskDigest(e, new D1Client(e.DB as D1Database));
-				if (result.tasks > 0) console.info('[scheduled] task digest:', JSON.stringify(result));
-			} catch (err) {
-				console.error('[scheduled] task digest failed:', err instanceof Error ? err.message : String(err));
 			}
 		}
 	},

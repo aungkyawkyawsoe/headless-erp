@@ -25,9 +25,9 @@ mmbix-typegen --schema ./schema.json --out ./src/generated
 Emits `src/generated/schema.ts` — the **single source of truth**:
 
 ```ts
-export const HrAttendanceSchema = z.object({ ... });
-export type Schema = { 'hr_attendance': z.infer<typeof HrAttendanceSchema>; ... };
-export const Schemas = { 'hr_attendance': HrAttendanceSchema, ... };
+export const RecordsSchema = z.object({ ... });
+export type Schema = { 'records': z.infer<typeof RecordsSchema>; ... };
+export const Schemas = { 'records': RecordsSchema, ... };
 ```
 
 Computed fields are typed by their `result_type`: **stored** formulas
@@ -58,19 +58,19 @@ if (login.status === 'approved') {
 await client.auth.loginPassword(email, password);
 
 // Typed CRUD — compile-time checked against the generated Schema
-const page = await client.items('hr_attendance').list({
-	filter: { employee_tg_id: { _eq: tgId }, timestamp: { _gte: iso } },
+const page = await client.items('records').list({
+	filter: { person_id: { _eq: tgId }, timestamp: { _gte: iso } },
 	fields: ['id', 'type', 'timestamp', 'status'], // dot paths expand relations
 	sort: '-timestamp',
 	limit: 24,
 });
-const next = await client.items('hr_attendance').list({ cursor: page.meta.next_cursor });
+const next = await client.items('records').list({ cursor: page.meta.next_cursor });
 
-const created = await client.items('hr_attendance').create(
+const created = await client.items('records').create(
 	{ type: 'check-in', timestamp: new Date().toISOString() },
 	{ id: uuid(), idempotencyKey: 'k1' }, // replay-safe
 );
-const updated = await client.items('hr_attendance').update(
+const updated = await client.items('records').update(
 	id,
 	{ note: 'x' },
 	{
@@ -80,17 +80,17 @@ const updated = await client.items('hr_attendance').update(
 
 // One view = ONE round trip — batch every read the view renders (POST /api/query)
 const { results } = await client.queryMany([
-	{ key: 'cards', collection: 'hr_attendance', query: { limit: 24, sort: '-timestamp' } },
+	{ key: 'cards', collection: 'records', query: { limit: 24, sort: '-timestamp' } },
 	{ key: 'hero', collection: 'hr_employees', query: { fields: ['name_mm'] } },
 ]);
 // results: [{ key: 'cards', ok: true, data: [...] }, ...] — per-key error isolation
 
 // Permission-aware pruning — never ask for fields the role can't see
 const allowed = await client.fieldRestrictions('hr_employees'); // ['id','name',...] | null
-await client.pruneFields('hr_attendance', ['id', 'salary']); // -> ['id'] when salary hidden
+await client.pruneFields('records', ['id', 'salary']); // -> ['id'] when salary hidden
 
 // Runtime purification — parse any API response with the generated schema
-Schemas.hr_attendance.parse(row);
+Schemas.records.parse(row);
 ```
 
 ## 3. Composable client (Directus-style `.with()`)
@@ -155,7 +155,7 @@ size within it — it can never exceed the ceiling:
 ```ts
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalizePageSize } from '@mmbix/sdk';
 
-await client.items('hr_attendance').list({}); // limit=25 (explicit)
+await client.items('records').list({}); // limit=25 (explicit)
 await client.items('vehicle_tyres').list({ limit: 300 }); // limit=100 (clamped)
 
 // Discover the server's contract at runtime (a deployment may differ) — the
@@ -283,7 +283,7 @@ a server-side write, even when the body carries no client UUID.
 
 ### The miniapp is fully on the SDK
 
-`apps/tgapp` routes EVERY data operation through one app-wide client
+`a client app` routes EVERY data operation through one app-wide client
 (`src/shared/api/sdk.ts`): entity CRUD, auth (`sdk.auth.*`), list reads, server
 actions and media uploads — with the offline write queue wired into that same
 client. `src/shared/platform/offline.ts` is the app-side facade (cached pending

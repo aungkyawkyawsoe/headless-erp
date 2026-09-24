@@ -172,7 +172,7 @@ only for legacy relations that predate the guard.
 ### `cascade_delete: false` — RESTRICT
 
 ```json
-{ "name": "supplier", "type": "m2o", "required": false, "related_collection": "mro_suppliers", "cascade_delete": false }
+{ "name": "supplier", "type": "m2o", "required": false, "related_collection": "suppliers", "cascade_delete": false }
 ```
 
 A soft delete is refused with **`409 CONFLICT`** while any live child row still
@@ -194,4 +194,4 @@ points at the parent:
   relations are unaffected.
 - The admin-only `DELETE ... /force` **bypasses** RESTRICT for a deliberate purge.
 - Clients should surface the server message as-is: it names the exact collection
-  still holding references (the miniapp's masters edit pages do this inline).
+  still holding references (the client app's masters edit pages do this inline).

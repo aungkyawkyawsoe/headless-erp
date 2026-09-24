@@ -528,7 +528,7 @@ const MIGRATIONS: Migration[] = [
 		name: '028_role_app_access',
 		up: [
 			// Design-B role→app access: which mini-app launcher ids a role may open.
-			// Stored as a JSON array of tgapp registry `AppDefinition.id`s (e.g.
+			// Stored as a JSON array of client app registry `AppDefinition.id`s (e.g.
 			// ["attendance","tyres",…]). NULL/absent ⇒ the role may open every app
 			// (Administrator + roles not yet curated). Re-exposed on /auth/me so the
 			// launcher can filter tiles per role.
@@ -583,12 +583,12 @@ const MIGRATIONS: Migration[] = [
 		name: '035_users_employee_id',
 		up: [
 			// `_users.employee_id` — the ONE link between a LOGIN identity and the
-			// employee it acts as. It exists because a password (web) login had no
-			// acting employee at all: the token was minted with no `employee_id`, so
-			// every server-scoped HR/MRO action (punch, leave, custody, transfers)
-			// refused a web session, and offboarding an employee left their web
-			// account working — unlike the Telegram gate, which revokes through
-			// `hrm_employees.etg_id`.
+			// directory record it acts as. It exists because a password (web) login
+			// had no acting employee at all: the token was minted with no
+			// `employee_id`, so every server-scoped action (punch, leave, custody,
+			// transfers) refused a web session, and offboarding an employee left
+			// their web account working — unlike the Telegram gate, which revokes
+			// through the directory's configured tg-id field.
 			//
 			// Nullable on purpose: the bootstrap admin and Telegram-provisioned rows
 			// have no link (their acting employee is derived from the token's
@@ -599,6 +599,18 @@ const MIGRATIONS: Migration[] = [
 			// the Users table resolves a dozen links per page — an index keeps both a
 			// bounded point/range read instead of a scan of every account.
 			QueryBuilder.raw('CREATE INDEX IF NOT EXISTS idx_users_employee_id ON _users (employee_id)'),
+		],
+	},
+	{
+		name: '036_role_permissions_lineage',
+		up: [
+			// Permission lineage — WHAT wrote each grant, so "where did this role's
+			// read on `X` come from?" is answerable: an admin edit in the Studio
+			// (`admin`), a Telegram role provisioner (`provisioner`), or a domain
+			// module's manifest (`manifest` + `source_module`). Nullable so rows
+			// written before lineage existed stay valid.
+			QueryBuilder.raw('ALTER TABLE _role_permissions ADD COLUMN source TEXT DEFAULT NULL'),
+			QueryBuilder.raw('ALTER TABLE _role_permissions ADD COLUMN source_module TEXT DEFAULT NULL'),
 		],
 	},
 ];

@@ -2,7 +2,7 @@
 /**
  * APPLY the declared runtime policies for ONE collection onto a REMOTE D1.
  *
- *   node scripts/apply-collection-policy-remote.mjs --collection veh_maintenance_logs [--apply]
+ *   node scripts/apply-collection-policy-remote.mjs --collection orders [--apply]
  *
  * WHY: `schema-defs.json` is the single source of truth for the mro module's
  * collection policies (write locks, confirmable docs, search mode, …). The

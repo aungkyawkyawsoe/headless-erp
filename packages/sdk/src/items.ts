@@ -1,5 +1,5 @@
 /**
- * Fluent typed CRUD over the entity engine: `client.items('hr_attendance')`.
+ * Fluent typed CRUD over the entity engine: `client.items('records')`.
  *
  * Write operations are replay-safe by design:
  *   - `create` attaches a client-generated UUID — a retried/replayed POST can

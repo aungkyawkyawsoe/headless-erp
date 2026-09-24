@@ -49,7 +49,7 @@ const { data } = useItems('hr_employees', { fields: '*' }, { respectPermissions:
 
 ```ts
 const { data } = useView({
-	cards: { collection: 'hr_attendance', query: { filter: { employee_tg_id: { _eq: tgId } }, limit: 24 } },
+	cards: { collection: 'records', query: { filter: { person_id: { _eq: tgId } }, limit: 24 } },
 	hero: { collection: 'hr_employees', query: { fields: ['name_mm', 'photo_url'] } },
 });
 // data.cards / data.hero — ONE round trip total.
@@ -58,9 +58,9 @@ const { data } = useView({
 ### Zero-stale writes
 
 ```ts
-const { mutateAsync } = useCreateItem('hr_attendance');
+const { mutateAsync } = useCreateItem('records');
 await mutateAsync({ body: { type: 'check-in', timestamp: new Date().toISOString() } });
-// → invalidates every 'hr_attendance' query — all mounted lists refetch.
+// → invalidates every 'records' query — all mounted lists refetch.
 ```
 
 ## Testing
@@ -71,7 +71,7 @@ pnpm --filter @mmbix/sdk-react test   # vitest (jsdom): dedupe/cache/invalidatio
 
 ## Miniapp integration pattern (worked example)
 
-`apps/tgapp` routes EVERY data operation through the SDK app-wide
+`a client app` routes EVERY data operation through the SDK app-wide
 (`SdkProvider` in `src/app/App.tsx` + the single gateway client in
 `src/shared/api/sdk.ts`): auth (`sdk.auth.*`), entity CRUD (`sdk.items(...)`),
 list reads (the `sdkListPage`/`sdkListAll`/`sdkListAllPages` bridges), server

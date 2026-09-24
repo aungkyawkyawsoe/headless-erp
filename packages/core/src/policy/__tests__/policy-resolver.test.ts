@@ -103,6 +103,33 @@ describe('resolvePolicy', () => {
 	});
 
 	it('advertises every discoverable feature', () => {
-		expect(policyFeatures()).toEqual(['auto_index', 'cache', 'offline_reads', 'writes', 'search', 'actor_fields', 'audit', 'hooks']);
+		expect(policyFeatures()).toEqual([
+			'auto_index',
+			'cache',
+			'offline_reads',
+			'writes',
+			'search',
+			'integrity',
+			'actor_fields',
+			'audit',
+			'hooks',
+		]);
+	});
+
+	it('leaves integrity OFF by default and clamps the rule limit', () => {
+		expect(resolvePolicy(undefined).integrity).toEqual({ enabled: false, limit: 100, rules: [] });
+		const p = resolvePolicy({
+			integrity: { enabled: true, limit: 5000, rules: [{ type: 'duplicate', fields: ['code'] }] },
+		});
+		expect(p.integrity.enabled).toBe(true);
+		expect(p.integrity.limit).toBe(1000); // clamped to the ceiling
+		expect(p.integrity.rules).toHaveLength(1);
+	});
+
+	it('drops malformed integrity rules during resolution', () => {
+		const rules = resolvePolicy({
+			integrity: { enabled: true, rules: [{ type: 'stale', max_age_days: 7 }, null as never, { nope: 1 } as never] },
+		}).integrity.rules;
+		expect(rules).toEqual([{ type: 'stale', max_age_days: 7 }]);
 	});
 });

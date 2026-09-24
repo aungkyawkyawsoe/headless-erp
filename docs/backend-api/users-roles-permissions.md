@@ -28,7 +28,7 @@ curl -X POST http://localhost:8788/api/users \
 ```
 
 **Validation:** valid email, password >= 6 chars, `full_name` required. An
-`employee_id` (see below) must name a LIVE `hrm_employees` row — a link to a
+`employee_id` (see below) must name a LIVE `directory` row — a link to a
 missing or deactivated employee is refused with `400`, because the resulting
 account could never sign in.
 
@@ -100,7 +100,7 @@ accounts, and the identities the Telegram login route provisions — and carries
 | ------------ | ------------------------------------------------------------------------ |
 | Account      | `full_name`, with the email beneath it                                   |
 | Signs in via | `Password` (an email + password account) or `Telegram` (directory-gated) |
-| Employee     | The `hrm_employees` row the account acts as, or `Not linked`             |
+| Employee     | The `directory` row the account acts as, or `Not linked`                 |
 | Role         | The `_roles` name for the row's `role_id`                                |
 | Status       | `active` / `disabled` — the sign-in switch, see above                    |
 | Last sign-in | `Never` when the account has not signed in yet                           |
@@ -129,7 +129,7 @@ Guarantees the UI holds to:
   one fact two sources of truth.
 - **An operator cannot disable their own account.** That would revoke the session
   they are using, and recovery is another admin, not this screen.
-- **A deployment with no `hrm_employees` collection still works** (the factory
+- **A deployment with no `directory` collection still works** (the factory
   core, `DOMAIN_MODULES=none`): the employee read degrades, the picker is
   disabled, and the table says so — accounts stay administrable.
 
@@ -210,7 +210,7 @@ Dynamic variables (resolved by `DataFilterService._resolveVariable`):
 > sees an empty list rather than an error. Check the resolved filter if a role
 > suddenly sees zero rows. The Telegram id is not on `AuthContext`; it is only
 > recoverable from `email` (`tg-<id>@telegram.local`), so a row filter keyed on
-> `employee_tg_id` needs `AuthContext` extended first.
+> `person_id` needs `AuthContext` extended first.
 
 > 🔒 **Row filters gate WRITES and DECISIONS, not just reads.** Every update /
 > delete / restore runs `checkRowFilterAccess` first, and both the workflow engine

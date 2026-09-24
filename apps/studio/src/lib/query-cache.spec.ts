@@ -108,8 +108,8 @@ beforeEach(() => {
 
 describe('query keys — prefix discipline', () => {
 	it('qk.rows(slug) is a PREFIX of every qk.items(slug, params)', () => {
-		const rows = [...qk.rows('hrm_employees')];
-		const items = [...qk.items('hrm_employees', { limit: 25 })];
+		const rows = [...qk.rows('orders')];
+		const items = [...qk.items('orders', { limit: 25 })];
 		expect(items.slice(0, rows.length)).toEqual(rows);
 	});
 
@@ -130,8 +130,8 @@ describe('query keys — prefix discipline', () => {
 	});
 
 	it('qk.reportsFor(slug) is a PREFIX of every qk.report(slug, key)', () => {
-		const forSlug = [...qk.reportsFor('hrm_employees')];
-		const one = [...qk.report('hrm_employees', '{"rowDimensions":[]}')];
+		const forSlug = [...qk.reportsFor('orders')];
+		const one = [...qk.report('orders', '{"rowDimensions":[]}')];
 		expect(one.slice(0, forSlug.length)).toEqual(forSlug);
 	});
 

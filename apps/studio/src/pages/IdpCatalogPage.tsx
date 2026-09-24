@@ -145,7 +145,7 @@ export default function IdpCatalogPage({ token, user }: { token: string; user: {
 						onCreate={() => setCreateOpen(true)}
 						toolbarIconOnly
 						// Row click opens the app's schema designer (AppDetailPage auto-selects
-						// the first collection, e.g. /apps/hr?collection=org_companies).
+						// the first collection, e.g. /apps/orders?collection=customers).
 						onRowClick={(row) => navigate(`/apps/${row.slug}`)}
 					/>
 				)}

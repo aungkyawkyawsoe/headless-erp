@@ -52,7 +52,7 @@ through the same entity engine (per-collection row filters + field restrictions
 curl -X POST http://localhost:8788/api/query \
   -H 'Authorization: Bearer dev-token' -H 'Content-Type: application/json' \
   -d '{"queries": [
-    {"key": "cards", "collection": "hr_attendance", "params": {"limit": "24", "sort": "-timestamp"}},
+    {"key": "cards", "collection": "records", "params": {"limit": "24", "sort": "-timestamp"}},
     {"key": "hero",  "collection": "hr_employees",  "params": {"fields": "id,name_mm,eid"}}
   ]}'
 ```
@@ -176,11 +176,11 @@ curl -X POST http://localhost:8788/api/collections \
 keyed by slug, in `data.related_schemas`:
 
 ```bash
-curl 'http://localhost:8788/api/collections/hrm_employees?with=relation_schemas' \
+curl 'http://localhost:8788/api/collections/directory?with=relation_schemas' \
   -H 'Authorization: Bearer dev-token'
 # → { "data": { ...schema, "related_schemas": {
-#       "hrm_departments":   { ...full schema row... },
-#       "hrm_designations":  { ...full schema row... } } } }
+#       "departments":   { ...full schema row... },
+#       "designations":  { ...full schema row... } } } }
 ```
 
 Each bundled value is the EXACT object a direct `GET /api/collections/:slug`
@@ -342,7 +342,7 @@ curl "http://localhost:8788/api/entities/users?fields=*,-password" -H 'Authoriza
 - An expanded relation object always includes `id` plus the requested columns (or all columns for `*` / bare-name forms).
 - Unknown field names are ignored (never a 500); unknown dotted paths resolve to nothing.
 - The schema-level `list_fields` projection still applies when `?fields=` is omitted (leaner SELECT), and relation names inside it are expanded the same way.
-- **A selection is capped at `MAX_FIELD_SELECTIONS` (100) flat comma-separated entries**, counted before parsing (`*` included) — a larger list is rejected with `VALIDATION_ERROR`. The ceiling is shared from `@mmbix/types` (not hardcoded per caller) so a client that BUILDS a projection can stay legal by construction: the Studio's table projection spends the same budget, and a relation-heavy collection (`mro_serial_events` — 6 m2o fields × ~18 entries) previously tripped it and blanked the whole table read.
+- **A selection is capped at `MAX_FIELD_SELECTIONS` (100) flat comma-separated entries**, counted before parsing (`*` included) — a larger list is rejected with `VALIDATION_ERROR`. The ceiling is shared from `@mmbix/types` (not hardcoded per caller) so a client that BUILDS a projection can stay legal by construction: the Studio's table projection spends the same budget, and a relation-heavy collection (`serial_events` — 6 m2o fields × ~18 entries) previously tripped it and blanked the whole table read.
 - **Detail reads** (`GET /:collection/:id`, tRPC `entity.get`) accept the **same** `?fields=` syntax with identical semantics — one consistent behavior everywhere.
 - There is no legacy mode: list and detail reads share one standard behavior.
 

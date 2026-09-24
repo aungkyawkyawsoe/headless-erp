@@ -38,7 +38,17 @@ function getService(c: Context<PolicyBindings>): CollectionService {
 	return new CollectionService(new D1Client(c.env.DB), c.get('auth'));
 }
 
-const POLICY_TOP_LEVEL = new Set(['auto_index', 'cache', 'offline_reads', 'writes', 'search', 'actor_fields', 'audit', 'hooks']);
+const POLICY_TOP_LEVEL = new Set([
+	'auto_index',
+	'cache',
+	'offline_reads',
+	'writes',
+	'search',
+	'integrity',
+	'actor_fields',
+	'audit',
+	'hooks',
+]);
 
 app.get('/', async (c) => {
 	const svc = getService(c);
@@ -156,6 +166,28 @@ app.put('/', async (c) => {
 				return fail(c, 'search.fields must be an array of non-empty field names', 400);
 			}
 			search.fields = search.fields.map((f) => (f as string).trim());
+		}
+	}
+	// Integrity rules — validate shape before a malformed rule reaches the executor.
+	const INTEGRITY_RULE_TYPES = new Set(['orphan', 'aggregate_mismatch', 'duplicate', 'stale']);
+	const integrity = merged.integrity as { enabled?: unknown; limit?: unknown; rules?: unknown } | undefined;
+	if (integrity && typeof integrity === 'object') {
+		if (integrity.enabled !== undefined && typeof integrity.enabled !== 'boolean') {
+			return fail(c, 'integrity.enabled must be a boolean', 400);
+		}
+		if (integrity.limit !== undefined) {
+			const n = Number(integrity.limit);
+			if (!Number.isFinite(n) || n < 1) return fail(c, 'integrity.limit must be a positive number', 400);
+			integrity.limit = Math.min(Math.floor(n), 1000);
+		}
+		if (integrity.rules !== undefined) {
+			if (!Array.isArray(integrity.rules)) return fail(c, 'integrity.rules must be an array', 400);
+			for (const r of integrity.rules) {
+				const type = r && typeof r === 'object' ? (r as { type?: unknown }).type : undefined;
+				if (typeof type !== 'string' || !INTEGRITY_RULE_TYPES.has(type)) {
+					return fail(c, `integrity rule type must be one of: ${[...INTEGRITY_RULE_TYPES].join(', ')}`, 400);
+				}
+			}
 		}
 	}
 	const actorFields = merged.actor_fields;

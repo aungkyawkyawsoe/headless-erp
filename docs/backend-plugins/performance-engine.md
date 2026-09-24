@@ -56,7 +56,7 @@ Declare on any collection (via `POST /api/collections` or `PUT /api/collections/
 ```jsonc
 {
   "fields": [...],
-  "composite_indexes": [{ "columns": ["status", "superior_tg_id"] }]
+  "composite_indexes": [{ "columns": ["status", "manager_id"] }]
 }
 ```
 
@@ -70,18 +70,18 @@ Declare on any collection (via `POST /api/collections` or `PUT /api/collections/
   metadata in production_ (`converge-indexes.mjs`, driven by the `lib/index-meta.mjs`
   Single Source of Truth).
 
-**Seed-aligned examples in the miniapp modules** (declared in `apps/api/scripts/seed-*.mjs`, applied idempotently on create **and** re-run so existing collections converge):
+**Seed-aligned examples in the client app modules** (declared in `apps/api/scripts/seed-*.mjs`, applied idempotently on create **and** re-run so existing collections converge):
 
-| Collection                               | Composite index                                       | Status machine                                       |
-| ---------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
-| `hr_requests`                            | `(status, superior_tg_id)`                            | pending → approved / rejected / cancelled            |
-| `hr_tasks`                               | `(assignee_tg_id, status, due_date)`                  | —                                                    |
-| `hr_attendance`                          | `(employee_tg_id, timestamp)`                         | —                                                    |
-| `store_purchases`                        | `(status, remaining_qty)`                             | pending → confirmed                                  |
-| `vehicle_maintenance`                    | `(status, maintenance_date)` + `(vehicle_id, status)` | — (edit form is a free status picker in the miniapp) |
-| `vehicle_permits` / `vehicle_insurances` | `(vehicle_id, status)`                                | confirmed ↔ pending → expired                        |
-| `vehicle_trips`                          | `(vehicle_id, status)`                                | planned → started → delivered / cancelled            |
-| `vehicle_fuel_logs`                      | `(vehicle_id, date)`                                  | —                                                    |
+| Collection                               | Composite index                                       | Status machine                                          |
+| ---------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| `requests`                               | `(status, manager_id)`                                | pending → approved / rejected / cancelled               |
+| `tasks`                                  | `(assignee_id, status, due_date)`                     | —                                                       |
+| `records`                                | `(person_id, timestamp)`                              | —                                                       |
+| `store_purchases`                        | `(status, remaining_qty)`                             | pending → confirmed                                     |
+| `vehicle_maintenance`                    | `(status, maintenance_date)` + `(vehicle_id, status)` | — (edit form is a free status picker in the client app) |
+| `vehicle_permits` / `vehicle_insurances` | `(vehicle_id, status)`                                | confirmed ↔ pending → expired                           |
+| `vehicle_trips`                          | `(vehicle_id, status)`                                | planned → started → delivered / cancelled               |
+| `vehicle_fuel_logs`                      | `(vehicle_id, date)`                                  | —                                                       |
 
 ---
 
@@ -180,19 +180,18 @@ Enabled (2026-09-10, dev, `max_age_s: 86400`) — masters/lookups only, the
 form-dropdown rows a field worker needs with no signal:
 
 ```
-mro_item_categories  mro_item_model  mro_item_name  mro_suppliers
-veh_fleets           hrm_departments hrm_designations  hrm_shifts
+categories  item_variants  items  suppliers
+vehicles           departments designations  shifts
 ```
 
 Deliberately **off**: every transactional document (inbounds/outbounds/transfers/
-adjustments/requisitions + their lines/lots/serials/events, `veh_fluids`,
-`veh_permits`, `veh_insurances`, `veh_incidents`, `veh_odo_months`) and every HR
-person-record (`hrm_employees`, `hrm_attendances`, `hrm_leaves`, `hrm_overtimes`,
-`hrm_early_leaves`).
+adjustments/requisitions + their lines/lots/serials/events, and other
+high-churn transactional collections) and every person/identity record (`directory`, `records`, `leave_requests`, `overtime_requests`,
+`early_leave_requests`).
 
-> ✅ **`hrm_attendances` (“own records”) is now row-scoped.** The Telegram role
+> ✅ **`records` (“own records”) is now row-scoped.** The Telegram role
 > provisioning (`ensureRoleRowFilters` in `apps/api/src/routes/auth-telegram.ts`)
-> sets the Employee role's `row_filters` on `hrm_attendances` to
+> sets the Employee role's `row_filters` on `records` to
 > `employee eq $CURRENT_USER.employee_id` (only when none is configured, so an
 > admin's hand-tuned filter is never clobbered). `DataFilterService` enforces it on
 > list/detail/**write**/export/search, so an employee reads — and can `check_out` —

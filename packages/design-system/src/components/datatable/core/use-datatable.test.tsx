@@ -114,11 +114,8 @@ describe('useDataTable toggleGrouping', () => {
 
 describe('useDataTable cursor direction', () => {
 	it('sends cursorDir "after" going forward and "before" going back', async () => {
-		const fetchData = vi.fn(
-			async (params: FetchParams): Promise<FetchResult<Sale>> =>
-				params.cursor === 'n1'
-					? { rows: [...data], nextCursor: 'n2', prevCursor: 'p1' }
-					: { rows: [...data], nextCursor: 'n1' },
+		const fetchData = vi.fn(async (params: FetchParams): Promise<FetchResult<Sale>> =>
+			params.cursor === 'n1' ? { rows: [...data], nextCursor: 'n2', prevCursor: 'p1' } : { rows: [...data], nextCursor: 'n1' },
 		);
 		const { result } = renderHook(() => useDataTable({ columns, data: undefined, defaultPageSize: 2, fetchData }));
 
@@ -148,21 +145,19 @@ describe('useDataTable cursor direction', () => {
 		// last" → both buttons disabled). While in flight neither button is
 		// clickable, so a click can't use cursors from rows no longer on screen.
 		const gates: Array<() => void> = [];
-		const fetchData = vi.fn(
-			async (params: FetchParams): Promise<FetchResult<Sale>> => {
-				// Page 2 (forward from n1) — gated so we can observe the in-flight state.
-				if (params.cursor === 'n1') {
-					await new Promise<void>((r) => gates.push(r));
-					return { rows: [...data], nextCursor: 'n2', prevCursor: 'p1' };
-				}
-				// Back to page 1 — the server confirms no previous page (the real API
-				// withholds prev_cursor at the first page; see cursor-pagination.spec).
-				if (params.cursor === 'p1') {
-					return { rows: [...data], nextCursor: 'n1', prevCursor: null };
-				}
-				return { rows: [...data], nextCursor: 'n1' };
-			},
-		);
+		const fetchData = vi.fn(async (params: FetchParams): Promise<FetchResult<Sale>> => {
+			// Page 2 (forward from n1) — gated so we can observe the in-flight state.
+			if (params.cursor === 'n1') {
+				await new Promise<void>((r) => gates.push(r));
+				return { rows: [...data], nextCursor: 'n2', prevCursor: 'p1' };
+			}
+			// Back to page 1 — the server confirms no previous page (the real API
+			// withholds prev_cursor at the first page; see cursor-pagination.spec).
+			if (params.cursor === 'p1') {
+				return { rows: [...data], nextCursor: 'n1', prevCursor: null };
+			}
+			return { rows: [...data], nextCursor: 'n1' };
+		});
 		const { result } = renderHook(() => useDataTable({ columns, data: undefined, defaultPageSize: 2, fetchData }));
 
 		await waitFor(() => expect(result.current.canGoNext).toBe(true));

@@ -4,8 +4,8 @@
  *
  *   node scripts/patch-select-options-remote.mjs --collection <slug> --field <name> [--apply]
  *
- * e.g. --collection veh_insurances --field provider
- *      --collection veh_fluid_fills --field fluid_kind
+ * e.g. --collection orders --field status
+ *      --collection products --field kind
  *
  * WHY: `apps/api/src/domain-modules/mro/schema-defs.json` is the single source of
  * truth for the field (it declares the options a form offers), and

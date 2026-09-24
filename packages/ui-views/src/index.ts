@@ -1,7 +1,7 @@
 /**
  * Shared view/block logic — the single source of truth for how records are
  * labelled/formatted and how page blocks render. Used by the Studio builder
- * (apps/studio) and the runtime page renderer (apps/tgapp) so both produce
+ * (apps/studio) and the runtime page renderer (the client app) so both produce
  * identical output (preview == runtime, no raw UUID dumps).
  */
 

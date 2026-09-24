@@ -56,8 +56,8 @@ describe('client.fieldRestrictions', () => {
 		const client = createClient({ tokenStorage: memoryTokenStorage() });
 		client.tokenStorage.set('tok');
 
-		expect(await client.fieldRestrictions('hr_employees')).toEqual(['id', 'name']);
-		expect(await client.fieldRestrictions('hr_employees')).toEqual(['id', 'name']); // cache hit — no 2nd call
+		expect(await client.fieldRestrictions('orders')).toEqual(['id', 'name']);
+		expect(await client.fieldRestrictions('orders')).toEqual(['id', 'name']); // cache hit — no 2nd call
 		expect(meCalls).toBe(1);
 	});
 
@@ -73,7 +73,7 @@ describe('client.fieldRestrictions', () => {
 		const client = createClient({ tokenStorage: memoryTokenStorage() });
 		client.tokenStorage.set('tok');
 
-		const [a, b] = await Promise.all([client.fieldRestrictions('hr_employees'), client.fieldRestrictions('hr_employees')]);
+		const [a, b] = await Promise.all([client.fieldRestrictions('orders'), client.fieldRestrictions('orders')]);
 		expect(a).toEqual(['id', 'name']);
 		expect(b).toEqual(['id', 'name']);
 		expect(meCalls).toBe(1);

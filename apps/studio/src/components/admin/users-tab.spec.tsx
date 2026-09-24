@@ -22,16 +22,18 @@ vi.mock('../../lib/api', () => ({
 	listUsers: vi.fn(),
 	listRoles: vi.fn(),
 	listItems: vi.fn(),
+	getServerMeta: vi.fn(),
 	createUser: vi.fn(),
 	updateUser: vi.fn(),
 }));
 
-import { createUser, listItems, listRoles, listUsers, updateUser } from '../../lib/api';
+import { createUser, getServerMeta, listItems, listRoles, listUsers, updateUser } from '../../lib/api';
 import { UsersTab } from './users-tab';
 
 const mockListUsers = vi.mocked(listUsers) as unknown as Mock;
 const mockListRoles = vi.mocked(listRoles) as unknown as Mock;
 const mockListItems = vi.mocked(listItems) as unknown as Mock;
+const mockGetServerMeta = vi.mocked(getServerMeta) as unknown as Mock;
 const mockCreateUser = vi.mocked(createUser) as unknown as Mock;
 const mockUpdateUser = vi.mocked(updateUser) as unknown as Mock;
 
@@ -211,11 +213,17 @@ beforeEach(() => {
 	mockListUsers.mockReset();
 	mockListRoles.mockReset();
 	mockListItems.mockReset();
+	mockGetServerMeta.mockReset();
 	mockCreateUser.mockReset();
 	mockUpdateUser.mockReset();
 	mockListUsers.mockResolvedValue([ADMIN_ROW_UNLINKED, TELEGRAM_ROW, STORE_ROW]);
 	mockListRoles.mockResolvedValue([ROLE_ADMIN, ROLE_EMPLOYEE, ROLE_STORE]);
 	mockListItems.mockImplementation(employeeRead);
+	mockGetServerMeta.mockResolvedValue({
+		platform: 'mmbix-headless',
+		version: '0.0.0',
+		identity: { directory_collection: 'directory', directory_field: 'etg_id' },
+	});
 	mockCreateUser.mockResolvedValue({ id: 'u-new', email: 'new@mmbics.com', full_name: 'New Person' });
 	mockUpdateUser.mockResolvedValue({ ...STORE_ROW, status: 'active' });
 });
@@ -476,9 +484,15 @@ describe('UsersTab — which employee an account acts as', () => {
 	});
 
 	it('degrades instead of breaking when the deployment has no employee directory', async () => {
-		// A factory-core deployment (`DOMAIN_MODULES=none`) has no `hrm_employees`
-		// collection — accounts must still be administrable.
-		mockListItems.mockRejectedValue(new Error('Collection "hrm_employees" not found'));
+		// A factory-core deployment has no configured directory — the server
+		// advertises `identity.directory_collection: null`, so the tab shows no
+		// employee column and says so.
+		mockGetServerMeta.mockResolvedValue({
+			platform: 'mmbix-headless',
+			version: '0.0.0',
+			identity: { directory_collection: null, directory_field: null },
+		});
+		mockListItems.mockRejectedValue(new Error('Collection "directory" not found'));
 		await renderLoaded();
 
 		expect(await screen.findByText(/no employee directory/i)).toBeTruthy();

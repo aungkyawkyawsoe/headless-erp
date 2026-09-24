@@ -655,7 +655,7 @@ function errorMessageFrom(json: { error?: unknown } | null, fallback: string): s
  *   import type { Schema } from './generated/schema';
  *
  *   const client = createClient<Schema>({ baseUrl: '/api', tokenStorage: localStorageTokenStorage() });
- *   const rows = await client.items('hr_attendance').list({ filter: { employee_tg_id: { _eq: tgId } } });
+ *   const rows = await client.items('records').list({ filter: { person_id: { _eq: personId } } });
  */
 export function createClient<Schema extends Record<string, Record<string, unknown>> = Record<string, Record<string, unknown>>>(
 	options: ClientOptions = {},

@@ -4,7 +4,6 @@
  * configs from it so configs can never drift from the env file.
  *
  *   infra/env.prod   → apps/api/wrangler.jsonc        (prod API worker)
- *                    → apps/tgapp/wrangler.jsonc       (prod miniapp worker)
  *                    → apps/studio/wrangler.jsonc      (prod studio worker)
  *   infra/env.testco → apps/api/wrangler.testco.jsonc (test-only, isolated)
  *
@@ -210,11 +209,21 @@ function renderApiProd(e) {
 	lines.push(
 		t(2, '/**'),
 		t(2, ' * Table prefix + business modules served by this worker.'),
-		t(2, " * DOMAIN_MODULES default when unset: 'hr'; 'none' = pure factory."),
+		t(2, " * DOMAIN_MODULES default when unset: 'idp'; 'none' = pure factory."),
 		t(2, ' */'),
 	);
 	lines.push(t(2, `"TABLE_PREFIX": "${e.TABLE_PREFIX}",`));
 	lines.push(t(2, `"DOMAIN_MODULES": "${e.DOMAIN_MODULES}",`));
+	if (e.PLUGINS) lines.push(t(2, `"PLUGINS": "${e.PLUGINS}",`));
+	if (e.TELEGRAM_DIRECTORY_COLLECTION) {
+		lines.push(
+			t(2, '// Telegram Mini App directory gate — the collection whose rows count as'),
+			t(2, '// "approved" and the field holding the Telegram user id. Unset ⇒ the gate'),
+			t(2, '// is disabled (deny-by-default).'),
+		);
+		lines.push(t(2, `"TELEGRAM_DIRECTORY_COLLECTION": "${e.TELEGRAM_DIRECTORY_COLLECTION}",`));
+		if (e.TELEGRAM_DIRECTORY_FIELD) lines.push(t(2, `"TELEGRAM_DIRECTORY_FIELD": "${e.TELEGRAM_DIRECTORY_FIELD}",`));
+	}
 	lines.push(
 		t(2, '// PBKDF2 cost for NEW password hashes — lowered from the 600k code default'),
 		t(2, '// because 600k PBKDF2 throws on this deployment (500 on login/verify).'),
@@ -327,6 +336,9 @@ function renderApiTestco(e) {
 	lines.push(t(2, `"TABLE_PREFIX": "${e.TABLE_PREFIX}",`));
 	lines.push(t(2, `"IS_DEV": "${e.IS_DEV}",`));
 	lines.push(t(2, `"DOMAIN_MODULES": "${e.DOMAIN_MODULES}",`));
+	if (e.PLUGINS) lines.push(t(2, `"PLUGINS": "${e.PLUGINS}",`));
+	if (e.TELEGRAM_DIRECTORY_COLLECTION) lines.push(t(2, `"TELEGRAM_DIRECTORY_COLLECTION": "${e.TELEGRAM_DIRECTORY_COLLECTION}",`));
+	if (e.TELEGRAM_DIRECTORY_FIELD) lines.push(t(2, `"TELEGRAM_DIRECTORY_FIELD": "${e.TELEGRAM_DIRECTORY_FIELD}",`));
 	lines.push(t(2, `"TELEGRAM_BOT_TOKEN": "${e.TELEGRAM_BOT_TOKEN}",`));
 	lines.push(t(2, `"R2_SQL_TOKEN": "${e.R2_SQL_TOKEN}",`));
 	lines.push(t(2, `"RATE_LIMIT_DO": "${e.RATE_LIMIT_DO}",`));
@@ -342,53 +354,6 @@ function renderApiTestco(e) {
 	lines.push(t(1, '"observability": {'));
 	lines.push(t(2, '"enabled": true,'));
 	lines.push(t(1, '},'));
-	lines.push(t(0, '}'));
-	return lines.join('\n') + '\n';
-}
-
-// ─── prod miniapp worker (apps/tgapp/wrangler.jsonc) ────────────────────────
-function renderTgappProd(e) {
-	const lines = [];
-	lines.push(t(0, '{'));
-	lines.push(t(1, '"$schema": "node_modules/wrangler/config-schema.json",'));
-	for (const l of BANNER('env.prod')) lines.push(t(1, l));
-	lines.push(
-		t(1, '/**'),
-		t(1, ' * Telegram Mini App worker config.'),
-		t(1, ' *'),
-		t(1, ' * The core API worker is reached through the private `API` service binding,'),
-		t(1, ' * never a public URL. Assets serve the SPA with single-page-app fallback.'),
-		t(1, ' *'),
-		t(1, ' * Regenerate types after changing bindings: `pnpm cf-typegen` (wrangler types).'),
-		t(1, ' */'),
-	);
-	lines.push(t(1, `"name": "${e.WORKER_MINIAPP}",`));
-	lines.push(t(1, '"main": "worker/index.ts",'));
-	lines.push(t(1, '"compatibility_date": "2026-08-25",'));
-	lines.push(t(1, '"compatibility_flags": ["nodejs_compat"],'));
-	lines.push(t(1, '"assets": {'));
-	lines.push(t(2, '"directory": "./dist",'));
-	lines.push(t(2, '"not_found_handling": "single-page-application",'));
-	lines.push(t(2, '"binding": "ASSETS",'));
-	lines.push(t(1, '},'));
-	lines.push(t(1, `"workers_dev": ${e.MINIAPP_WORKERS_DEV === 'true'},`));
-	lines.push(t(1, '"preview_urls": false,'));
-	lines.push(t(1, '"observability": {'));
-	lines.push(t(2, '"enabled": true,'));
-	lines.push(t(1, '},'));
-	lines.push(t(1, '"upload_source_maps": true,'));
-	lines.push(t(1, '"services": ['));
-	lines.push(t(2, '{'));
-	lines.push(t(3, '"binding": "API",'));
-	lines.push(t(3, `"service": "${e.WORKER_API}",`));
-	lines.push(t(2, '},'));
-	lines.push(t(1, '],'));
-	lines.push(t(1, '"routes": ['));
-	lines.push(t(2, '{'));
-	lines.push(t(3, `"pattern": "${e.MINIAPP_DOMAIN}",`));
-	lines.push(t(3, '"custom_domain": true,'));
-	lines.push(t(2, '},'));
-	lines.push(t(1, '],'));
 	lines.push(t(0, '}'));
 	return lines.join('\n') + '\n';
 }
@@ -457,7 +422,6 @@ function renderStudioProd(e) {
 const TARGETS = {
 	prod: [
 		{ envFile: 'infra/env.prod', file: 'apps/api/wrangler.jsonc', render: renderApiProd },
-		{ envFile: 'infra/env.prod', file: 'apps/tgapp/wrangler.jsonc', render: renderTgappProd },
 		{ envFile: 'infra/env.prod', file: 'apps/studio/wrangler.jsonc', render: renderStudioProd },
 	],
 	testco: [{ envFile: 'infra/env.testco', file: 'apps/api/wrangler.testco.jsonc', render: renderApiTestco }],

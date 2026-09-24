@@ -65,7 +65,7 @@ export interface HookRegistration {
 	description?: string;
 	/** Collections this hook REWRITES (not the one it fires on) — lets tooling
 	 *  show hooks that keep OTHER collections in sync (e.g. a doc-collection hook
-	 *  that refreshes a fleet master's pointer). */
+	 *  that refreshes a parent record's pointer). */
 	writesTo?: string[];
 }
 
@@ -136,7 +136,7 @@ export const MAX_HOOKS_PER_EVENT = 20;
  * dispatched FIRE-AND-FORGET, so they keep running after their response is sent.
  * A shared counter therefore let a hook backlog from one request inflate the
  * depth a LATER, unrelated request observed — "Hook recursion cap reached" on a
- * write that had no recursion at all (surfaced by the MRO payment-mirror hooks,
+ * write that had no recursion at all (surfaced by a domain denorm hook,
  * which fire on every ledger write). Two independent chains must not share a
  * budget; a genuinely recursive chain still trips the cap.
  */
@@ -370,7 +370,7 @@ class PluginHookRegistry {
 	 * be CANCELED when the invocation ends — the isolate has no reason to stay alive
 	 * once the response is sent, so the promise is dropped with no error and no log.
 	 * The mutation service deliberately does NOT await the after_insert/after_update
-	 * dispatches, so without this a denormalizing hook (the MRO fleet/money mirrors)
+	 * dispatches, so without this a denormalizing hook (domain denorm hooks)
 	 * could be torn down mid-flight and the mirror silently never written — a stale
 	 * derived value indistinguishable from a correct one, the worst outcome.
 	 * Awaiting the returned promise still works: it is the SAME promise being

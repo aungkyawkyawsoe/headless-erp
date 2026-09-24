@@ -73,7 +73,7 @@ headless module create --template hrm --worker  # + microservice worker
 **What it creates:**
 
 ```
-apps/tgapp/src/plugins/<id>/
+the client app/src/plugins/<id>/
 ├── manifest.ts          ← nav items + entityMap (reference — the DB is the source of truth)
 └── plugin.tsx           ← self-contained React component + meta (no registry imports)
 Module registered in the backend (POST /api/modules → sidebar dock)

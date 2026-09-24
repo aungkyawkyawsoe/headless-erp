@@ -1,7 +1,7 @@
-// Business modules (HR / Vehicle / Store) are managed under the IDP catalog —
-// they don't belong on the app-level launcher grid, and their back navigation
-// returns to the IDP catalog rather than the Apps page.
-const IDP_MANAGED_MODULES = new Set(['hr', 'vehicle', 'store']);
+// Business modules surfaced under the IDP catalog rather than the app-level
+// launcher grid, whose back navigation returns to the IDP catalog. A headless
+// factory ships none — a project adds its own module slugs here.
+const IDP_MANAGED_MODULES = new Set<string>();
 
 export function isIdpManagedModule(slug: string): boolean {
 	return IDP_MANAGED_MODULES.has(slug);

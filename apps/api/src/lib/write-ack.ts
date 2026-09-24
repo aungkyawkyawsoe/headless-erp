@@ -2,10 +2,10 @@
  * Request-scoped write acknowledgements — the "confirm the warning, then
  * proceed" channel for engine guards that would otherwise hard-refuse.
  *
- * Some compiled guards (see `domain-modules/mro/requisition-guard.ts`) refuse a
- * write the CALLER may legitimately want anyway: the same-day duplicate
- * requisition is a warning, not a rule violation — the operator reads it, agrees
- * and files the request a second time on purpose. Before this module the only
+ * Some compiled guards (a domain module may register one) refuse a
+ * write the CALLER may legitimately want anyway: a same-day duplicate is a
+ * warning, not a rule violation — the operator reads it, agrees
+ * and files the record a second time on purpose. Before this module the only
  * answers were "refuse" (correct but blocks real work) or "drop the guard"
  * (loses the protection on Studio / CLI / import). The third answer is an
  * EXPLICIT, per-request acknowledgement:

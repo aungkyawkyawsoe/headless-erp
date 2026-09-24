@@ -8,7 +8,7 @@ import type { D1Client } from '../d1-client';
  *  tables resolve, anything else raises "no such table". */
 function stubDb(opts: { scan: boolean }): D1Client {
 	const all = vi.fn(async (_stmt: { sql: string }) => (opts.scan ? [{ detail: 'SCAN t' }] : [{ detail: 'SEARCH t USING INDEX idx_x' }]));
-	const REGISTERED = new Set(['t', 't2', 't3', 't4', 't5', 'hr_tasks', 'veh_fleets', 'veh_fleets2']);
+	const REGISTERED = new Set(['t', 't2', 't3', 't4', 't5', 'orders', 'vehicles', 'vehicles2']);
 	const first = vi.fn(async (stmt: { sql: string }) => {
 		const name = /FROM\s+"?([A-Za-z0-9_]+)"?/i.exec(stmt.sql)?.[1] ?? '';
 		if (!REGISTERED.has(name)) throw new Error(`no such table: ${name}`);
@@ -21,8 +21,8 @@ function stubDb(opts: { scan: boolean }): D1Client {
 describe('SelfTuningIndexAdvisor', () => {
 	it('records multi-column filter signatures and reports the journal', () => {
 		const a = new SelfTuningIndexAdvisor();
-		a.record('hr_requests', { filters: ['status', 'superior_tg_id'], sort: 'created_at' }, []);
-		a.record('hr_requests', { filters: ['status', 'superior_tg_id'], sort: 'created_at' }, []);
+		a.record('requests', { filters: ['status', 'manager_id'], sort: 'created_at' }, []);
+		a.record('requests', { filters: ['status', 'manager_id'], sort: 'created_at' }, []);
 		expect(a.snapshot()).toEqual([]); // nothing created without a tune
 	});
 
@@ -41,10 +41,10 @@ describe('SelfTuningIndexAdvisor', () => {
 		const a = new SelfTuningIndexAdvisor();
 		const db = stubDb({ scan: true });
 		// clear the MIN_OBSERVATIONS bar so a small number of repeats triggers tuning
-		for (let i = 0; i < 10; i++) a.record('hr_tasks', { filters: ['assignee_tg_id', 'status', 'due_date'], sort: 'created_at' }, []);
+		for (let i = 0; i < 10; i++) a.record('orders', { filters: ['assignee_tg_id', 'status', 'due_date'], sort: 'created_at' }, []);
 		const j = await a.tune(db);
 		expect(j.length).toBe(1);
-		expect(j[0].table).toBe('hr_tasks');
+		expect(j[0].table).toBe('orders');
 		// The sort column is TRAILING — it turns the temp B-tree sort into an
 		// ordered index scan instead of being dropped from the shape.
 		expect(j[0].columns).toEqual(['assignee_tg_id', 'status', 'due_date', 'created_at']);
@@ -62,7 +62,7 @@ describe('SelfTuningIndexAdvisor', () => {
 		const a = new SelfTuningIndexAdvisor();
 		const db = stubDb({ scan: true });
 		// The `?sort=plate_no&filter[_or]…` fleet read: no FLAT filters, one sort.
-		for (let i = 0; i < 10; i++) a.record('veh_fleets', { filters: ['deleted_at'], sort: 'plate_no' }, []);
+		for (let i = 0; i < 10; i++) a.record('vehicles', { filters: ['deleted_at'], sort: 'plate_no' }, []);
 		const j = await a.tune(db);
 		expect(j.length).toBe(1);
 		expect(j[0].columns).toEqual(['deleted_at', 'plate_no']);
@@ -73,7 +73,7 @@ describe('SelfTuningIndexAdvisor', () => {
 		const a = new SelfTuningIndexAdvisor();
 		const db = stubDb({ scan: true });
 		for (let i = 0; i < 10; i++)
-			a.record('veh_fleets2', { filters: ['deleted_at'], sort: 'plate_no' }, [{ columns: ['deleted_at', 'plate_no'] }]);
+			a.record('vehicles2', { filters: ['deleted_at'], sort: 'plate_no' }, [{ columns: ['deleted_at', 'plate_no'] }]);
 		const j = await a.tune(db);
 		expect(j).toEqual([]);
 		expect(db.run).not.toHaveBeenCalled();

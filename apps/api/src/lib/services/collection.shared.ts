@@ -215,9 +215,9 @@ export interface CollectionPolicy {
 		freeze_when?: { field?: string; values?: string[] };
 		/**
 		 * Opt-in to the GENERIC `draft → confirmed` transition. `confirmed` is a
-		 * posted state normally owned by a domain service (MRO stock docs), so the
+		 * posted state normally owned by a domain service, so the
 		 * engine refuses it from the generic API by default. A plain record whose
-		 * only "workflow" is edit → confirm (vehicle maintenance logs) sets this
+		 * only "workflow" is edit → confirm sets this
 		 * true; paired with `freeze_when` on doc_status=confirmed it yields a
 		 * server-enforced one-way lock. Never set it on a service-owned document.
 		 */

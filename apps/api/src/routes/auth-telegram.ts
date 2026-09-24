@@ -14,7 +14,7 @@
  *     directory record; the next login returns `approved`.
  *
  *   The gate runs in EVERY environment, dev included: the plain-browser dev
- *   login (a per-browser unique demo id minted by apps/tgapp) resolves
+ *   login (a per-browser unique demo id minted by the client app) resolves
  *   `approved` only while that id is actually registered in the directory,
  *   otherwise it lands here as `pending` (the mini app's DevLoginScreen /
  *   PendingScreen show the copyable id) until it is registered. Removing the
@@ -24,12 +24,12 @@
  *   vs verified initData), but NEVER skip the directory check.
  *
  * Config-driven (env knobs, see @mmbix/config AppConfig.telegram) — the
- * directory + role are NOT hardcoded to hr_*:
+ * directory + role are NOT hardcoded:
  *   - TELEGRAM_DIRECTORY_COLLECTION / TELEGRAM_DIRECTORY_FIELD: which
- *     collection + field gate login (default `hr_employees` / `tg_id`).
+ *     collection + field gate login (unset ⇒ the gate is disabled).
  *   - TELEGRAM_ROLE_NAME / TELEGRAM_ROLE_COLLECTIONS: the role provisioned
  *     for approved users and the collections it may read/write/create
- *     (default `Employee` + the hr/vehicle/store set).
+ *     (default `Employee` + an empty collection list).
  *
  * Single identity table: every login path (Telegram, email/password, future
  * providers) resolves to `_users` — RBAC is uniform. `telegram_requests` is an
@@ -437,8 +437,8 @@ app.post('/', async (c) => {
 	const auth = new AuthService(db);
 	const cfg = cfgOf(c);
 
-	// Directory gate: approved ⇔ a directory row (default hrm_employees.etg_id)
-	// matches the tg_id — collection + field are config-driven. This runs in
+	// Directory gate: approved ⇔ a directory row (config-driven collection/field)
+	// matches the tg_id. This runs in
 	// EVERY environment, dev.demo included, so dev behaves exactly like
 	// production: an unregistered id (e.g. a fresh dev browser's unique id)
 	// lands here as `pending` until it is registered in the directory; and

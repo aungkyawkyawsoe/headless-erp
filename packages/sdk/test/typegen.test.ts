@@ -5,11 +5,11 @@ import type { RawCollection } from '../src/typegen';
 
 const SAMPLE: RawCollection[] = [
 	{
-		slug: 'hr_attendance',
+		slug: 'records',
 		name: 'HR Attendance',
 		schema_json: {
 			fields: [
-				{ name: 'employee_tg_id', type: 'text', required: false },
+				{ name: 'person_id', type: 'text', required: false },
 				{ name: 'type', type: 'select', options: ['check-in', 'check-out'], required: true },
 				{ name: 'timestamp', type: 'datetime', required: false },
 				{ name: 'status', type: 'select', options: ['on_time', 'late_in'], required: false },
@@ -20,11 +20,11 @@ const SAMPLE: RawCollection[] = [
 		system_field_options: { fields: [{ name: 'created_at', type: 'timestamp', required: false }] },
 	},
 	{
-		slug: 'hr_requests',
+		slug: 'requests',
 		name: 'HR Requests',
 		schema_json: {
 			fields: [
-				{ name: 'employee_tg_id', type: 'text', required: false },
+				{ name: 'person_id', type: 'text', required: false },
 				{ name: 'request_type', type: 'select', options: ['leave', 'ot', 'early', 'onduty'], required: true },
 				{ name: 'status', type: 'select', options: ['pending', 'approved', 'rejected', 'cancelled'], required: true },
 				{ name: 'from_date', type: 'date', required: false },
@@ -37,25 +37,25 @@ const SAMPLE: RawCollection[] = [
 describe('generateTypes', () => {
 	it('emits one Zod schema per collection (single source of truth)', () => {
 		const { content } = generateTypes(SAMPLE);
-		expect(content).toContain('export const HrAttendanceSchema = z.object({');
+		expect(content).toContain('export const RecordsSchema = z.object({');
 		expect(content).toContain("type: z.enum(['check-in', 'check-out']).nullable(),");
-		expect(content).toContain('employee_tg_id: z.string().optional().nullable(),');
+		expect(content).toContain('person_id: z.string().optional().nullable(),');
 		expect(content).toContain('created_at: z.string().optional().nullable(),'); // from system_field_options
-		expect(content).toContain('export const HrRequestsSchema = z.object({');
+		expect(content).toContain('export const RequestsSchema = z.object({');
 	});
 
 	it('derives row types from Zod via the Schema map (zero drift)', () => {
 		const { content } = generateTypes(SAMPLE);
 		expect(content).toContain('export type Schema = {');
-		expect(content).toContain('hr_attendance: z.infer<typeof HrAttendanceSchema>;');
-		expect(content).toContain('hr_requests: z.infer<typeof HrRequestsSchema>;');
-		expect(content).not.toContain('export interface HrAttendance'); // no hand-written interface to drift
+		expect(content).toContain('records: z.infer<typeof RecordsSchema>;');
+		expect(content).toContain('requests: z.infer<typeof RequestsSchema>;');
+		expect(content).not.toContain('export interface Records'); // no hand-written interface to drift
 	});
 
 	it('emits the Schemas registry for runtime purification', () => {
 		const { content } = generateTypes(SAMPLE);
 		expect(content).toContain('export const Schemas = {');
-		expect(content).toContain('hr_attendance: HrAttendanceSchema,');
+		expect(content).toContain('records: RecordsSchema,');
 	});
 
 	it('marks select fields with no options as string', () => {
@@ -108,7 +108,7 @@ describe('generateTypes', () => {
 	});
 
 	it('pascalName converts slugs and guards numeric starts', () => {
-		expect(pascalName('hr_attendance')).toBe('HrAttendance');
+		expect(pascalName('records')).toBe('Records');
 		expect(pascalName('vehicle-trips')).toBe('VehicleTrips');
 		expect(pascalName('2fa_codes')).toBe('C2faCodes');
 	});

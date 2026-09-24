@@ -117,7 +117,14 @@ import { appColor } from '@mmbix/ui-views';
 import { renderCell } from '../lib/cell-render';
 import { buildListFields } from '../lib/list-projection';
 import ExportDialog from '../components/ExportDialog';
-import { buildCsv, collectAllRows, fieldMapOf, itemsParamsFromFetch, type ExportColumnsScope, type ExportRowsScope } from '../lib/csv-export';
+import {
+	buildCsv,
+	collectAllRows,
+	fieldMapOf,
+	itemsParamsFromFetch,
+	type ExportColumnsScope,
+	type ExportRowsScope,
+} from '../lib/csv-export';
 import { DataCell } from '../components/DataCell';
 
 /** Valid Studio sections — the AppDetailPage left/center/right panes. */
@@ -618,7 +625,11 @@ export default function AppDetailPage({ token }: { token: string }) {
 		const rows =
 			scope.rows === 'page'
 				? exportState.pageRows
-				: await collectAllRows(token, selected, itemsParamsFromFetch(fields, m2oSchemas, lastFetchParamsRef.current ?? undefined, { trashed: trashMode }));
+				: await collectAllRows(
+						token,
+						selected,
+						itemsParamsFromFetch(fields, m2oSchemas, lastFetchParamsRef.current ?? undefined, { trashed: trashMode }),
+					);
 		return buildCsv(rows, columns, fieldByName);
 	}
 
@@ -1292,11 +1303,16 @@ export default function AppDetailPage({ token }: { token: string }) {
 																		}
 																	: undefined
 															}
-toolbarActions={(tableInstance) => (
-															<>
-																<Button size="sm" variant="outline" title="Export records to CSV" onClick={() => openExport(tableInstance)}>
-																	<Download size={13} /> Export
-																</Button>
+															toolbarActions={(tableInstance) => (
+																<>
+																	<Button
+																		size="sm"
+																		variant="outline"
+																		title="Export records to CSV"
+																		onClick={() => openExport(tableInstance)}
+																	>
+																		<Download size={13} /> Export
+																	</Button>
 																	<Button
 																		size="sm"
 																		variant={trashMode ? 'default' : 'outline'}
@@ -1342,27 +1358,27 @@ toolbarActions={(tableInstance) => (
 																			{selectedPartition.frozen.length} frozen
 																		</span>
 																	)}
-															</>
-														)}
-														labels={{
+																</>
+															)}
+															labels={{
 																searchPlaceholder: 'Search records…',
 																empty: trashMode ? 'No deleted records' : 'No records yet',
 																noResults: 'No records match your search',
-loading: 'Loading records…',
-														}}
-													/>
-													<ExportDialog
-														open={exportState !== null}
-														onOpenChange={(open) => {
-															if (!open) closeExport();
-														}}
-														slug={selectedModel.slug}
-														pageRowCount={exportState?.pageRows.length ?? 0}
-														columnCount={tableColumns.filter((c) => c.enableHiding !== false).length}
-														visibleColumnCount={exportState?.visibleIds.size ?? 0}
-														onExport={runExport}
-													/>
-												</div>
+																loading: 'Loading records…',
+															}}
+														/>
+														<ExportDialog
+															open={exportState !== null}
+															onOpenChange={(open) => {
+																if (!open) closeExport();
+															}}
+															slug={selectedModel.slug}
+															pageRowCount={exportState?.pageRows.length ?? 0}
+															columnCount={tableColumns.filter((c) => c.enableHiding !== false).length}
+															visibleColumnCount={exportState?.visibleIds.size ?? 0}
+															onExport={runExport}
+														/>
+													</div>
 												</>
 											)
 										) : (

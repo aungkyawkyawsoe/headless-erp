@@ -71,7 +71,6 @@ import RecordFormDialog from '../components/RecordFormDialog';
 import StudioLayout, { SideSection, useLeftPane } from '../components/StudioLayout';
 import { FieldInspector, FieldTypeIcon } from '../components/formlayout';
 import { DataCell } from '../components/DataCell';
-import { renderCell } from '../lib/cell-render';
 import {
 	bulkDelete,
 	bulkErrorMessage,
@@ -104,7 +103,14 @@ import { popBack, useViewState } from '../lib/view-state';
 import { buildTableColumns, serializeTableFilters, useM2oSchemas } from '../lib/collection-table-filters';
 import { buildListFields } from '../lib/list-projection';
 import ExportDialog from '../components/ExportDialog';
-import { buildCsv, collectAllRows, fieldMapOf, itemsParamsFromFetch, type ExportColumnsScope, type ExportRowsScope } from '../lib/csv-export';
+import {
+	buildCsv,
+	collectAllRows,
+	fieldMapOf,
+	itemsParamsFromFetch,
+	type ExportColumnsScope,
+	type ExportRowsScope,
+} from '../lib/csv-export';
 
 /** Parse a hook's `rules_text` JSON string into rule objects (empty for legacy/no-rules rows). */
 function parseHookRules(rulesText: string | null): Array<{ action: string; target?: string; message?: string; title?: string }> {
@@ -370,7 +376,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 
 	// Code hooks grouped for the focused collection — those that FIRE on it, and
 	// those that REWRITE it when they fire on ANOTHER collection (e.g. veh-relink
-	// keeps fleet pointers fresh from permit/policy writes — so veh_fleets shows
+	// keeps fleet pointers fresh from permit/policy writes — so vehicles shows
 	// them under "rewrites this collection").
 	const codeOnCollection = useMemo(() => codeHooks.filter((h) => h.collection === selected), [codeHooks, selected]);
 	const codeAffectingCollection = useMemo(
@@ -1258,12 +1264,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 										</Button>
 									)}
 									{writeLock.canMutate && selectedPartition.writable.length > 0 && trashMode && (
-										<Button
-											size="sm"
-											variant="outline"
-											title="Restore selected records"
-											onClick={() => void restoreRows(selectedRows)}
-										>
+										<Button size="sm" variant="outline" title="Restore selected records" onClick={() => void restoreRows(selectedRows)}>
 											<ArchiveRestore size={13} /> Restore ({selectedPartition.writable.length})
 										</Button>
 									)}
@@ -1593,7 +1594,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			 * e.g. veh-relink, shown from GET /api/hook-registry) and DECLARATIVE
 			 * rules (`_server_functions` rows, GET /api/server-functions). Code hooks
 			 * that REWRITE the focused collection while firing elsewhere (fleet
-			 * relink → veh_fleets pointers) appear under their own group so the
+			 * relink → vehicles pointers) appear under their own group so the
 			 * viewer never answers "Hooks (0)" for a table another hook keeps fresh. */}
 			<Dialog open={hooksOpen} onOpenChange={setHooksOpen}>
 				<DialogContent>

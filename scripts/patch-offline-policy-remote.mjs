@@ -2,7 +2,7 @@
 /**
  * SET a collection's `offline_reads` freshness window on a REMOTE D1.
  *
- *   node scripts/patch-offline-policy-remote.mjs --collection veh_fleets --max-age-s 300 [--apply]
+ *   node scripts/patch-offline-policy-remote.mjs --collection orders --max-age-s 300 [--apply]
  *
  * WHY: `schema_json.policies.offline_reads.max_age_s` is the window for which the
  * mini app may PERSIST a read on the device (advertised as `X-Offline-Max-Age`).

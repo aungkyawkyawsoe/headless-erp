@@ -1,17 +1,18 @@
 # Headless Entity Engine — Software Factory
 
-Enterprise-grade **headless CMS / entity engine** on Cloudflare Workers (Hono + D1 + R2), built as a **software factory**: one starter template, then per-client isolated deployments via the `headless` CLI.
+An enterprise-grade **headless entity engine / software factory** on Cloudflare Workers (Hono + D1 + R2). The core is **domain-agnostic**: define a collection once (REST API / Studio / CLI) and you instantly get a production API + admin panel — auth & RBAC, filters, cursor pagination, full-text search, validation, relations, audit, media, exports, reports, workflows, and 29 plugins — no extra configuration. See [Use Cases](docs/getting-started/use-cases.md) and the [5-minute Quickstart](docs/getting-started/quickstart.md).
 
-**Less configure, gain big power.** Define a collection once (REST API / CLI) and you instantly get a production API + admin panel: auth & RBAC, 15 filter operators, cursor pagination, full-text search, validation, relations, audit, media, exports, reports, and multi-tenant deploys — no extra configuration. See [Use Cases](docs/getting-started/use-cases.md) and the [5-minute Quickstart](docs/getting-started/quickstart.md).
+**Business verticals are opt-in modules.** A vertical lives in `apps/api/src/domain-modules/<id>/`, declares a `ModuleManifest`, and is gated by `DOMAIN_MODULES` (a disabled module is a 404 and registers nothing). This repo ships exactly one factory-level module: **IDP** — the Internal Developer Platform admin surface (`/api/idp`).
 
-|              |                                                                                                                                                            |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Core API     | `apps/api` — Hono worker (entities, auth/RBAC, search, audit, webhooks, scheduler, reports, tRPC)                                                          |
-| MiniApp      | `apps/tgapp` — **Telegram Mini App** (mobile-first Vite + Tailwind v4) + BFF worker (proxies `/api/*` → core); same service binding as the old desktop SPA |
-| Core engine  | `packages/core` — D1 client, QueryBuilder, entity engine, safe expression evaluator, migrations                                                            |
-| Shared types | `packages/types` — TypeScript types incl. tRPC `AppRouter`                                                                                                 |
-| CLI          | `packages/cli`                                                                                                                                             | scaffolding, db ops, and **software-factory client onboarding** (`headless client …`) |
-| Templates    | `packages/cli/templates` — guided module/plugin/worker scaffolds (Strapi/Frappe-style) — `headless module create`                                          |
+|              |                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Core API     | `apps/api` — Hono worker (entities, auth/RBAC, search, audit, webhooks, scheduler, reports, tRPC, 29 plugins), + the IDP admin module |
+| Studio       | `apps/studio` — the visual builder + admin panel (schema designer, page canvas, users/roles/policies, IDP portal)                     |
+| Core engine  | `packages/core` — D1 client, QueryBuilder, entity engine, safe expression evaluator, migrations                                       |
+| Shared types | `packages/types` — shared types incl. the `ModuleManifest` contract + tRPC `AppRouter`                                                |
+| SDK          | `packages/sdk` · `packages/sdk-react` — typed client + React hooks + `mmbix-typegen`                                                  |
+| CLI          | `packages/cli` — scaffolding, db ops, module/plugin/worker generators (`headless …`)                                                  |
+| Templates    | `packages/cli/templates` — guided module/plugin/worker scaffolds (Strapi/Frappe-style)                                                |
 
 > ⚠️ Cloudflare Workers constraint: **`new Function()` / `eval` are disallowed** on the runtime. All expressions use the safe evaluator in `packages/core/src/entity/expression.ts` — extend that, never reach for `eval`.
 
@@ -78,14 +79,14 @@ Enterprise-grade **headless CMS / entity engine** on Cloudflare Workers (Hono + 
 
 ```mermaid
 graph LR
-    B[Telegram / Browser] --> M[miniapp worker · BFF]
-    M -->|/api/*| A[core API worker]
-    M -->|/trpc/*| A
+    B[Browser] --> S[Studio · admin UI]
+    B --> A[core API worker]
+    S -->|/api/* + /__studio/*| A
     A --> D1[(D1 per client)]
     A --> R2[(R2 per client)]
 ```
 
-- **Clean starter** — the core API + admin UI ship with **no business modules**; scaffold them on demand via the CLI (`headless module create` — Strapi/Frappe-style guided generation from templates in `packages/cli/templates`).
+- **Clean factory** — the core API + Studio ship with **no business modules**; add a vertical as `apps/api/src/domain-modules/<id>/` with a `ModuleManifest`, or scaffold one with `headless module create` (templates in `packages/cli/templates`). Verticals are gated by `DOMAIN_MODULES`; plugins by `PLUGINS`.
 - **Per-client isolation** — every client gets its own D1, R2, secrets, and workers (see CLI below).
 
 ---
@@ -120,7 +121,7 @@ pnpm install
 npx headless init .        # headless runs from this repo itself — no global install needed
 
 # 4. Go!
-pnpm dev        # API :8788 · studio :5174 · miniapp :5175
+pnpm dev        # API :8788 · Studio :5174
 ```
 
 > Optional: `pnpm cli:link` builds + links `headless` **globally** (one-time) so you can
@@ -150,16 +151,15 @@ Local development needs none of that — `wrangler dev` simulates D1/R2/queues.
 pnpm dev
 ```
 
-| Service              | URL                                 |
-| -------------------- | ----------------------------------- |
-| MiniApp SPA + BFF    | `http://localhost:5175`             |
-| UI Studio (dev tool) | `http://localhost:5174`             |
-| Core API worker      | `http://localhost:8788`             |
-| tRPC (via BFF proxy) | `http://localhost:5175/trpc/health` |
+| Service         | URL                     |
+| --------------- | ----------------------- |
+| UI Studio       | `http://localhost:5174` |
+| Core API worker | `http://localhost:8788` |
 
-**UI Studio** (`apps/studio`, port 5174) is a development-time visual tool —
-it writes menu trees / layouts to the API (D1) and the mini app picks
-them up live. It is not deployed; production runs compiled configs only.
+**Studio** (`apps/studio`, port 5174) is the visual builder + admin panel: it
+designs collections, pages, menus and views (written to the API / D1), and edits
+users, roles, policies and the IDP portal. It is deployed as its own worker
+(`WORKER_STUDIO`).
 
 **Login (local dev):** `dev@mmbics.com` / `dev-password-for-local-only`
 
@@ -171,21 +171,21 @@ bootstrap superadmin (Administrator role). If ports are stuck: `pnpm dev:clean`.
 ### 3. Tests & typecheck
 
 ```sh
-pnpm test                    # turbo — core + api suites
+pnpm test                    # turbo — core + api + studio suites
 pnpm typecheck               # all packages
-pnpm --filter @mmbix/tgapp build     # miniapp bundle
 ```
 
 ### 4. Deploy to Cloudflare
 
-> The worker configs (`apps/api/wrangler.jsonc`, `apps/tgapp/wrangler.jsonc`, and
-> the test-only `apps/api/wrangler.testco.jsonc`) are **generated** from the infra
-> SSOT — edit `infra/env.prod` / `infra/env.testco` and run `pnpm gen:infra`
+> The worker configs (`apps/api/wrangler.jsonc`, `apps/studio/wrangler.jsonc`,
+> and the test-only `apps/api/wrangler.testco.jsonc`) are **generated** from the
+> infra SSOT — edit `infra/env.prod` / `infra/env.testco` and run `pnpm gen:infra`
 > instead of touching them by hand (`pnpm check:infra` is the CI drift gate).
 > Resource map + rename runbook: `infra/README.md`. Secrets are set with
 > `wrangler secret put`, never in vars.
 
-One command deploys **both** workers — backend API + frontend Mini App (names come from `WORKER_API`/`WORKER_MINIAPP` in `infra/env.prod` — today `mff-sys-api` + `mff-sys-miniapp`):
+One command deploys **both** workers — the core API + Studio (names come from
+`WORKER_API` / `WORKER_STUDIO` in `infra/env.prod`):
 
 ```sh
 pnpm run deploy            # build + deploy BOTH workers
@@ -194,8 +194,8 @@ pnpm run deploy            # build + deploy BOTH workers
 Or deploy them separately:
 
 ```sh
-pnpm run deploy:api        # backend only — core API worker (WORKER_API in infra/env.prod)
-pnpm run deploy:tgapp      # frontend only — Mini App worker + SPA assets (WORKER_MINIAPP)
+pnpm run deploy:api        # backend — core API worker (WORKER_API)
+pnpm run deploy:studio     # admin UI — Studio worker (WORKER_STUDIO)
 ```
 
 `pnpm run deploy` builds the workspace packages first (turbo's `deploy` task
@@ -222,7 +222,7 @@ Every client gets an **isolated** stack with a consistent naming convention — 
 headless client add --company "Acme Corp" -y        # register the client
 headless client list                                # view clients
 headless client status acme                         # naming map
-headless client deploy acme                         # provision + deploy (api → frontend)
+headless client deploy acme                         # provision + deploy (api)
 ```
 
 `client deploy` automatically:
@@ -231,7 +231,7 @@ headless client deploy acme                         # provision + deploy (api �
 2. **Generates** per-client `wrangler.<prefix>.jsonc` (wrangler has no `${VAR}` interpolation) and deploys with `--config`.
 3. **Provisions** a strong `ADMIN_PASSWORD` + `JWT_SECRET` via `wrangler secret put`, saved to `clients/<prefix>/.env` (git-ignored).
 
-**Naming convention** (tenant key = prefix): `{prefix}-cms` · `{prefix}-frontend` · `{prefix}-cms-db` · `{prefix}-cms-media` · tables `{prefix}_*`
+**Naming convention** (tenant key = prefix): `{prefix}-cms` (API worker) · `{prefix}-cms-db` (D1) · `{prefix}-cms-media` (R2) · tables `{prefix}_*`. A client frontend/app is project-specific and deployed separately.
 
 > 🔑 Client login = `dev@mmbics.com` with the **generated** password in `clients/<prefix>/.env` — never reuse the factory dev password.
 

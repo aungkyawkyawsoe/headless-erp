@@ -2,7 +2,7 @@
  * The launcher app → collection footprint, for the Studio's role editor.
  *
  * The mapping itself lives in `@mmbix/types` (`APP_COLLECTIONS`) because the
- * mini app denies the same apps from the same list (`apps/tgapp/src/shared/
+ * mini app denies the same apps from the same list (`the client app/src/shared/
  * app-access.ts`) and the two must never drift: the Studio's board AUTO-GRANTS
  * read on an app's collections (`appRequiredCollections` → `roles-tab.saveRole`)
  * while the mini app HIDES an app whose collections are not read-granted. If the

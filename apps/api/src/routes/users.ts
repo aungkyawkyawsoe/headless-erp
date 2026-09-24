@@ -79,7 +79,7 @@ app.post('/roles', requireAdmin, async (c) => {
 
 // Update a role's mini-app launcher app allow-list (Design-B app access).
 // Only `app_access` / `description` may change here — `name` stays immutable
-// (role names back SYSTEM_GUARDS + tgapp provisioning lookups).
+// (role names back SYSTEM_GUARDS + client app provisioning lookups).
 app.put('/roles/:id', requireAdmin, async (c) => {
 	await ensureMigrations(c);
 	const auth = getAuth(c);

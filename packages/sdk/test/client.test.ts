@@ -284,7 +284,7 @@ describe('items API', () => {
 			}),
 		);
 		const client = createClient();
-		expect(await client.items('hr_tasks').count({ filter: { status: { _eq: 'pending' } } })).toBe(7);
+		expect(await client.items('tasks').count({ filter: { status: { _eq: 'pending' } } })).toBe(7);
 		expect(capturedUrl).toContain('count_only=true');
 	});
 
@@ -425,13 +425,13 @@ describe('offline queue wiring', () => {
 		const client = createClient({ offlineQueue: queue });
 
 		// Write → enqueued.
-		await expect(client.request('/entities/hr_requests', { method: 'POST', body: { status: 'pending' } })).rejects.toBeInstanceOf(
+		await expect(client.request('/entities/requests', { method: 'POST', body: { status: 'pending' } })).rejects.toBeInstanceOf(
 			NetworkError,
 		);
 		expect(queue.pending()).toHaveLength(1);
 
 		// Read → never queued.
-		await expect(client.request('/entities/hr_requests')).rejects.toBeInstanceOf(NetworkError);
+		await expect(client.request('/entities/requests')).rejects.toBeInstanceOf(NetworkError);
 		expect(queue.pending()).toHaveLength(1);
 
 		// Login → never queued.
@@ -485,16 +485,16 @@ describe('change envelope (meta.changed)', () => {
 				envelopeWithMeta(
 					{ id: 'inv-1' },
 					{
-						changed: { collections: ['mro_inbounds', 'mro_inventory'], rows: { mro_inbounds: ['inv-1'] } },
+						changed: { collections: ['orders', 'stock'], rows: { orders: ['inv-1'] } },
 					},
 				),
 			),
 		);
 		const client = createClient({ onChange: (change) => seen.push(change) });
 
-		await client.request('/entities/mro_inbounds', { method: 'POST', body: { id: 'inv-1' } });
+		await client.request('/entities/orders', { method: 'POST', body: { id: 'inv-1' } });
 
-		expect(seen).toEqual([{ collections: ['mro_inbounds', 'mro_inventory'], rows: { mro_inbounds: ['inv-1'] } }]);
+		expect(seen).toEqual([{ collections: ['orders', 'stock'], rows: { orders: ['inv-1'] } }]);
 	});
 
 	it('does not fire when a response carries no envelope', async () => {
