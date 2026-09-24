@@ -1,0 +1,14 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"paths": {
+			"@/*": ["./src/*"]
+		},
+		// The API worker is a workerd runtime — globals (D1Database, R2Bucket,
+		// DurableObjectNamespace, console, crypto, …) come from the generated
+		// worker-configuration.d.ts (wrangler types), not @types/*. Loading
+		// @types/node here would collide with the workerd runtime types.
+		"types": []
+	},
+	"include": ["worker-configuration.d.ts", "src/**/*.ts", "test/**/*.ts", "vitest.config.mts"]
+}

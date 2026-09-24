@@ -1,0 +1,13 @@
+# Build output
+dist/
+*.tsbuildinfo
+
+# Derived D1 seed (regenerate via `pnpm db:d1-export` from the committed studio.db)
+studio.db/d1-seed.sql
+
+# Dependencies
+node_modules/
+
+# Local env
+.env
+.env.local

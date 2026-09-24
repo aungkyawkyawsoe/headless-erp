@@ -1,0 +1,366 @@
+/* Design-system THEME SOURCE — tokens, base layer, custom utilities and
+ * keyframes. It deliberately does NOT:
+ *   - import tailwindcss (the consumer owns the Tailwind pass and preflight),
+ *   - import tw-animate-css (the consumer adds it if it uses those utilities),
+ *   - declare the "dark" custom variant (the consumer decides how dark mode is
+ *     signalled — the studio uses .dark, the mini app uses [data-theme]),
+ *   - apply the global `* { border-border }` reset (below, in this folder's
+ *     index.css) — a consumer running its own Tailwind pass already has Tailwind
+ *     preflight, which sets `border-color: currentColor`; shipping the reset
+ *     too would silently recolor every uncolored border in that host app.
+ *
+ * src/index.css (which powers the prebuilt dist/design-system.css) is built
+ * from this file. Consumers that do their OWN Tailwind pass import it directly:
+ *   @import "tailwindcss";
+ *   @import "@mmbix/design-system/theme.css";
+ * so exactly one Tailwind run emits the utilities, from the sources that are
+ * actually scanned. */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Fonts are NOT bundled here — consumers load @fontsource packages themselves
+ * (e.g. `import '@fontsource-variable/inter'` in their app entry). Bundling
+ * them here inlined ~650 kB of base64 woff2 into design-system.css. The theme
+ * still declares the font families below (Inter Variable / Noto Sans Myanmar
+ * Variable / Geist Mono) — the app just needs to provide the files.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+@theme inline {
+	--font-heading: var(--font-sans);
+	--font-sans: 'Inter Variable', 'Noto Sans Myanmar Variable', sans-serif;
+	--font-mono: 'Geist Mono', 'Noto Sans Mono', monospace;
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar: var(--sidebar);
+	--color-chart-5: var(--chart-5);
+	--color-chart-4: var(--chart-4);
+	--color-chart-3: var(--chart-3);
+	--color-chart-2: var(--chart-2);
+	--color-chart-1: var(--chart-1);
+	--color-status-info: var(--status-info);
+	--color-status-success: var(--status-success);
+	--color-status-warning: var(--status-warning);
+	--color-status-error: var(--status-error);
+	--color-info: var(--status-info);
+	--color-success: var(--status-success);
+	--color-warning: var(--status-warning);
+	--color-invert: var(--invert);
+	--color-invert-foreground: var(--invert-foreground);
+	--color-ring: var(--ring);
+	--color-input: var(--input);
+	--color-border: var(--border);
+	--color-destructive: var(--destructive);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-accent: var(--accent);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-muted: var(--muted);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary: var(--secondary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary: var(--primary);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-popover: var(--popover);
+	--color-card-foreground: var(--card-foreground);
+	--color-card: var(--card);
+	--color-foreground: var(--foreground);
+	--color-background: var(--background);
+	--radius: 6px;
+	--radius-1: 3px;
+	--radius-2: 4px;
+	--radius-3: 5px;
+	--radius-4: 6px;
+	--radius-5: 8px;
+	--radius-6: 10px;
+	--radius-7: 12px;
+	--radius-8: 16px;
+	--radius-9: 999px;
+	--radius-full: 9999px;
+	--radius-xs: 3px;
+	--radius-sm: 5px;
+	--radius-md: 8px;
+	--radius-lg: 10px;
+	--radius-xl: 12px;
+	--radius-2xl: 16px;
+	--radius-3xl: 20px;
+	--radius-4xl: 24px;
+	/* ── Typography: font weights ── */
+	--font-weight-regular: 420;
+	--font-weight-normal: 420;
+	--font-weight-medium: 500;
+	--font-weight-semibold: 600;
+	--font-weight-bold: 700;
+	--font-weight-black: 800;
+	/* ── Typography: text sizes ── */
+	--text-2xs: 11px;
+	--text-xs: 12px;
+	--text-sm: 13px;
+	--text-base: 14px;
+	--text-lg: 16px;
+	--text-xl: 17px;
+	--text-2xl: 18px;
+	/* ── Typography: display sizes ── */
+	--text-3xl: 24px;
+	--text-5xl: 26px;
+	--text-6xl: 28px;
+	--text-7xl: 32px;
+	--text-8xl: 40px;
+	--text-9xl: 44px;
+	--text-10xl: 48px;
+	--text-11xl: 52px;
+	--text-12xl: 56px;
+	/* ── Typography: paragraph sizes (looser tracking for multi-line text) ── */
+	--text-p-xs: 12px;
+	--text-p-xs--letter-spacing: 0.01em;
+	--text-p-sm: 13px;
+	--text-p-sm--letter-spacing: 0.01em;
+	--text-p-base: 14px;
+	--text-p-base--letter-spacing: 0.01em;
+	--text-p-lg: 16px;
+	--text-p-lg--letter-spacing: 0.01em;
+	--text-p-xl: 17px;
+	--text-p-xl--letter-spacing: 0.01em;
+	/* ── Elevation / shadows ── */
+	--elevation-sm: inset 0px 0.25px 1.5px 0px #ffffff29, 0px 0px 1px 0px #00000033, 0px 1px 3px 0px #00000024;
+	--elevation-base: inset 0px 0.25px 1.5px 0px #ffffff29, 0px 0px 1.5px 0px #00000029, 0px 2px 5px 0px #00000024;
+	--elevation-md: inset 0px 0.25px 1.5px 0px #ffffff29, 0px 0px 1.5px 0px #00000026, 0px 0px 6px 2px #0000000a, 0px 6px 12px -2px #00000014;
+	--elevation-lg:
+		inset 0px 0.25px 1.5px 0px #ffffff29, 0px 0px 1.5px 0px #0000002e, 0px 0px 6px 3px #00000008, 0px 18px 22px -6px #0000001a;
+	--elevation-xl: inset 0px 0.25px 1.5px 0px #ffffff29, 0px 0px 1px 0px #00000033, 0px 0px 10px 2px #0000000a, 0px 24px 30px -8px #0000001a;
+	--elevation-2xl:
+		inset 0px 0.25px 2px 0px #ffffff29, 0px 0px 1.5px 0px #00000040, 0px 0px 10px 2px #00000008, 0px 44px 52px -10px #0000001a;
+	--shadow-sm: var(--elevation-sm);
+	--shadow-base: var(--elevation-base);
+	--shadow-md: var(--elevation-md);
+	--shadow-lg: var(--elevation-lg);
+	--shadow-xl: var(--elevation-xl);
+	--shadow-2xl: var(--elevation-2xl);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-info-foreground: var(--info-foreground);
+	--color-success-foreground: var(--success-foreground);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-surface-floating: var(--surface-floating);
+	--color-surface-floating-border: var(--surface-floating-border);
+	--color-overlay-hover: var(--overlay-hover);
+	--color-overlay-active: var(--overlay-active);
+}
+
+:root {
+	--background: oklch(1 0 0);
+	--foreground: oklch(0.44 0.01 286);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.4 0 0);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.44 0.01 286);
+	--primary: oklch(0.55 0.2 257); /* Deepin sky blue #0081FF */
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.967 0.001 286.375);
+	--secondary-foreground: oklch(0.44 0.01 286);
+	--muted: oklch(0.97 0 0);
+	--muted-foreground: oklch(0.55 0.005 286); /* ~#757575 — WCAG AA */
+	--accent: oklch(0 0 0 / 6%); /* Deepin hover overlay (5–8%) */
+	--accent-foreground: oklch(0.44 0.01 286);
+	--destructive: var(--status-error); /* #FF3B30 */
+	--border: oklch(0.94 0 0);
+	--input-bg: oklch(0.985 0 0);
+	--input: oklch(0.922 0 0);
+	--status-info: oklch(0.7 0.13 190); /* #00C7BE */
+	--status-success: oklch(0.68 0.19 140); /* #28C940 */
+	--status-warning: oklch(0.72 0.18 55); /* #FF9500 */
+	--status-error: oklch(0.62 0.22 27); /* #FF3B30 */
+	--invert: var(--foreground);
+	--invert-foreground: var(--background);
+	--ring: oklch(0.6 0.14 257 / 55%); /* accent-tinted focus ring */
+	--chart-1: oklch(0.6 0.16 257); /* blue */
+	--chart-2: oklch(0.7 0.13 190); /* cyan */
+	--chart-3: oklch(0.68 0.19 140); /* green */
+	--chart-4: oklch(0.72 0.18 55); /* orange */
+	--chart-5: oklch(0.62 0.22 27); /* red */
+	--radius: 6px;
+	--sidebar: oklch(0.985 0 0);
+	--sidebar-foreground: oklch(0.44 0.01 286);
+	--sidebar-primary: oklch(0.55 0.2 257);
+	--sidebar-primary-foreground: oklch(0.99 0 0);
+	--sidebar-accent: oklch(0 0 0 / 6%);
+	--sidebar-accent-foreground: oklch(0.44 0.01 286);
+	--sidebar-border: oklch(0.922 0 0);
+	--sidebar-ring: oklch(0.6 0.14 257 / 55%);
+	--destructive-foreground: oklch(0.99 0.003 27);
+	--success: var(--status-success);
+	--success-foreground: var(--status-success);
+	--info: var(--status-info);
+	--info-foreground: var(--status-info);
+	--warning: var(--status-warning);
+	--warning-foreground: var(--status-warning);
+	--surface-floating: color-mix(in oklab, var(--popover) 85%, transparent);
+	--surface-floating-border: color-mix(in oklab, var(--border) 55%, transparent);
+	--overlay-hover: oklch(0 0 0 / 6%);
+	--overlay-active: oklch(0 0 0 / 14%);
+	/* Bottom chrome clearance — the device home-indicator/notch inset OR
+	 * Telegram's reported bottom safe area (both 0 in a plain browser). The ONE
+	 * source every surface that must clear the bottom chrome reads, so a DS
+	 * sheet/toast and the host app's own padding can never disagree. */
+	--safe-area-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px));
+}
+
+.dark {
+	--background: oklch(0.145 0 0); /* #1A1A1A — no pure black */
+	--foreground: oklch(0.72 0 0);
+	--card: oklch(0.205 0 0);
+	--card-foreground: oklch(0.8 0 0);
+	--popover: oklch(0.205 0 0);
+	--popover-foreground: oklch(0.72 0 0);
+	--primary: oklch(0.62 0.16 257); /* vibrant sky blue on dark */
+	--primary-foreground: oklch(1 0 0);
+	--secondary: oklch(0.274 0.006 286.033);
+	--secondary-foreground: oklch(0.72 0 0);
+	--muted: oklch(0.269 0 0);
+	--muted-foreground: oklch(0.66 0.005 286); /* ~#9E9EA3 */
+	--accent: oklch(1 0 0 / 7%); /* Deepin hover overlay */
+	--accent-foreground: oklch(0.72 0 0);
+	--destructive: var(--status-error);
+	--border: oklch(0.23 0 0);
+	--input-bg: oklch(0.195 0 0 / 60%);
+	--input: oklch(0.26 0 0);
+	--status-info: oklch(0.76 0.12 190);
+	--status-success: oklch(0.74 0.17 140);
+	--status-warning: oklch(0.79 0.16 55);
+	--status-error: oklch(0.68 0.21 27);
+	--ring: oklch(0.62 0.15 257 / 60%);
+	--chart-1: oklch(0.66 0.15 257);
+	--chart-2: oklch(0.76 0.12 190);
+	--chart-3: oklch(0.74 0.17 140);
+	--chart-4: oklch(0.78 0.16 55);
+	--chart-5: oklch(0.68 0.21 27);
+	--sidebar: oklch(0.205 0 0);
+	--sidebar-foreground: oklch(0.72 0 0);
+	--sidebar-primary: oklch(0.62 0.16 257);
+	--sidebar-primary-foreground: oklch(0.99 0 0);
+	--sidebar-accent: oklch(1 0 0 / 7%);
+	--sidebar-accent-foreground: oklch(0.72 0 0);
+	--sidebar-border: oklch(1 0 0 / 10%);
+	--sidebar-ring: oklch(0.62 0.15 257 / 60%);
+	--destructive-foreground: oklch(0.99 0.003 27);
+	--success: var(--status-success);
+	--success-foreground: var(--status-success);
+	--info: var(--status-info);
+	--info-foreground: var(--status-info);
+	--warning: var(--status-warning);
+	--warning-foreground: var(--status-warning);
+	--invert: var(--color-zinc-700);
+	--invert-foreground: var(--color-zinc-50);
+	--overlay-hover: oklch(1 0 0 / 7%);
+	--overlay-active: oklch(1 0 0 / 16%);
+}
+
+@layer base {
+	body {
+		@apply bg-background font-normal text-foreground;
+	}
+	button:not(:disabled),
+	[role='button']:not(:disabled) {
+		cursor: pointer;
+	}
+	html {
+		@apply font-sans;
+	}
+}
+
+/* ── Base UI accordion animation keyframes ── */
+/* tw-animate-css uses --radix-accordion-content-height (Radix UI),
+   but Base UI sets --accordion-panel-height on the panel element. */
+@keyframes accordion-down-base-ui {
+	from {
+		height: 0;
+	}
+	to {
+		height: var(--accordion-panel-height);
+	}
+}
+
+@keyframes accordion-up-base-ui {
+	from {
+		height: var(--accordion-panel-height);
+	}
+	to {
+		height: 0;
+	}
+}
+
+/* ── Base UI accordion animation utilities ── */
+@utility animate-accordion-down-base-ui {
+	animation: accordion-down-base-ui var(--tw-animation-duration, var(--tw-duration, 0.2s)) var(--tw-ease, ease-out)
+		var(--tw-animation-delay, 0s) var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+		var(--tw-animation-fill-mode, none);
+}
+
+@utility animate-accordion-up-base-ui {
+	animation: accordion-up-base-ui var(--tw-animation-duration, var(--tw-duration, 0.2s)) var(--tw-ease, ease-out)
+		var(--tw-animation-delay, 0s) var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+		var(--tw-animation-fill-mode, none);
+}
+
+/* ── Enter/Exit animation keyframes (for dialog, backdrop, etc.) ── */
+@keyframes enter {
+	from {
+		opacity: var(--tw-enter-opacity, 1);
+		transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+			scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), var(--tw-enter-scale, 1)) rotate(var(--tw-enter-rotate, 0));
+		filter: blur(var(--tw-enter-blur, 0));
+	}
+}
+
+@keyframes exit {
+	to {
+		opacity: var(--tw-exit-opacity, 1);
+		transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0)
+			scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), var(--tw-exit-scale, 1)) rotate(var(--tw-exit-rotate, 0));
+		filter: blur(var(--tw-exit-blur, 0));
+	}
+}
+
+/* ── Enter/Exit animation utilities ── */
+@utility animate-in {
+	animation: enter var(--tw-animation-duration, var(--tw-duration, 0.15s)) var(--tw-ease, ease) var(--tw-animation-delay, 0s)
+		var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal) var(--tw-animation-fill-mode, none);
+}
+
+@utility animate-out {
+	animation: exit var(--tw-animation-duration, var(--tw-duration, 0.15s)) var(--tw-ease, ease) var(--tw-animation-delay, 0s)
+		var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal) var(--tw-animation-fill-mode, none);
+}
+
+@utility fade-in {
+	--tw-enter-opacity: 0;
+}
+
+@utility fade-out {
+	--tw-exit-opacity: 0;
+}
+
+@utility zoom-in-95 {
+	--tw-enter-scale: 0.95;
+}
+
+@utility zoom-out-95 {
+	--tw-exit-scale: 0.95;
+}
+
+/* ── Hidden scrollbars (used by combobox, command, sidebar, etc.) ── */
+@utility no-scrollbar {
+	scrollbar-width: none;
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
+input[type='number'] {
+	color-scheme: light;
+}
+
+.dark input[type='number'] {
+	color-scheme: dark;
+}

@@ -1,0 +1,5 @@
+# Generated artifacts — never reformat
+**/worker-configuration.d.ts
+packages/cli/bin/cli.js
+packages/design-system/src/components/widgets/index.ts
+apps/tgapp/src/generated/schema.ts

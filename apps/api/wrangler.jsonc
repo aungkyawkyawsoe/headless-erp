@@ -1,0 +1,179 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	/**
+	 * ⚠️ GENERATED FILE — do not edit by hand.
+	 * Source of truth: infra/env.prod → scripts/gen-wrangler.mjs (pnpm gen:infra).
+	 * CI drift gate: pnpm check:infra
+	 */
+	"name": "mff-sys-api",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-07-31",
+	"compatibility_flags": ["nodejs_compat"],
+	"minify": true,
+	"keep_names": true,
+	/**
+	 * Dev server — bind 8788 so ANY `wrangler dev` invocation (bare, without
+	 * --port flags) matches the miniapp's Vite proxy (vite.config.ts targets
+	 * http://localhost:8788). A bare `npx wrangler dev` would otherwise default
+	 * to 8787 and every /api call from the mini app fails with ECONNREFUSED.
+	 */
+	"dev": {
+		"port": 8788,
+		"ip": "0.0.0.0",
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "mff-sys-db",
+			// Production D1 — created via `npx wrangler d1 create mff-sys-db`.
+			"database_id": "8d19c262-aac5-42f0-a124-6283d460b054",
+			// NO preview_database_id — preview/`--remote` must never touch the prod
+			// database. Set D1_PREVIEW_ID in infra/env.prod to point at a scratch D1.
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "BUCKET",
+			"bucket_name": "mff-sys-media",
+		},
+	],
+	/**
+	 * Durable Objects — global cross-isolate state.
+	 * RATE_LIMIT: true global rate limiting (per-tier per-IP), atomic counters.
+	 * Enabled when the binding exists AND vars.RATE_LIMIT_DO === "true".
+	 */
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "RATE_LIMIT",
+				"class_name": "GlobalRateLimitStore",
+			},
+			{
+				"name": "SCHEDULER",
+				"class_name": "SchedulerDO",
+			},
+			{
+				"name": "LOCK",
+				"class_name": "LockDO",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["GlobalRateLimitStore"],
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["SchedulerDO"],
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["LockDO"],
+		},
+	],
+	/**
+	 * Cloudflare Queues — reliable webhook delivery (retries + backoff) + the
+	 * internal event bus. Consumers run in this worker (the `queue` export in
+	 * src/index.ts). Names come from infra/env.prod — create once:
+	 *   npx wrangler queues create <name>   (+ <name>-dlq)
+	 */
+	"queues": {
+		"producers": [
+			{
+				"binding": "WEBHOOK_QUEUE",
+				"queue": "mff-sys-webhook-delivery",
+			},
+			{
+				"binding": "EVENTS",
+				"queue": "mff-sys-events",
+			},
+		],
+		"consumers": [
+			{
+				"queue": "mff-sys-webhook-delivery",
+				"max_retries": 3,
+				"dead_letter_queue": "mff-sys-webhook-dlq",
+				"retry_delay": 30,
+			},
+			{
+				"queue": "mff-sys-events",
+				"max_retries": 5,
+				"dead_letter_queue": "mff-sys-events-dlq",
+				"retry_delay": 30,
+			},
+		],
+	},
+	/**
+	 * Workers Analytics Engine — per-request usage metrics per client.
+	 * Dataset is created automatically on first write.
+	 */
+	"analytics_engine_datasets": [
+		{
+			"binding": "ANALYTICS",
+			"dataset": "mff_sys_api_requests",
+		},
+	],
+	/**
+	 * Scheduled backup — nightly full DB snapshot (schema + all collections) to R2.
+	 * Also prunes backups older than BACKUP_RETENTION_DAYS. Local: `wrangler dev --test-scheduled`.
+	 */
+	"triggers": {
+		"crons": ["0 2 * * *", "30 8 * * *", "*/10 * * * *", "30 3 * * *", "* * * * *"],
+	},
+	/**
+	 * 🔒 SECRETS — NEVER put passwords/tokens in vars (the old committed
+	 * ADMIN_PASSWORD/JWT_SECRET vars were removed — see git history). Set them
+	 * once via `wrangler secret put` — the API fails closed in prod until the
+	 * secrets exist:
+	 *   npx wrangler secret put ADMIN_PASSWORD
+	 *   npx wrangler secret put JWT_SECRET
+	 *   npx wrangler secret put BACKUP_ENCRYPTION_KEY   (hex 64 chars: `openssl rand -hex 32`)
+	 *   npx wrangler secret put TELEGRAM_BOT_TOKEN
+	 *   npx wrangler secret put R2_SQL_TOKEN            (only when ENABLE_R2_LAKE=true)
+	 *   npx wrangler secret put ENCRYPTION_KEY          (only if schema has `encrypted` fields)
+	 * Local dev uses apps/api/.dev.vars (git-ignored).
+	 */
+	"vars": {
+		/**
+		 * Bootstrap admin username (config, not a secret). The password is set via
+		 * `wrangler secret put ADMIN_PASSWORD` — never in vars.
+		 */
+		"ADMIN_USERNAME": "dev@mmbics.com",
+		/**
+		 * Table prefix + business modules served by this worker.
+		 * DOMAIN_MODULES default when unset: 'hr'; 'none' = pure factory.
+		 */
+		"TABLE_PREFIX": "cms_",
+		"DOMAIN_MODULES": "hr,idp,mro",
+		// PBKDF2 cost for NEW password hashes — lowered from the 600k code default
+		// because 600k PBKDF2 throws on this deployment (500 on login/verify).
+		// Stored hashes always verify at their own iteration count.
+		"PBKDF2_ITERATIONS": "100000",
+		// ⚠️ IS_DEV must NEVER be set in production vars — it enables the
+		// publicly-known `dev-token` as full admin (routes/auth.ts) and relaxes
+		// rate limits to 10k/min. Local dev only: apps/api/.dev.vars (IS_DEV="true").
+		/**
+		 * Production defaults: cross-isolate rate limiting, per-request analytics
+		 * and the nightly backup are ON. Local dev/tests use wrangler.testco.jsonc,
+		 * which keeps these toggles off.
+		 */
+		"RATE_LIMIT_DO": "false",
+		"BACKUP_ENABLED": "true",
+		"AI_PROVIDER": "mock",
+		"ANALYTICS_ENABLED": "true",
+		"BACKUP_RETENTION_DAYS": "7",
+		// R2 Data Catalog (Iceberg) read-only analytics. R2_SQL_TOKEN secret is set
+		// via `wrangler secret put R2_SQL_TOKEN`. R2_ACCOUNT_ID overrides autodetect.
+		"ENABLE_R2_LAKE": "true",
+		"R2_ACCOUNT_ID": "4893d057edb60776ec8bf60c69e29586",
+		"R2_BUCKET": "mff-sys-media",
+		// Queue-name contract for the worker queue() dispatch (src/index.ts) —
+		// generated from the same env value as the EVENTS binding, so the runtime
+		// comparison `batch.queue === EVENT_QUEUE_NAME` can never drift.
+		"EVENT_QUEUE_NAME": "mff-sys-events",
+	},
+	"observability": {
+		"enabled": true,
+	},
+}

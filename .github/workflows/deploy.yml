@@ -1,0 +1,172 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'turbo.json'
+      - 'pnpm-lock.yaml'
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'turbo.json'
+      - 'pnpm-lock.yaml'
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+# Least-privilege: only read repo contents. Deploy secrets (CF_API_TOKEN) are
+# injected per-job via `env:` + the `production` environment, not via OIDC, so no
+# id-token: write is needed. Fork PRs never reach the deploy jobs (gated on push).
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Infra env drift check (infra/env.* ↔ committed wrangler configs)
+        run: pnpm check:infra
+      - name: tgapp typegen drift check (offline — schema.source.json vs generated/schema.ts)
+        working-directory: apps/tgapp
+        run: pnpm run typegen:check
+      - run: pnpm turbo run typecheck
+      - run: pnpm turbo run test
+      - run: pnpm turbo run lint
+      - name: Security scan (debug/test-helper artifacts + config secrets)
+        run: pnpm security
+      - run: pnpm format:check
+      - run: pnpm turbo run build
+
+  studio-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Build design-system (studio consumes the built dist)
+        working-directory: packages/design-system
+        run: pnpm build
+      - name: Studio typecheck
+        working-directory: apps/studio
+        run: npx tsc --noEmit
+      - name: Studio production build
+        working-directory: apps/studio
+        run: npx vite build
+      - name: Design-system widget registry in sync
+        working-directory: packages/design-system
+        run: node scripts/widgets.mjs --check
+
+  deploy-api:
+    needs: quality
+    # PRs run the quality gates only — never deploy PR code to production.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run build --filter=@mmbix/api
+      - name: Deploy API Worker
+        working-directory: apps/api
+        run: |
+          set -o pipefail
+          pnpm wrangler deploy | tee /tmp/wrangler-deploy.log
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      - name: Smoke test deployed worker (/api/health)
+        working-directory: apps/api
+        run: |
+          URL=$(grep -oE 'https://[^[:space:]]*workers\.dev[^[:space:]]*' /tmp/wrangler-deploy.log | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Could not find the deployed workers.dev URL in wrangler output"
+            exit 1
+          fi
+          echo "Smoke-testing $URL/api/health"
+          curl --fail --silent --show-error --max-time 30 -o /dev/null -w 'health: %{http_code}\n' "$URL/api/health"
+
+  deploy-miniapp:
+    needs: quality
+    # PRs run the quality gates only — never deploy PR code to production.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Build @mmbix/design-system (tgapp consumes the built dist; never committed)
+        working-directory: packages/design-system
+        run: pnpm build
+      - name: Build + Deploy Miniapp Worker (Telegram Mini App SPA + BFF)
+        working-directory: apps/tgapp
+        run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      - name: Smoke test deployed miniapp (custom domain + proxied API binding)
+        run: |
+          curl --fail --silent --show-error --max-time 30 -o /dev/null -w 'domain root: %{http_code}\n' https://app.mfflogistics.com/
+          curl --fail --silent --show-error --max-time 30 -o /dev/null -w 'proxied /api/health: %{http_code}\n' https://app.mfflogistics.com/api/health
+
+  deploy-studio:
+    needs: [quality, studio-quality]
+    # PRs run the quality gates only — never deploy PR code to production.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Build @mmbix/design-system (studio consumes the built dist; never committed)
+        working-directory: packages/design-system
+        run: pnpm build
+      - name: Build + Deploy Studio Worker
+        working-directory: apps/studio
+        run: pnpm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      - name: Smoke test deployed studio
+        run: |
+          curl --fail --silent --show-error --max-time 30 -o /dev/null -w 'studio root: %{http_code}\n' https://erp-studio.mfflogistics.com/

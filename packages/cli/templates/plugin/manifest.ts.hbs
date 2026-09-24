@@ -1,0 +1,21 @@
+import type { PluginManifest } from '@mmbix/types/manifest';
+
+export const {{id}}Manifest: PluginManifest = {
+	id: '{{id}}',
+	name: '{{name}}',
+	version: '{{version}}',
+	description: '{{description}}',
+	workerGroup: '{{workerGroup}}',
+	{{#if hookDetails.length}}
+	hooks: [
+		{{#each hookDetails}}
+		{ collection: '{{collection}}', event: '{{event}}', priority: {{priority}}, timeoutMs: {{timeoutMs}}, description: '{{description}}' },
+		{{/each}}
+	],
+	{{/if}}
+	{{#if routePath}}
+	routes: [
+		{ path: '{{routePath}}', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+	],
+	{{/if}}
+};

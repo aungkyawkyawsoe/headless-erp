@@ -1,0 +1,38 @@
+{
+	"name": "@mmbix/compute",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Single source of truth for computation — financial, statistical and date functions. Pure + deterministic (workerd/browser-safe), registered into the safe expression evaluator so every declarative surface (workflow guards, server-function rules, linkage calculate, formula fields) can use them.",
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./financial": "./src/functions/financial.ts",
+		"./statistical": "./src/functions/statistical.ts",
+		"./datetime": "./src/functions/datetime.ts",
+		"./string": "./src/functions/string.ts",
+		"./currency": "./src/functions/currency.ts",
+		"./tax": "./src/functions/tax.ts",
+		"./math": "./src/functions/math.ts",
+		"./logic": "./src/functions/logic.ts",
+		"./array": "./src/functions/array.ts",
+		"./pattern": "./src/functions/pattern.ts",
+		"./conversion": "./src/functions/conversion.ts",
+		"./timeseries": "./src/functions/timeseries.ts",
+		"./probability": "./src/functions/probability.ts",
+		"./package.json": "./package.json"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@mmbix/core": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

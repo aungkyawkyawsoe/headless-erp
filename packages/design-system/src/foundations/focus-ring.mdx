@@ -1,0 +1,39 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+import { FocusRingDemo } from "./demos"
+
+<Meta title="Foundations/Focus Ring" />
+
+# Focus Ring
+
+Focus ring styles applied via `focus-visible:` utilities. The ring color is
+defined by the `--ring` CSS custom property with a semi-transparent overlay.
+
+<FocusRingDemo />
+
+## The pattern
+
+All interactive components use a consistent focus ring by default:
+
+```css
+/* @apply pattern used across components */
+focus-visible:ring-3 focus-visible:ring-ring/50
+```
+
+- **`ring-3`** — 3px ring width
+- **`ring-ring/50`** — the `--ring` token at 50% opacity
+- Applied only on **keyboard focus** (`focus-visible`), never on mouse clicks
+
+## Accessibility
+
+- Focus is always visible for keyboard users
+- The ring color adapts to light/dark mode via `--ring`
+- Custom focusable elements can use the same utilities:
+
+```tsx
+<div
+  tabIndex={0}
+  className="focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+>
+  Custom focus target
+</div>
+```

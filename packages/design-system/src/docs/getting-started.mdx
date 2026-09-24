@@ -1,0 +1,115 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+import mmbixLogo from "../assets/mmbix-logo.png"
+
+<Meta title="Getting Started" />
+
+<img src={mmbixLogo} alt="MMBIX" width="140" />
+
+# MMBIX Design System
+
+A production-grade React component library — **60+ accessible components** styled
+with **Tailwind CSS v4** design tokens, and optimized for **edge runtimes**.
+
+## Installation
+
+Pick one of two ways:
+
+### Option A — CLI (recommended, per-component)
+
+Install only what you need. Component source code is copied into your project so
+you can customize it freely.
+
+```bash
+# 1. Init: Tailwind v4 + design tokens + utilities
+pnpm dlx @mmbix/design-system-cli@latest init
+
+# 2. Add components (dependencies resolve automatically)
+pnpm dlx @mmbix/design-system-cli@latest add button badge input
+pnpm dlx @mmbix/design-system-cli@latest add dialog sheet dropdown-menu
+```
+
+This creates:
+
+```
+src/components/ui/      # your components (button.tsx, dialog.tsx, …)
+src/lib/utils/cn.ts     # cn() utility
+src/styles/theme.css    # design tokens (light/dark)
+```
+
+### Option B — npm package
+
+```bash
+pnpm add @mmbix/design-system
+```
+
+```tsx
+import "@mmbix/design-system/styles.css"
+import { Button, ThemeProvider, useTheme, cn } from "@mmbix/design-system"
+```
+
+## First component
+
+```tsx
+import { Button } from "@mmbix/design-system"
+// or with the CLI: import { Button } from "@/components/ui/button"
+
+export function App() {
+  return (
+    <Button variant="default" size="sm" onClick={() => console.log("hi")}>
+      Hello
+    </Button>
+  )
+}
+```
+
+## Dark mode
+
+Wrap your app in `ThemeProvider` and toggle via `useTheme`:
+
+```tsx
+import { ThemeProvider, useTheme } from "@mmbix/design-system"
+
+function Toggle() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+      Toggle
+    </button>
+  )
+}
+
+export function App() {
+  return (
+    <ThemeProvider defaultTheme="system">
+      <Toggle />
+    </ThemeProvider>
+  )
+}
+```
+
+## Explore the docs
+
+<table>
+  <thead>
+    <tr>
+      <th>Section</th>
+      <th>What you'll find</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <strong>Foundations</strong>
+      </td>
+      <td>
+        Design tokens — colors, typography, radius, elevation, focus rings
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <strong>Components</strong>
+      </td>
+      <td>Every component with live examples and props tables</td>
+    </tr>
+  </tbody>
+</table>

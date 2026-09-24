@@ -1,0 +1,29 @@
+{
+	"name": "@mmbix/cli",
+	"version": "0.8.0",
+	"private": true,
+	"description": "Headless CMS CLI — scaffold plugins, workers, and hooks",
+	"type": "module",
+	"bin": {
+		"headless": "./bin/cli.js"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"build": "node build.js"
+	},
+	"dependencies": {
+		"@clack/prompts": "^1.7.0",
+		"@mmbix/core": "workspace:*",
+		"commander": "^15.0.0",
+		"handlebars": "^4.7.9",
+		"picocolors": "^1.1.1"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"@types/node": "^26.3.0",
+		"esbuild": "^0.28.2",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

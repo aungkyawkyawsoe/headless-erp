@@ -1,0 +1,73 @@
+{
+	"name": "mff-erp-tg-bot",
+	"version": "0.8.0",
+	"engines": {
+		"node": ">=20"
+	},
+	"packageManager": "pnpm@11.25.0",
+	"private": true,
+	"description": "Enterprise-grade headless CMS — Hono + Cloudflare Workers + D1 + R2",
+	"type": "module",
+	"scripts": {
+		"build": "turbo run build",
+		"dev": "turbo run dev --filter=@mmbix/api --filter=@mmbix/tgapp --filter=@mmbix/studio",
+		"dev:clean": "pkill -f wrangler 2>/dev/null || true; pkill -f vite 2>/dev/null || true; pkill -f workerd 2>/dev/null || true; pkill -f 'turbo run' 2>/dev/null || true; for port in 5174 5175 8787 8788 8789 9230 9232; do pid=$(lsof -tiTCP:$port -sTCP:LISTEN 2>/dev/null); if [ -n \"$pid\" ]; then echo \"→ killing port $port (pid $pid)\"; kill $pid 2>/dev/null; fi; done; sleep 1; lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(5174|5175|8787|8788|8789|9230|9232)' || echo 'All dev ports clear'",
+		"cli:link": "cd packages/cli && node build.js && pnpm link --global",
+		"gen:infra": "node scripts/gen-wrangler.mjs && node scripts/gen-wrangler.mjs --env testco",
+		"check:infra": "node scripts/gen-wrangler.mjs --check && node scripts/gen-wrangler.mjs --env testco --check",
+		"start": "pnpm --filter @mmbix/api dev",
+		"typecheck": "turbo run typecheck",
+		"test": "turbo run test",
+		"lint": "eslint .",
+		"deploy": "pnpm run deploy:api && pnpm run deploy:tgapp && pnpm run deploy:studio",
+		"deploy:api": "turbo run deploy --filter=@mmbix/api",
+		"deploy:tgapp": "turbo run deploy --filter=@mmbix/tgapp",
+		"deploy:studio": "turbo run deploy --filter=@mmbix/studio",
+		"format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+		"format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
+		"check": "pnpm check:infra && pnpm typecheck && pnpm lint && pnpm format:check",
+		"prepare": "husky",
+		"security": "node scripts/security-scan.mjs",
+		"smoke:mro": "node scripts/smoke-mro-lifecycle.mjs && node scripts/smoke-store-request-issue.mjs && node scripts/smoke-mro-assets.mjs"
+	},
+	"devDependencies": {
+		"@mmbix/cli": "workspace:*",
+		"@types/node": "^26.3.0",
+		"@typescript-eslint/eslint-plugin": "^8.68.0",
+		"@typescript-eslint/parser": "^8.68.0",
+		"eslint": "^10.9.1",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-prettier": "^5.5.6",
+		"eslint-plugin-react-hooks": "^7.1.1",
+		"husky": "^9.1.7",
+		"lint-staged": "^17.3.0",
+		"prettier": "^3.9.6",
+		"turbo": "^2.10.12",
+		"typescript": "npm:@typescript/typescript6@^6.0.2"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild",
+			"husky",
+			"sharp",
+			"vue-demi",
+			"workerd"
+		],
+		"packageExtensions": {
+			"unplugin-dts": {
+				"dependencies": {
+					"@typescript/typescript6": "^6.0.2"
+				}
+			}
+		}
+	},
+	"lint-staged": {
+		"*.ts": [
+			"prettier --write",
+			"eslint --fix"
+		],
+		"*.{json,md,yaml,yml}": [
+			"prettier --write"
+		]
+	}
+}

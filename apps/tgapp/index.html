@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<!-- Mobile-first: cover the whole viewport including Telegram's safe areas.
+		     interactive-widget=resizes-content keeps bottom-fixed bars above the
+		     on-screen keyboard on iOS/Android. user-scalable=no + maximum-scale=1
+		     prevent pinch-zoom for a native-app feel. touch-action: pan-y in
+		     index.css reinforces this at the CSS level. -->
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+		<meta name="theme-color" content="#EDF0F4" />
+		<title>TG App</title>
+		<!--
+			Official Telegram WebApp SDK — REQUIRED for Mini Apps. It normalizes the
+			environment across every client: native WebView bridge injection (mobile
+			apps) AND the t.me deep-link fallback where Telegram passes the session as
+			a `#tgWebAppData=<initData>` URL fragment (in-app/external browser).
+			Without it, `window.Telegram.WebApp` stays undefined on the fragment path
+			and the app can't see the Telegram session at all.
+
+			The `?63` cache-buster is the current build from the official Mini Apps
+			initialization snippet (core.telegram.org/bots/webapps) — Telegram bumps
+			the number on each SDK release, so bump it here when the docs change.
+		-->
+		<script async src="https://telegram.org/js/telegram-web-app.js?63"></script>
+		<script>
+			// Set the theme before the bundle loads — prevents a light/dark flash.
+			// LIGHT is the app's default: inside Telegram the client's colorScheme
+			// wins; in a plain browser only an EXPLICIT OS dark preference flips to
+			// dark — anything else renders light.
+			try {
+				var tg = window.Telegram && window.Telegram.WebApp;
+				// The user's persisted preference (Settings page) wins over the client;
+				// `system`/absent follows Telegram's colorScheme or the OS preference.
+				var pref = null;
+				try {
+					pref = localStorage.getItem('mmbix-theme');
+				} catch (e) {}
+				var systemScheme = tg
+					? tg.colorScheme === 'light'
+						? 'light'
+						: 'dark'
+					: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+						? 'dark'
+						: 'light';
+				var scheme = pref === 'light' || pref === 'dark' ? pref : systemScheme;
+				document.documentElement.dataset.theme = scheme;
+				document.documentElement.style.colorScheme = scheme;
+				// Keep the browser-chrome tint in step with the scheme (default light).
+				var themeColor = document.querySelector('meta[name="theme-color"]');
+				if (themeColor) themeColor.content = scheme === 'dark' ? '#111213' : '#EDF0F4';
+
+				// Tag the launch context BEFORE first paint: inside Telegram the
+				// content must clear the native header strip (92px floor via
+				// `pt-tg`), while a plain browser only owes the device notch inset.
+				// UA covers native clients (bridge not injected yet at this point);
+				// the URL launch params cover Desktop/tablet/deep-link windows.
+				var isTg =
+					/Telegram/i.test(navigator.userAgent) ||
+					(tg && tg.initData) ||
+					/tgWebAppData=/.test(window.location.search + window.location.hash);
+				document.documentElement.dataset.tgApp = isTg ? 'true' : 'false';
+			} catch (e) {}
+		</script>
+		<!--
+			Boot splash — painted by the HTML itself, BEFORE the entry bundle finishes
+			downloading. Without it #root is empty for the whole bundle download (100+
+			kB gzipped on a slow link), so the app looks dead for a second or more.
+			React's first commit clears #root, swapping the splash out for the real UI.
+			Inline styles on purpose: the app's CSS bundle has not loaded yet.
+		-->
+		<style>
+			html {
+				background: #edf0f4;
+			}
+			html[data-theme='dark'] {
+				background: #111213;
+			}
+			#boot {
+				position: fixed;
+				inset: 0;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+			#boot .ring {
+				width: 32px;
+				height: 32px;
+				border-radius: 9999px;
+				border: 2px solid rgba(127, 127, 127, 0.28);
+				border-top-color: rgba(24, 26, 32, 0.85);
+				animation: boot-spin 0.7s linear infinite;
+			}
+			html[data-theme='dark'] #boot .ring {
+				border-top-color: rgba(232, 234, 240, 0.9);
+			}
+			@keyframes boot-spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div id="root">
+			<div id="boot"><div class="ring"></div></div>
+		</div>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
+</html>

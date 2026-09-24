@@ -1,0 +1,98 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	/**
+	 * ⚠️ GENERATED FILE — do not edit by hand.
+	 * Source of truth: infra/env.testco → scripts/gen-wrangler.mjs (pnpm gen:infra).
+	 * CI drift gate: pnpm check:infra
+	 */
+	// ⚠️ TEST-ONLY config — NEVER `wrangler deploy -c wrangler.testco.jsonc`
+	// into a shared/production account: it ships IS_DEV=true + KNOWN placeholder
+	// credentials (ADMIN_PASSWORD, JWT_SECRET, TELEGRAM_BOT_TOKEN, R2_SQL_TOKEN)
+	// that would grant full admin to anyone (dev-token + known admin password).
+	// Every resource below is isolated from production (own queues, own R2
+	// bucket, placeholder D1 ids — miniflare local only).
+	"name": "testco-cms",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-07-31",
+	"compatibility_flags": ["nodejs_compat"],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "testco-cms-db",
+			"database_id": "your-d1-database-id",
+			"preview_database_id": "your-preview-database-id",
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "BUCKET",
+			"bucket_name": "testco-cms-media",
+		},
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "SCHEDULER",
+				"class_name": "SchedulerDO",
+			},
+			{
+				"name": "LOCK",
+				"class_name": "LockDO",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["SchedulerDO"],
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["LockDO"],
+		},
+	],
+	/**
+	 * Event-bus queue — ISOLATED from production (own QUEUE_EVENTS from env.testco),
+	 * so a test/local run can never produce to or consume from the live queue.
+	 */
+	"queues": {
+		"producers": [
+			{
+				"binding": "EVENTS",
+				"queue": "testco-events",
+			},
+		],
+		"consumers": [
+			{
+				"queue": "testco-events",
+				"max_retries": 5,
+				"dead_letter_queue": "testco-events-dlq",
+				"retry_delay": 30,
+			},
+		],
+	},
+	"vars": {
+		"ADMIN_USERNAME": "dev@mmbics.com",
+		"ADMIN_PASSWORD": "dev-password-for-local-only",
+		"ADMIN_NAME": "Administrator",
+		"JWT_SECRET": "testco-jwt-secret-change-me",
+		"CLIENT_ID": "testco",
+		"TABLE_PREFIX": "cms_",
+		"IS_DEV": "true",
+		"DOMAIN_MODULES": "hr,idp,mro",
+		"TELEGRAM_BOT_TOKEN": "test-bot-token",
+		"R2_SQL_TOKEN": "test-dummy-token",
+		"RATE_LIMIT_DO": "false",
+		"BACKUP_ENABLED": "false",
+		"AI_PROVIDER": "mock",
+		"ANALYTICS_ENABLED": "false",
+		"BACKUP_RETENTION_DAYS": "7",
+		"ENABLE_R2_LAKE": "false",
+		"R2_ACCOUNT_ID": "4893d057edb60776ec8bf60c69e29586",
+		"R2_BUCKET": "testco-cms-media",
+		"EVENT_QUEUE_NAME": "testco-events",
+	},
+	"observability": {
+		"enabled": true,
+	},
+}

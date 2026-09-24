@@ -1,0 +1,122 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+import { TypeScale, FontFamilyDemo } from "./demos"
+
+<Meta title="Foundations/Typography" />
+
+# Typography
+
+The type system is defined by two fonts and a scale driven by Tailwind
+utilities — no component code needed.
+
+## Font families
+
+<table>
+  <thead>
+    <tr>
+      <th>Family</th>
+      <th>CSS variable</th>
+      <th>Fallbacks</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Sans</td>
+      <td>
+        <code>--font-sans</code>
+      </td>
+      <td>Inter Variable, Noto Sans Myanmar Variable</td>
+    </tr>
+    <tr>
+      <td>Mono</td>
+      <td>
+        <code>--font-mono</code>
+      </td>
+      <td>Geist Mono, Noto Sans Mono</td>
+    </tr>
+  </tbody>
+</table>
+
+<FontFamilyDemo />
+
+> **Myanmar support** — `Noto Sans Myanmar Variable` is bundled, so Burmese text
+> renders correctly alongside Latin text in the same UI.
+
+## Type scale
+
+<TypeScale />
+
+<table>
+  <thead>
+    <tr>
+      <th>Element</th>
+      <th>Utility</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Display</td>
+      <td>
+        <code>text-5xl font-bold</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Heading 1</td>
+      <td>
+        <code>text-4xl font-semibold</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Heading 2</td>
+      <td>
+        <code>text-3xl font-semibold</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Heading 3</td>
+      <td>
+        <code>text-2xl font-semibold</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Heading 4</td>
+      <td>
+        <code>text-base font-semibold</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Body</td>
+      <td>
+        <code>text-sm</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Lead</td>
+      <td>
+        <code>text-base text-muted-foreground</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Small</td>
+      <td>
+        <code>text-xs</code>
+      </td>
+    </tr>
+    <tr>
+      <td>Muted</td>
+      <td>
+        <code>text-sm text-muted-foreground</code>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+## Usage
+
+```tsx
+<h1 className="text-4xl font-semibold tracking-tight">Page title</h1>
+<p className="text-sm text-muted-foreground">Helper text</p>
+<code className="font-mono text-xs">npm run build</code>
+```
+
+Headings render with the sans font and tight tracking by default; override per
+element with `font-*` utilities when needed.

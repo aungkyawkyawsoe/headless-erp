@@ -1,0 +1,36 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+  workerd: true
+
+# Single source of truth for shared external dependency versions.
+# Every package.json references `catalog:` — bump a version in ONE place here.
+#
+# Usage:
+#   "typescript": "catalog:"            → resolves to the catalog: value below
+#   "wrangler": "catalog:wrangler"       → explicit named entry (same result)
+#
+# Versioned from the repo's actual installed ranges (apps/api + apps/tgapp
+# are the reference). All workspace packages use TypeScript 7 for `tsc`;
+# the root package.json pins `typescript` to the TS 6.0 API alias
+# (npm:@typescript/typescript6) so typescript-eslint can run side-by-side
+# (TS 7.0 ships no programmatic API yet — see MSFT's TS 7 announcement).
+catalog:
+  '@cloudflare/workers-types': ^5.20260830.1
+  '@tanstack/react-query': ^5.102.5
+  '@tanstack/react-store': ^0.11.1
+  '@tanstack/store': ^0.11.1
+  '@testing-library/dom': ^10.4.1
+  '@testing-library/react': ^16.3.3
+  '@typescript/typescript6': ^6.0.2
+  hono: ^4.13.5
+  jsdom: ^30.0.1
+  react: ^19.2.8
+  react-dom: ^19.2.8
+  typescript: ^7.0.2
+  vitest: ~4.1.11
+  wrangler: ^4.127.1

@@ -1,0 +1,20 @@
+{
+	"name": "@mmbix/locks",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Distributed locks — DO-backed mutex with leases, reentrancy, cross-worker safe",
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./package.json": "./package.json"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"typescript": "catalog:"
+	}
+}

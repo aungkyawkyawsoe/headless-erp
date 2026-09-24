@@ -1,0 +1,96 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+
+<Meta title="Guides/Theming" />
+
+# Theming & Customization
+
+All components are styled with **CSS variables** (design tokens), so you can
+re-theme the entire system by overriding a handful of variables — no component
+source changes needed.
+
+## How tokens work
+
+Every color utility (`bg-primary`, `text-muted-foreground`, `border-border`, …)
+maps to a CSS variable declared in `src/styles/theme.css`:
+
+```css
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.6 0.1 185);
+  --primary-foreground: oklch(0.984 0.014 180.72);
+  --radius: 0.45rem;
+  /* … */
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  /* … */
+}
+```
+
+## Customize a brand color
+
+Override the variables **after** the theme import — your values win:
+
+```css
+/* app.css */
+@import "@mmbix/design-system/styles.css";
+
+:root {
+  --primary: oklch(0.55 0.2 25); /* your brand red */
+  --primary-foreground: oklch(0.985 0 0);
+}
+```
+
+## Radius
+
+`--radius` drives every component's rounded corners via a scale
+(`--radius-sm` … `--radius-4xl`):
+
+```css
+:root {
+  --radius: 0.25rem; /* sharper */
+  /* --radius: 0.75rem;  rounder */
+}
+```
+
+## Dark mode
+
+Two ways:
+
+1. **`ThemeProvider`** (recommended) — handles `system` preference,
+   persistence, and a `Ctrl/⌘ + D` shortcut:
+
+   ```tsx
+   import { ThemeProvider, useTheme } from "@mmbix/design-system"
+
+   function Toggle() {
+     const { theme, setTheme } = useTheme()
+     return (
+       <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+         Toggle
+       </button>
+     )
+   }
+
+   export function App() {
+     return (
+       <ThemeProvider defaultTheme="system">
+         <Toggle />
+       </ThemeProvider>
+     )
+   }
+   ```
+
+2. **Manual** — add the `dark` class to `<html>`:
+
+   ```html
+   <html class="dark"></html>
+   ```
+
+## Full token reference
+
+See the **Foundations** stories in this Storybook for the complete token set —
+colors, typography, radius, elevation, and focus rings.

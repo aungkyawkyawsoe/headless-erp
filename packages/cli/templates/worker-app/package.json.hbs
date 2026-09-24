@@ -1,0 +1,22 @@
+{
+  "name": "@headless/{{workerName}}-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@mmbix/core": "workspace:*",
+    "@mmbix/types": "workspace:*",
+    "@mmbix/config": "workspace:*",
+    "@mmbix/utils": "workspace:*",
+    "hono": "^4.7.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "wrangler": "^4.118.0",
+    "typescript": "^5.5.2"
+  }
+}

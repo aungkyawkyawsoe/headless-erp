@@ -1,0 +1,43 @@
+/**
+ * Plugin {{name}} Worker — {{description}}
+ *
+ * This worker runs independently. Crashes here don't affect other workers.
+ * Use env.API.fetch() for all CRUD — the core API owns the database.
+ */
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+
+interface Env {
+	API: Fetcher;
+}
+
+const app = new Hono<{ Bindings: Env }>();
+
+app.use('*', cors());
+
+app.get('/health', (c) => c.json({ status: 'ok', worker: 'plugin-{{id}}', version: '0.1.0' }));
+
+// ── Your endpoints here ────────────────────────────────
+
+// Example: custom validation that calls the core API
+app.post('/api/{{id}}/validate', async (c) => {
+	const body = await c.req.json();
+
+	// Call core API for data
+	// const res = await c.env.API.fetch('https://api.internal/api/entities/...');
+	// const data = await res.json();
+
+	return c.json({ success: true, message: '{{name}} validation passed' });
+});
+
+// Example: complex business logic with core API integration
+app.post('/api/{{id}}/process', async (c) => {
+	const body = await c.req.json();
+
+	// Your complex logic here...
+	// Delegate CRUD to core API via service binding
+
+	return c.json({ success: true });
+});
+
+export default app;

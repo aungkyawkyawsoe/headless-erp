@@ -1,0 +1,611 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/noto-sans-myanmar/wght.css';
+@import '@fontsource-variable/exo-2/wght.css';
+
+/* Design-system THEME — tokens, base layer, custom utilities and keyframes.
+ *
+ * The app runs its OWN Tailwind pass, so it deliberately does NOT import the
+ * DS's prebuilt `styles.css`: that sheet was compiled from every DS component
+ * and, on top of this app's own utilities, added a mostly-dead second copy of
+ * every DS rule (~250 kB). Importing the theme source instead means exactly one
+ * Tailwind run emits utilities — and only for the sources scanned below. */
+@import '@mmbix/design-system/theme.css';
+
+/* Scan the design-system SOURCE for the components this app renders (the
+ * transitive closure of its `@mmbix/design-system/<name>` imports), never the
+ * compiled dist — that contains the full prebuilt class list and would re-emit
+ * every DS utility. Stories are excluded. Add a directory here when a new DS
+ * component is imported. */
+@source '../../../packages/design-system/src/components/avatar';
+@source '../../../packages/design-system/src/components/badge';
+@source '../../../packages/design-system/src/components/button';
+@source '../../../packages/design-system/src/components/calendar';
+@source '../../../packages/design-system/src/components/datepicker';
+@source '../../../packages/design-system/src/components/dialog';
+@source '../../../packages/design-system/src/components/dropdown-menu';
+@source '../../../packages/design-system/src/components/field';
+@source '../../../packages/design-system/src/components/input';
+@source '../../../packages/design-system/src/components/label';
+@source '../../../packages/design-system/src/components/popover';
+@source '../../../packages/design-system/src/components/radio-group';
+@source '../../../packages/design-system/src/components/scroll-area';
+@source '../../../packages/design-system/src/components/search-box';
+@source '../../../packages/design-system/src/components/select';
+@source '../../../packages/design-system/src/components/separator';
+@source '../../../packages/design-system/src/components/sheet';
+@source '../../../packages/design-system/src/components/textarea';
+@source '../../../packages/design-system/src/components/toast';
+@source '../../../packages/design-system/src/components/toggle';
+@source '../../../packages/design-system/src/components/toggle-group';
+@source '../../../packages/design-system/src/lib';
+@source not '../../../packages/design-system/src/components/**/*.stories.tsx';
+
+/* The design system's global `* { outline-ring/50 }` default — this app used to
+ * inherit it from the prebuilt sheet, and it is the colour every un-styled focus
+ * outline uses. (Its sibling `border-border` is deliberately NOT restored:
+ * Tailwind's preflight wins for `border-color` here, exactly as it did before.) */
+@layer base {
+	* {
+		@apply outline-ring/50;
+	}
+}
+
+/* ─── No text selection (native-app feel) ─────────────────────────────────────
+ * The mini app is a UI, not a document: a press on a tile, a row or a label must
+ * not begin a text selection (nor raise the iOS long-press callout over the
+ * screen). Form controls are deliberately EXEMPT — typing, correcting and
+ * copying back what you entered has to keep working, and a `select-none`
+ * ancestor blocks exactly that. Any surface that genuinely needs copying (a
+ * serial, a plate) can opt back in with Tailwind's `select-text`. */
+@layer base {
+	html {
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
+	input,
+	textarea,
+	select,
+	[contenteditable] {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+}
+
+/* ─── Theme tokens ────────────────────────────────────────────────────────────
+ * shadcn-style tokens (background, foreground, card, primary, …) use the same
+ * neutral slate palette as mex-hr-bot (oklch hue 240) — dark as the default
+ * `:root`, light via `:root[data-theme='light']`. The `dark:` utilities follow
+ * the app's `data-theme` (see @custom-variant below), not the OS media query,
+ * so the UI stays consistent with the chosen scheme.
+ */
+@custom-variant dark (&:is([data-theme="dark"] *));
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	/* Design-system floating surfaces (popovers/calendars) */
+	--color-surface-floating: var(--surface-floating);
+	--color-surface-floating-border: var(--surface-floating-border);
+
+	/* Telegram-specific extras (hint text, link color) */
+	--color-tg-hint: var(--tg-theme-hint-color, oklch(0.65 0.01 240));
+	--color-tg-link: var(--tg-theme-link-color, oklch(0.62 0.1 250));
+
+	/* Status tones — drive badges/pills/charts; adapt per theme for contrast. */
+	--color-status-success: var(--status-success);
+	--color-status-success-soft: var(--status-success-soft);
+	--color-status-warning: var(--status-warning);
+	--color-status-warning-soft: var(--status-warning-soft);
+	--color-status-danger: var(--status-danger);
+	--color-status-danger-soft: var(--status-danger-soft);
+	--color-status-info: var(--status-info);
+	--color-status-info-soft: var(--status-info-soft);
+
+	/* Card elevation shadows — consistent lift across every card/surface. */
+	--shadow-card: var(--shadow-card);
+	--shadow-card-hover: var(--shadow-card-hover);
+
+	/* Fonts — Inter (English) first, Noto Sans Myanmar as the fallback so every
+	 * Burmese glyph renders in the same visual weight; "bold" is a semibold 600
+	 * there, so font-bold maps to 600 to match the reference typography. */
+	--font-sans: 'Inter Variable', 'Noto Sans Myanmar Variable', ui-sans-serif, system-ui, sans-serif;
+	--font-heading: var(--font-sans);
+	/* ─── Display face ────────────────────────────────────────────────────────
+	 * The INDUSTRIAL identity face: a vehicle PLATE (the truck id) and the one
+	 * large label a card is scanned for (the item/model name) read in Exo 2, so
+	 * the identity of a row is typographically distinct from its facts.
+	 *
+	 * Exo 2 ships NO Myanmar subset and its `unicode-range` never covers those
+	 * code points — a Burmese glyph can never even request it, so it degrades to
+	 * the Myanmar fallback below BY CONSTRUCTION, never by a caller remembering to
+	 * guard. The fallback chain stays after it so a MIXED string ("Air Filter
+	 * လေစစ်ဇကာ") still paints each script in its own face. Deliberately NOT applied
+	 * to body copy, secondary lines or any label that is Burmese by contract. */
+	--font-display: 'Exo 2 Variable', 'Inter Variable', 'Noto Sans Myanmar Variable', ui-sans-serif, system-ui, sans-serif;
+	/* The DS sets `semibold` to 600 AND `bold` to 600, which collapses the two
+	 * into one weight — every `font-bold`→`font-semibold` refactor was a no-op and
+	 * a value could not be distinguished from its label. Lift `bold` to 700 so the
+	 * weight ramp is real again (both Inter Variable and Noto Sans Myanmar
+	 * Variable ship a 700 cut, so it renders in either script). */
+	--font-weight-bold: 700;
+
+	/* ─── Scale pins ──────────────────────────────────────────────────────────
+	 * `@mmbix/design-system/theme.css` (imported at the top) re-declares Tailwind's
+	 * OWN token names — its type scale (13/14px), font weights, radii and shadows.
+	 * Tailwind tokens are global, so importing it would silently restyle this whole
+	 * app. These pin the scale the app has always rendered with; delete a pin only
+	 * when you mean to adopt the DS value.
+	 *
+	 * `--font-weight-normal` IS pinned: the app's own `font-normal` utilities render
+	 * Tailwind's 400. Body text has always inherited the DS's heavier 420 instead,
+	 * so the app's `body` rule sets that weight explicitly (see below). */
+	--font-weight-normal: 400;
+
+	--text-xs: 0.75rem;
+	--text-sm: 0.875rem;
+	--text-base: 1rem;
+	--text-lg: 1.125rem;
+	--text-xl: 1.25rem;
+	--text-2xl: 1.5rem;
+	--text-3xl: 1.875rem;
+
+	/* ─── ERP 3-scale type ramp ───────────────────────────────────────────────
+	 * Every business row reads in exactly THREE registers, so a scan lands on
+	 * the identity first and the metadata last — the values the app already
+	 * used (15 / 13 / 11px) are now NAMED instead of hand-written per file.
+	 *
+	 *   L1 `text-key`  — the anchor: document no. (REQ-00004), plate, serial.
+	 *                    Bold + full-contrast; the one thing that identifies
+	 *                    the row. (Never `font-bold` by accident.)
+	 *   L2 `text-sub`  — the identity line: store / location / subject.
+	 *   L3 `text-meta` — tertiary: dates, requester, counts, chips.
+	 *
+	 * New UI should reach for these three; a raw `text-sub` is a smell that
+	 * a documented step was skipped. */
+	--text-meta: 0.6875rem; /* 11px */
+	--text-sub: 0.8125rem; /* 13px */
+	--text-key: 0.9375rem; /* 15px */
+
+	/* ─── ERP density ─────────────────────────────────────────────────────────
+	 * The compact row's vertical rhythm. A comfortable card list pads ~16px and
+	 * floats on a 12px gap (≈ 150px/record); a dense ERP row is FLUSH with its
+	 * neighbours and separated by a hairline, so ~10–14 records fit a phone
+	 * screen instead of ~4. `--density-row-min` keeps the 44px (Fitts's Law) tap
+	 * target even at the tightest padding. */
+	--density-row-min: 2.75rem; /* 44px */
+
+	--radius-xs: 0.125rem;
+	--radius-3xl: 1.5rem;
+	--radius-4xl: 2rem;
+	--radius-full: calc(infinity * 1px);
+
+	--shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+	--shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+	--shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+	--shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+	--shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+	/* Light palette (default) — off-white body (never pure white → glare),
+	 * pure-white cards that lift via a soft blurred gray drop shadow. */
+	--background: oklch(0.955 0.006 250);
+	--foreground: oklch(0.2 0.012 250);
+	--card: oklch(0.997 0.003 250);
+	--card-foreground: oklch(0.2 0.012 250);
+	--popover: oklch(0.997 0.003 250);
+	--popover-foreground: oklch(0.2 0.012 250);
+	--primary: oklch(0.28 0.02 250);
+	--primary-foreground: oklch(0.98 0.004 250);
+	--secondary: oklch(0.93 0.008 250);
+	--secondary-foreground: oklch(0.24 0.014 250);
+	--muted: oklch(0.94 0.008 250);
+	/* AAA-ish on the off-white body (5.7:1) and card (6.3:1) — the old 0.55 gave
+	 * only 4.25:1 on the body, so every full-strength muted label already failed
+	 * WCAG AA, and any /opacity made it worse. Text never carries an alpha on top
+	 * of this token (see the note below the palette). */
+	--muted-foreground: oklch(0.48 0.02 250);
+	--accent: oklch(0.93 0.008 250);
+	--accent-foreground: oklch(0.24 0.014 250);
+	--destructive: oklch(0.55 0.17 22);
+	--border: oklch(0.88 0.01 250);
+	--input: oklch(0.88 0.01 250);
+	/* Focus ring — 4.2:1 on the body / 5.9:1 on card, so a focus-visible ring
+	 * actually clears WCAG 2.4.11 (the old 0.7 was 2.3:1, invisible on the
+	 * off-white background). Use at FULL opacity for focus, not /50. */
+	--ring: oklch(0.5 0.06 250);
+	/* Same radius as dark — keeps --radius-sm/md/lg/xl equal across themes. */
+	--radius: 0.625rem;
+
+	--surface-floating: color-mix(in oklab, var(--popover) 88%, transparent);
+	--surface-floating-border: color-mix(in oklab, var(--border) 55%, transparent);
+
+	/* Status tones — light: darken/saturate so they stay readable on white. */
+	--status-success: oklch(0.45 0.14 155);
+	--status-success-soft: oklch(0.48 0.13 155 / 15%);
+	/* 0.52 (was 0.6) so the warning pill's TEXT clears AA on its own soft fill:
+	 * the pill is the app's most frequent status signal and rendered at 10–11px,
+	 * so the old pair measured 3.2:1. */
+	--status-warning: oklch(0.5 0.13 75);
+	--status-warning-soft: oklch(0.55 0.12 75 / 16%);
+	--status-danger: oklch(0.52 0.18 22);
+	--status-danger-soft: oklch(0.55 0.16 22 / 14%);
+	--status-info: oklch(0.5 0.13 235);
+	--status-info-soft: oklch(0.52 0.12 235 / 15%);
+
+	/* Card elevation — very soft, blurry gray-blue drop shadow to lift cards. */
+	--shadow-card: 0 1px 2px rgb(15 23 42 / 0.05), 0 6px 18px -6px rgb(15 23 42 / 0.1);
+	--shadow-card-hover: 0 2px 4px rgb(15 23 42 / 0.06), 0 12px 28px -8px rgb(15 23 42 / 0.16);
+
+	/* Light is the default */
+	color-scheme: light;
+}
+
+/* Dark palette — applied when Telegram's client is dark, the OS prefers dark,
+ * or the user picks dark. Deeper than cards so every surface visibly lifts. */
+:root[data-theme='dark'] {
+	--background: oklch(0.14 0.01 248);
+	--foreground: oklch(0.93 0.006 250);
+	--card: oklch(0.19 0.012 248);
+	--card-foreground: oklch(0.93 0.006 250);
+	--popover: oklch(0.2 0.012 248);
+	--popover-foreground: oklch(0.93 0.006 250);
+	--primary: oklch(0.88 0.01 240);
+	--primary-foreground: oklch(0.16 0.01 248);
+	--secondary: oklch(0.26 0.01 248);
+	--secondary-foreground: oklch(0.93 0.006 250);
+	--muted: oklch(0.25 0.012 248);
+	--muted-foreground: oklch(0.7 0.012 250);
+	--accent: oklch(0.27 0.012 248);
+	--accent-foreground: oklch(0.93 0.006 250);
+	--destructive: oklch(0.62 0.16 22);
+	--border: oklch(1 0 0 / 10%);
+	--input: oklch(1 0 0 / 14%);
+	--ring: oklch(0.55 0.02 250);
+	--radius: 0.625rem;
+	--surface-floating: color-mix(in oklab, var(--popover) 88%, transparent);
+	--surface-floating-border: color-mix(in oklab, var(--border) 55%, transparent);
+
+	/* Status tones — dark: muted-but-readable so they sit comfortably on the
+	dark backdrop (no neon glow), while keeping ≥4.5:1 text contrast. */
+	--status-success: oklch(0.72 0.13 155);
+	--status-success-soft: oklch(0.72 0.13 155 / 16%);
+	--status-warning: oklch(0.78 0.12 85);
+	--status-warning-soft: oklch(0.78 0.12 85 / 16%);
+	--status-danger: oklch(0.66 0.15 22);
+	--status-danger-soft: oklch(0.66 0.15 22 / 16%);
+	--status-info: oklch(0.74 0.11 230);
+	--status-info-soft: oklch(0.74 0.11 230 / 16%);
+
+	/* Card elevation — soft black drop shadow, stronger on hover (depth). */
+	--shadow-card: 0 1px 2px rgb(0 0 0 / 0.25), 0 4px 14px -4px rgb(0 0 0 / 0.35);
+	--shadow-card-hover: 0 2px 4px rgb(0 0 0 / 0.3), 0 10px 24px -8px rgb(0 0 0 / 0.5);
+
+	color-scheme: dark;
+}
+
+/* Telegram fullscreen — content starts at the bottom of the native header
+ * strip (status bar + header row). Uses ContentSafeAreaInset when reported
+ * (SDK-injected + JS-mirrored); the 92px FLOOR guarantees the search bar /
+ * grid can never sit level with the native back chevron and ⋮ menu — even
+ * before the insets arrive or on clients that don't report them.
+ *
+ * The floor is Telegram-fullscreen-scoped (`data-tg-app` + `data-tg-fullscreen`
+ * set on <html>): only in TRUE fullscreen does content extend under the native
+ * header, so only there is the strip clearance owed. Non-fullscreen Telegram
+ * clients (older Telegram versions, fullscreen refused) already start the
+ * WebView BELOW the native header — a floor there would add a phantom gap
+ * that varies by device. A plain browser has NO native Telegram header, so it
+ * falls back to the device notch inset only. */
+@utility pt-tg {
+	padding-top: max(env(safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px), var(--tg-header-floor, 0px));
+}
+:root[data-tg-app='true'][data-tg-fullscreen='true'] {
+	--tg-header-floor: 92px;
+}
+
+/* Sticky top offset for in-page bars that sit BELOW the fixed app header — the
+ * header's full height (the `pt-tg` native strip + its 48px title row). A
+ * sticky stepper/tab row uses this so it parks flush under the header instead
+ * of sliding underneath it. */
+@utility top-header {
+	top: calc(max(env(safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px), var(--tg-header-floor, 0px)) + 48px);
+}
+
+/* Safe-area helpers — device notches + Telegram's bottom chrome. */
+@utility pt-safe {
+	padding-top: env(safe-area-inset-top, 0px);
+}
+@utility pb-safe {
+	padding-bottom: max(var(--safe-area-bottom), var(--tg-content-safe-area-inset-bottom, 0px), var(--tg-bottom-floor, 0.75rem));
+}
+:root[data-tg-app='true'] {
+	--tg-bottom-floor: 0.75rem;
+}
+/* The page shell's bottom clearance: a 3rem floor for Telegram's native
+ * MainButton (which the client draws OVER the WebView's bottom edge) plus the
+ * device + Telegram insets — never less than the largest of them. A form page's
+ * last field must clear the button AND the system bar. Exposed as `--shell-bottom`
+ * so a bar that must sit FLUSH with the shell edge (a sticky composer) can negate
+ * exactly this height instead of re-deriving it. */
+:root {
+	--shell-bottom: max(3rem, var(--safe-area-bottom), var(--tg-content-safe-area-inset-bottom, 0px));
+}
+@utility pb-shell {
+	padding-bottom: var(--shell-bottom);
+}
+
+/* On-screen-keyboard lift for BOTTOM SHEETS. `useKeyboardInsetVar` (mounted once
+ * in App) mirrors the visual-viewport gap onto `--keyboard-inset`; a bottom
+ * sheet — design-system internals included, so no call site changes — raises its
+ * `bottom` by exactly that. Without it a sheet with a text field (a reject
+ * reason, a note) left its action row UNDER the overlay keyboard on the flow
+ * that mandates typing; `pb-safe` only covers the notch. Unlayered on purpose so
+ * it outranks Tailwind's layered `bottom-0`. Phone width only: at `md:` the
+ * sheet is a centered dialog, not bottom-anchored. */
+:root {
+	--keyboard-inset: 0px;
+}
+@media (width < 48rem) {
+	[data-slot='sheet-content'][data-side='bottom'] {
+		bottom: var(--keyboard-inset);
+	}
+}
+
+/* Extra-tall line-height for stacked Myanmar glyphs inside controls */
+@utility leading-myanmar {
+	line-height: 2;
+}
+
+/* Launcher — phone-style home screen. Soft blue wash at the top melting into
+ * the theme background (light/dark via the token override below), plus hidden
+ * scrollbars for the paged icon grid. */
+:root {
+	--launcher-bg-top: oklch(0.94 0.025 235);
+}
+:root[data-theme='dark'] {
+	--launcher-bg-top: oklch(0.19 0.025 248);
+}
+@utility launcher-bg {
+	background: linear-gradient(180deg, var(--launcher-bg-top) 0%, var(--background) 42%);
+}
+/* Fixed top app bar — translucent tint of the launcher's top gradient plus a
+ * backdrop blur, so the pinned title reads cleanly while content scrolls
+ * underneath it (the safe-area strip the bar covers stays tinted too). */
+@utility app-header-bg {
+	/* NO backdrop-filter. A sticky FULL-WIDTH blur re-runs on every scroll frame
+	 * (the compositor must re-sample and re-blur the region beneath), and this bar
+	 * is on EVERY page — it was the dominant paint cost of the whole app on a
+	 * phone WebView. A 92% tint reads the same over the launcher gradient, with
+	 * none of the per-frame cost. */
+	background: color-mix(in oklab, var(--launcher-bg-top) 92%, transparent);
+}
+@utility no-scrollbar {
+	scrollbar-width: none;
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
+/* ─── Long-list windowing (browser-native) ──────────────────────────────────
+ * The browser SKIPS layout + paint for a row that is off-screen, so a 500-row
+ * register costs roughly what one screenful costs — the same property a JS
+ * virtualizer buys, with ZERO dependencies and no change to the row contract
+ * (each card keeps owning its own `<li>`, which a virtualizer would forbid).
+ * `contain-intrinsic-size: auto <estimate>` supplies a placeholder height before
+ * a row has ever been rendered, then remembers its real height, so the scrollbar
+ * stays stable. Supported by Chromium WebViews and Safari 18+; older engines
+ * simply render everything (the previous behaviour). */
+@utility list-window {
+	& > li {
+		content-visibility: auto;
+		/* A comfortable card row is ~150px tall. The estimate is what the browser
+		 * reserves for a row it has never rendered; too small a value under-reports
+		 * the document height, so the scrollbar grows as rows reveal (a jumpy
+		 * "the page keeps getting longer" feel). `auto` then remembers the real
+		 * height, so only the first reveal uses the estimate. */
+		contain-intrinsic-size: auto 150px;
+	}
+}
+@utility list-window-compact {
+	& > li {
+		content-visibility: auto;
+		contain-intrinsic-size: auto 88px;
+	}
+}
+
+/* Shimmer loading skeleton — a muted block with a moving light sweep that
+ * adapts to the theme (the highlight is a faint tint of `--foreground`, so it
+ * reads as a sheen on both light and dark). Pairs with a data-loading state;
+ * the block itself is decorative (aria-hidden at the call site). */
+@utility skeleton-shimmer {
+	position: relative;
+	overflow: hidden;
+	background-color: var(--muted);
+	&::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		transform: translateX(-100%);
+		background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--foreground) 10%, transparent), transparent);
+		animation: skeleton-sweep 1.6s ease-in-out infinite;
+	}
+}
+@keyframes skeleton-sweep {
+	100% {
+		transform: translateX(100%);
+	}
+}
+/* Slide-up animation for bottom-sheet dialog (PunchDialog) */
+@utility animate-slide-up {
+	animation: slide-up 0.25s ease-out;
+}
+@keyframes slide-up {
+	from {
+		transform: translateY(100%);
+		opacity: 0;
+	}
+	to {
+		transform: translateY(0);
+		opacity: 1;
+	}
+}
+
+html {
+	background: var(--background);
+	/* Kill the rubber-band overscroll at the document edges: on iOS the bounce
+	 * pulls the page past its own bounds and reveals the WebView canvas behind it,
+	 * which reads as the same "black screen blink" the chrome-color fix addresses.
+	 * (Unsupported on older WebKit — harmless there.) */
+	overscroll-behavior: none;
+	/* Prevent pinch-to-zoom at the CSS level (reinforces viewport meta). */
+	touch-action: pan-y;
+}
+
+body {
+	margin: 0;
+	min-height: 100dvh;
+	background: var(--background);
+	color: var(--foreground);
+	font-family: var(--font-sans);
+	/* 420 — the design system's `normal` weight, which body text has ALWAYS
+	 * inherited (its base layer applies it). Spelled out here because the app pins
+	 * `--font-weight-normal` back to Tailwind's 400 so explicit `font-normal`
+	 * utilities keep the weight they have always rendered with. */
+	font-weight: 420;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+}
+
+#root {
+	min-height: 100dvh;
+}
+
+/* ─── Text-entry caret ───────────────────────────────────────────────────────
+ * The UA-default caret (`auto` → `currentColor`) can render with the wrong
+ * color inside WebViews (Telegram Mini App on iOS/Android follows the client
+ * appearance instead of the field text). Pin it to the theme explicitly so
+ * the text cursor always contrasts with the field: near-black in light,
+ * near-white in dark. */
+input,
+textarea,
+[contenteditable='true'] {
+	caret-color: var(--foreground);
+}
+
+/* ─── Leaflet map theming (attendance-map.tsx) ──────────────────────────────
+ * ⚠️ leaflet.css is imported INSIDE the lazy attendance-map chunk, so it lands
+ * AFTER this sheet in the bundle — equal-specificity rules would LOSE to it.
+ * Every override below is deliberately over-specific (the `:root` ancestor
+ * out-ranks leaflet's own selectors regardless of import order), so the app
+ * theme always wins.
+ *
+ * Google's raster tile endpoints (`mt*.google.com/vt`) ship LIGHT tiles only;
+ * dark mode adapts them with CSS keyed off [data-theme] — the map follows the
+ * Settings theme switcher live, with NO re-render:
+ *  - `roadmap` → the classic dark-map filter (invert + hue-rotate keeps hue);
+ *  - imagery layers (satellite / hybrid / terrain) → only dimmed, since
+ *    inverting photographs looks wrong.
+ * Light mode keeps Google's natural light tiles; the container, zoom bar,
+ * attribution and popups use the app tokens in BOTH schemes. */
+:root .leaflet-container {
+	background: var(--muted);
+	/* View-only map — never the drag cursor. */
+	cursor: default;
+}
+:root[data-theme='dark'] .map-tiles-roadmap {
+	filter: invert(1) hue-rotate(180deg) brightness(0.93) contrast(0.9) saturate(0.65);
+}
+:root[data-theme='dark'] .map-tiles-satellite,
+:root[data-theme='dark'] .map-tiles-hybrid,
+:root[data-theme='dark'] .map-tiles-terrain {
+	filter: brightness(0.82) contrast(1.05) saturate(0.9);
+}
+/* Zoom control (+/−) — themed instead of Leaflet's default white. */
+:root .leaflet-bar {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-card);
+	overflow: hidden;
+}
+:root .leaflet-bar a,
+:root .leaflet-bar a:hover {
+	background-color: var(--card);
+	color: var(--foreground);
+	border-bottom: 1px solid var(--border);
+}
+:root .leaflet-bar a:hover {
+	background-color: var(--muted);
+}
+:root .leaflet-bar a:last-child {
+	border-bottom: none;
+}
+/* Attribution control (currently disabled — themed for when it returns). */
+:root .leaflet-control-attribution {
+	background: color-mix(in oklab, var(--card) 80%, transparent);
+	color: var(--muted-foreground);
+}
+/* Popup (shift-location label) — app tokens, matching card surfaces. */
+:root .leaflet-popup-content-wrapper {
+	background: var(--card);
+	color: var(--card-foreground);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-card);
+}
+:root .leaflet-popup-content {
+	margin: 10px 12px;
+	font-size: 12px;
+	line-height: 1.6;
+}
+:root .leaflet-popup-tip {
+	background: var(--card);
+	border: 1px solid var(--border);
+}
+:root .leaflet-container a.leaflet-popup-close-button {
+	color: var(--muted-foreground);
+}
+
+/* ─── Reduced motion (WCAG 2.3.3) ───────────────────────────────────────────
+ * Respect the OS "reduce motion" preference. The app animates continuously —
+ * the skeleton shimmer (1.6s infinite), 40+ spinners, the bottom bar's
+ * hide-on-scroll transform, plus the universal `active:scale-95` press. For a
+ * vestibular-sensitive user that is noise at best and nausea at worst, and
+ * there was previously NO opt-out anywhere. Collapsing every animation and
+ * transition to ~0 keeps the end state (so nothing breaks) while removing the
+ * movement; `scroll-behavior` is pinned too, since smooth scroll is motion. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	::before,
+	::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

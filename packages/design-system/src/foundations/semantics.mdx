@@ -1,0 +1,64 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+import { StatusColors, ChartColorDots } from "./demos"
+
+<Meta title="Foundations/Semantics" />
+
+# Semantics
+
+Semantic color tokens for stateful UI (success, warning, error, info) and data
+visualizations (chart colors).
+
+## Status colors
+
+<StatusColors />
+
+Used by components that convey state — alerts, toasts, form validation, and
+status indicators:
+
+<table>
+  <thead>
+    <tr>
+      <th>Token</th>
+      <th>Typical use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code>--status-success</code>
+      </td>
+      <td>Success alerts, valid states</td>
+    </tr>
+    <tr>
+      <td>
+        <code>--status-warning</code>
+      </td>
+      <td>Warnings, in-progress states</td>
+    </tr>
+    <tr>
+      <td>
+        <code>--status-error</code>
+      </td>
+      <td>Errors, destructive states</td>
+    </tr>
+    <tr>
+      <td>
+        <code>--status-info</code>
+      </td>
+      <td>Informational notices</td>
+    </tr>
+  </tbody>
+</table>
+
+```tsx
+<div className="text-success">Saved</div>
+<div className="text-warning">Pending review</div>
+<div className="text-destructive">Failed</div>
+```
+
+## Chart colors
+
+<ChartColorDots />
+
+A stable, color-blind-friendly palette for data visualizations, exposed as
+`--chart-1` … `--chart-5`. Rendered by the shared chart view in `@mmbix/ui-views` (`ChartView`).

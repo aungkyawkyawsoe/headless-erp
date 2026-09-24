@@ -1,0 +1,37 @@
+{
+	"name": "@mmbix/ui-views",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Shared view/block logic — schema display fields, cell formatting, and the page block renderer used by both the Studio builder and the runtime page renderer (preview == runtime).",
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./block-registry": {
+			"types": "./src/block-registry.ts",
+			"import": "./src/block-registry.ts"
+		},
+		"./kanban-view": {
+			"types": "./src/kanban-view.ts",
+			"import": "./src/kanban-view.ts"
+		}
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"peerDependencies": {
+		"@mmbix/design-system": ">=0.19.0",
+		"@mmbix/types": "*",
+		"lucide-react": "^1.27.0",
+		"react": "^19.2.0"
+	},
+	"devDependencies": {
+		"@mmbix/design-system": "workspace:*",
+		"@mmbix/types": "workspace:*",
+		"@types/react": "^19.2.18",
+		"lucide-react": "^1.34.0",
+		"react": "catalog:",
+		"typescript": "catalog:"
+	}
+}

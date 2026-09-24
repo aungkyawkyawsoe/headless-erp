@@ -1,0 +1,37 @@
+{
+	"name": "@mmbix/sdk-react",
+	"version": "0.1.0",
+	"description": "React hooks for @mmbix/sdk — server-state engine: useItems / useInfiniteItems / useItem / useCreateItem / useUpdateItem / useRemoveItem with automatic write-invalidation",
+	"type": "module",
+	"main": "./src/index.tsx",
+	"types": "./src/index.tsx",
+	"exports": {
+		".": "./src/index.tsx",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"src"
+	],
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@mmbix/sdk": "workspace:*",
+		"@tanstack/react-query": "^5.102.5"
+	},
+	"peerDependencies": {
+		"react": "^19"
+	},
+	"devDependencies": {
+		"@testing-library/dom": "^10.4.1",
+		"@testing-library/react": "^16.3.2",
+		"@types/react": "^19.2.18",
+		"@vitejs/plugin-react": "^6.1.0",
+		"jsdom": "^30.0.1",
+		"react": "catalog:",
+		"react-dom": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

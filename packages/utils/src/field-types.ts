@@ -1,0 +1,50 @@
+/**
+ * Canonical field-type list — the single source of truth for the supported
+ * field data types (41). The `FieldType` union in `@mmbix/types` is derived
+ * from `FIELD_TYPE_NAMES`, and validators use `VALID_FIELD_TYPES` for membership.
+ */
+export const FIELD_TYPE_NAMES = [
+	'text',
+	'longtext',
+	'slug',
+	'password',
+	'integer',
+	'number',
+	'bigint',
+	'currency',
+	'percent',
+	'rating',
+	'boolean',
+	'timestamp',
+	'date',
+	'time',
+	'json',
+	'csv',
+	'location',
+	'color',
+	'm2o',
+	'o2m',
+	'm2m',
+	'm2a',
+	'file',
+	'image',
+	'select',
+	'uuid',
+	'table',
+	'formula',
+	'text_editor',
+	'code',
+	'markdown',
+	'signature',
+	'duration',
+	'barcode',
+	'datetime',
+	'phone',
+	'email',
+	'url',
+	'icon',
+	'tags',
+	'progress',
+] as const;
+
+export const VALID_FIELD_TYPES: ReadonlySet<string> = new Set(FIELD_TYPE_NAMES);

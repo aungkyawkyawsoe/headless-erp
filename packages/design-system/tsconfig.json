@@ -1,0 +1,19 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "./dist",
+		"lib": ["es2024", "esnext.asynciterable", "DOM", "DOM.Iterable"],
+		"paths": {
+			"@/utils": ["./src/lib/utils/index.ts"],
+			"@/utils/*": ["./src/lib/utils/*"],
+			"@/hooks": ["./src/lib/hooks/index.ts"],
+			"@/hooks/*": ["./src/lib/hooks/*"],
+			"@/types": ["./src/lib/types/index.ts"],
+			"@/types/*": ["./src/lib/types/*"],
+			"@/date": ["./src/lib/date/index.ts"],
+			"@/date/*": ["./src/lib/date/*"],
+			"@/*": ["./src/components/*"]
+		}
+	},
+	"include": ["src"]
+}

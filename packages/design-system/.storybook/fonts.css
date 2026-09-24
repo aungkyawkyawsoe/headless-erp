@@ -1,0 +1,12 @@
+/* Inter Variable — via @fontsource-variable/inter */
+@import "@fontsource-variable/inter/index.css";
+
+/* Noto Sans Myanmar Variable */
+@font-face {
+  font-family: "Noto Sans Myanmar";
+  src: url("../node_modules/@fontsource-variable/noto-sans-myanmar/files/noto-sans-myanmar-latin-wght-normal.woff2")
+    format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}

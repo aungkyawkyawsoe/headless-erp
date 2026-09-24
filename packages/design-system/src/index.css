@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+/* Tokens, base layer, custom utilities and keyframes. Shared verbatim with
+ * consumers that run their own Tailwind pass — see ../theme.css. */
+@import '../theme.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Global border/outline default. Deliberately NOT part of theme.css: a host app
+ * running its own Tailwind pass already gets Tailwind's preflight, which sets
+ * `border-color: currentColor`, and this reset would override it there. In the
+ * DS's own sheet it is the intended default (it is why every DS component can
+ * write a bare `border`). */
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+}

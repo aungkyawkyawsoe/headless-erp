@@ -1,0 +1,25 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+import { ShadowLevels } from "./demos"
+
+<Meta title="Foundations/Elevation" />
+
+# Elevation
+
+Box-shadow values that create elevation levels. Tailwind's `shadow-*` utilities
+map to these values.
+
+## Shadow levels
+
+<ShadowLevels />
+
+## Usage
+
+```tsx
+<div className="shadow-sm">Subtle</div>
+<div className="shadow-md">Card</div>
+<div className="shadow-lg">Popover / Dialog</div>
+<div className="shadow-xl">Toast / elevated surface</div>
+```
+
+Overlays (dialog, popover, dropdown) use `shadow-md` or `shadow-lg` by default,
+which distinguishes them from the page background.

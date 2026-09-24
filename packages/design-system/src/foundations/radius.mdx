@@ -1,0 +1,51 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+import { RadiusScale } from "./demos"
+
+<Meta title="Foundations/Radius" />
+
+# Radius
+
+Border-radius scale defined via `--radius-*` CSS custom properties. Applied to
+cards, buttons, inputs, and other interactive elements.
+
+## Radius scale
+
+<RadiusScale />
+
+## How it works
+
+The scale is defined explicitly via `--radius-*` CSS custom properties:
+
+```css
+:root {
+  --radius: 6px; /* base */
+  --radius-sm: 3px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+  --radius-4xl: 24px;
+}
+```
+
+The `--radius-1` … `--radius-8` tokens mirror the same scale numerically
+(`3px` … `16px`), while `--radius-9` and `--radius-full` are the pill tokens.
+
+## Customize
+
+Override any token to tune that specific corner radius:
+
+```css
+:root {
+  --radius-lg: 8px; /* slightly sharper cards */
+}
+```
+
+## Usage
+
+```tsx
+<div className="rounded-sm">…</div>
+<div className="rounded-lg">…</div>
+<div className="rounded-4xl">…</div>
+```

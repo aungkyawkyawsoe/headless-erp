@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@mmbix/core": ["../../packages/core/src"],
+      "@mmbix/types": ["../../packages/types/src"],
+      "@mmbix/config": ["../../packages/config/src"],
+      "@mmbix/utils": ["../../packages/utils/src"]
+    }
+  },
+  "include": ["src"]
+}

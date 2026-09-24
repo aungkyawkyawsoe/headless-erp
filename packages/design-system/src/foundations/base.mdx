@@ -1,0 +1,59 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+import { ColorSwatches } from "./demos"
+
+<Meta title="Foundations/Base" />
+
+# Base Colors
+
+Core color tokens used throughout the design system. These are defined as CSS
+custom properties and adapt automatically between light and dark mode.
+
+## Color tokens
+
+<ColorSwatches />
+
+## Usage
+
+Every color token is exposed as a Tailwind utility:
+
+```tsx
+<div className="bg-primary text-primary-foreground">Primary</div>
+<div className="bg-card text-card-foreground border">Card surface</div>
+<div className="text-muted-foreground">Secondary text</div>
+```
+
+Customize them by overriding the CSS variables after the theme import:
+
+```css
+:root {
+  --primary: oklch(0.55 0.2 25);
+  --card: oklch(1 0 0);
+}
+```
+
+## Dark mode
+
+The same variable names are redefined under `.dark`, so components switch
+automatically when the `dark` class is applied to `<html>`.
+
+## Floating surfaces (acrylic)
+
+Floating layers (menus, popovers, command palette, toasts) use a translucent,
+blurred surface instead of a solid one — a Deepin-style acrylic effect:
+
+- `--surface-floating` — translucent surface derived from `--popover` (85%)
+- `--surface-floating-border` — matching translucent border
+
+```tsx
+<div className="bg-surface-floating border backdrop-blur-xl">Acrylic panel</div>
+```
+
+The surfaces are derived (`color-mix` of `--popover`/`--border`), so customizing
+those tokens automatically retints every floating surface in both themes.
+
+## Interaction overlays
+
+Hover/pressed feedback follows a Deepin-style overlay model rather than solid
+recolor: `--accent` is the hover overlay (5–8% in light, 7% in dark) and
+`--overlay-hover` / `--overlay-active` are exposed for custom press states
+(12–15%).

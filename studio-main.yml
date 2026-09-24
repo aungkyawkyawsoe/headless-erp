@@ -1,0 +1,13 @@
+- main [ref=e5]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - heading "Apps" [level=1] [ref=e8]
+      - generic [ref=e9]:
+        - button "Manage App" [ref=e10] [cursor=pointer]
+        - button "Enter fullscreen" [ref=e11] [cursor=pointer]
+    - generic [ref=e19]:
+      - searchbox "Search modules" [ref=e22]
+      - generic [ref=e23]:
+        - button "Settings" [ref=e24] [cursor=pointer]
+        - button "Api" [ref=e31] [cursor=pointer]
+        - button "IDP" [ref=e37] [cursor=pointer]

@@ -1,0 +1,38 @@
+# Local dev secrets — copy to `.dev.vars` (git-ignored) and fill in real values.
+# `headless init` generates a `.dev.vars` for you automatically (guided admin setup).
+#
+# Values are double-quoted because dotenv-style parsers (wrangler included)
+# truncate unquoted values at `#` (e.g. `KEY=abc#2026` → `abc`).
+#
+# Production: NEVER commit secrets. Set them as worker secrets:
+#   npx wrangler secret put ADMIN_PASSWORD
+#   npx wrangler secret put JWT_SECRET
+#
+# ── Bootstrap superadmin ──────────────────────────────────
+# Email used to log in (default admin = the value of ADMIN_USERNAME).
+ADMIN_USERNAME="admin@example.com"
+# Strong password (min 8 chars). `headless init` can generate one for you.
+ADMIN_PASSWORD="change-me-strong-password"
+# Display name of the bootstrap admin (default: "Administrator").
+ADMIN_NAME="Administrator"
+
+# ── JWT signing secret ────────────────────────────────────
+# Generate with: openssl rand -base64 32
+JWT_SECRET="generate-a-random-secret"
+
+# ── Backup encryption (nightly R2 backups) ────────────────
+# Encrypts `backups/<date>/*.sql.enc|*.json.enc` with AES-256-GCM (WebCrypto).
+# 64 hex chars recommended:  openssl rand -hex 32
+# Production: `npx wrangler secret put BACKUP_ENCRYPTION_KEY` — NEVER in vars.
+# Without a key, dev (IS_DEV=true) stores PLAINTEXT backups with a warning;
+# production FAILS the backup closed rather than write plaintext PII.
+# BACKUP_ENCRYPTION_KEY="replace-with-openssl-rand-hex-32-output"
+
+# ── LOCAL-ONLY development mode ────────────────────────────
+# IS_DEV="true" enables the publicly-known `dev-token` as full admin and
+# relaxes rate limits (10k/min) for local testing.
+#
+# ⚠️ LOCAL-ONLY: wrangler dev reads .dev.vars — production vars
+# (wrangler.jsonc `vars`) must NEVER set IS_DEV. In production the var is
+# absent and `IS_DEV === 'true'` is false, so dev-token is rejected.
+IS_DEV="true"

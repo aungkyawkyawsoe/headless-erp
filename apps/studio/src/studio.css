@@ -1,0 +1,136 @@
+/* ── Enterprise teal palette — clean slate neutrals + deep teal primary (overrides the design-system tokens). ── */
+:root {
+	--background: #f8fafc;
+	--foreground: #0f172a;
+	--card: #ffffff;
+	--card-foreground: #0f172a;
+	--popover: #ffffff;
+	--popover-foreground: #0f172a;
+	--primary: #0f766e;
+	--primary-foreground: #ffffff;
+	--secondary: #e2e8f0;
+	--secondary-foreground: #1e293b;
+	--muted: #f1f5f9;
+	--muted-foreground: #64748b;
+	--accent: #f0fdfa;
+	--accent-foreground: #134e4a;
+	--destructive: #dc2626;
+	--destructive-foreground: #ffffff;
+	--border: #e2e8f0;
+	--input: #cbd5e1;
+	--input-bg: #ffffff;
+	--ring: #14b8a6;
+	--sidebar: #f8fafc;
+	--sidebar-foreground: #0f172a;
+	--sidebar-primary: #0f766e;
+	--sidebar-primary-foreground: #ffffff;
+	--sidebar-accent: #f0fdfa;
+	--sidebar-accent-foreground: #134e4a;
+	--sidebar-border: #e2e8f0;
+	--sidebar-ring: #14b8a6;
+
+	/* Inline styles in the Studio resolve these (their code carries blue fallbacks). */
+	--mmbix-background: #f8fafc;
+	--mmbix-foreground: #0f172a;
+	--mmbix-card: #ffffff;
+	--mmbix-primary: #0f766e;
+	--mmbix-primary-foreground: #ffffff;
+	--mmbix-muted: #f1f5f9;
+	--mmbix-muted-foreground: #64748b;
+	--mmbix-accent: #f0fdfa;
+	--mmbix-border: #e2e8f0;
+	--mmbix-ring: #14b8a6;
+	--mmbix-input: #cbd5e1;
+}
+
+/* ── Dark theme — the same token set with a slate + teal palette, activated by the
+ * ThemeProvider's `.dark` class on <html>. Imported after the design-system CSS, so
+ * these win over the DS `.dark` defaults; the `--mmbix-*` copies cover inline styles
+ * in the Studio that resolve the token directly. */
+.dark {
+	color-scheme: dark;
+	--background: #0b1220;
+	--foreground: #e2e8f0;
+	--card: #111c2e;
+	--card-foreground: #e2e8f0;
+	--popover: #111c2e;
+	--popover-foreground: #e2e8f0;
+	--primary: #14b8a6;
+	--primary-foreground: #042f2e;
+	--secondary: #1e293b;
+	--secondary-foreground: #e2e8f0;
+	--muted: #1e293b;
+	--muted-foreground: #94a3b8;
+	--accent: #0f3d3a;
+	--accent-foreground: #5eead4;
+	--destructive: #ef4444;
+	--destructive-foreground: #ffffff;
+	--border: #263449;
+	--input: #334155;
+	--input-bg: #0b1220;
+	--ring: #2dd4bf;
+	--sidebar: #0b1220;
+	--sidebar-foreground: #e2e8f0;
+	--sidebar-primary: #0d9488;
+	--sidebar-primary-foreground: #042f2e;
+	--sidebar-accent: #0f3d3a;
+	--sidebar-accent-foreground: #5eead4;
+	--sidebar-border: #263449;
+	--sidebar-ring: #2dd4bf;
+
+	/* Inline styles in the Studio resolve these (same dark values as above). */
+	--mmbix-background: #0b1220;
+	--mmbix-foreground: #e2e8f0;
+	--mmbix-card: #111c2e;
+	--mmbix-primary: #14b8a6;
+	--mmbix-primary-foreground: #042f2e;
+	--mmbix-muted: #1e293b;
+	--mmbix-muted-foreground: #94a3b8;
+	--mmbix-accent: #0f3d3a;
+	--mmbix-border: #263449;
+	--mmbix-ring: #2dd4bf;
+	--mmbix-input: #334155;
+}
+
+/* Tabs: the design-system ships prebuilt `variant="line"` underline styles
+ * (after pseudo-element), so no custom active-tab styling is needed here —
+ * adding one previously drew a second underline on the active tab.
+ */
+
+/* DataTable sticky header — the design-system tints header cells with
+ * `bg-muted/30` (30% opacity), so scrolling rows show through when the
+ * header sticks. Give the sticky cells a solid background. */
+table thead [data-slot='datatable-header-cell'] {
+	background-color: var(--mmbix-muted, #f3f4f6);
+}
+
+/* Make the DataTable fill the available height (table view). The
+ * design-system caps the body with `max-h-[65vh]` and the root doesn't
+ * stretch, which leaves blank space under the table. */
+main [data-slot='datatable'] {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	/* Allow the root to shrink below the table's content width — otherwise the
+	 * toolbar/pagination stretch to the table width and leave the screen. */
+	min-width: 0;
+	max-width: 100%;
+}
+/* The scroll area is wrapped in a slot-less div — stretch it too so the
+ * table body can fill the remaining height and scroll internally. */
+main [data-slot='datatable'] > div:has(> [data-slot='datatable-container']) {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+main [data-slot='datatable-container'] {
+	max-height: none;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	max-width: 100%;
+	overflow: auto;
+}

@@ -1,0 +1,29 @@
+{
+	"$schema": "https://v2-10-8.turborepo.dev/schema.json",
+	"globalDependencies": ["**/.env.*local", "**/wrangler.jsonc"],
+	"tasks": {
+		"typecheck": {},
+		"build": {
+			"dependsOn": ["^build"],
+			"inputs": ["src/**", "tsconfig.json"],
+			"outputs": ["dist/**", "bin/**"]
+		},
+		"test": {
+			"dependsOn": ["build"],
+			"outputs": []
+		},
+		"lint": {},
+		"deploy": {
+			"dependsOn": ["build"],
+			"cache": false
+		},
+		"deploy:pages": {
+			"dependsOn": ["build"],
+			"cache": false
+		},
+		"dev": {
+			"cache": false,
+			"persistent": true
+		}
+	}
+}

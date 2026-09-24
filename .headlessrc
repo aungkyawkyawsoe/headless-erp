@@ -1,0 +1,10 @@
+{
+  "profile": "dev",
+  "apiUrl": "http://localhost:8788",
+  "profiles": {
+    "dev": {
+      "apiUrl": "http://localhost:8788",
+      "description": "Local dev — API worker on port 8788"
+    }
+  }
+}

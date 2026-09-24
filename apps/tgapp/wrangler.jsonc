@@ -1,0 +1,43 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	/**
+	 * ⚠️ GENERATED FILE — do not edit by hand.
+	 * Source of truth: infra/env.prod → scripts/gen-wrangler.mjs (pnpm gen:infra).
+	 * CI drift gate: pnpm check:infra
+	 */
+	/**
+	 * Telegram Mini App worker config.
+	 *
+	 * The core API worker is reached through the private `API` service binding,
+	 * never a public URL. Assets serve the SPA with single-page-app fallback.
+	 *
+	 * Regenerate types after changing bindings: `pnpm cf-typegen` (wrangler types).
+	 */
+	"name": "mff-sys-miniapp",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-08-25",
+	"compatibility_flags": ["nodejs_compat"],
+	"assets": {
+		"directory": "./dist",
+		"not_found_handling": "single-page-application",
+		"binding": "ASSETS",
+	},
+	"workers_dev": true,
+	"preview_urls": false,
+	"observability": {
+		"enabled": true,
+	},
+	"upload_source_maps": true,
+	"services": [
+		{
+			"binding": "API",
+			"service": "mff-sys-api",
+		},
+	],
+	"routes": [
+		{
+			"pattern": "app.mfflogistics.com",
+			"custom_domain": true,
+		},
+	],
+}

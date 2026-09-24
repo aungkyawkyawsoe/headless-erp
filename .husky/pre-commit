@@ -1,0 +1,86 @@
+#!/usr/bin/env sh
+# Pre-Commit Hook — Enterprise-Grade Quality Gate
+set -e
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+TS_FILES=$(echo "$STAGED" | grep '\.ts$' || true)
+
+echo "${YELLOW}┬ Pre-Commit Quality Gate${NC}"
+
+# ── 1. Format ──
+echo "${YELLOW}├─ Format (prettier)${NC}"
+if [ -n "$TS_FILES" ]; then
+  if echo "$TS_FILES" | xargs npx prettier --write --log-level=error > /tmp/husky-prettier.log 2>&1; then
+    echo "$TS_FILES" | xargs git add 2>/dev/null || true
+    echo "${GREEN}├── ✓ formatted${NC}"
+  else
+    cat /tmp/husky-prettier.log | sed 's/^/│  /'
+    echo "${RED}├── ✗ prettier failed${NC}"
+    exit 1
+  fi
+else
+  echo "${GREEN}├── ✓ skipped${NC}"
+fi
+
+# ── 2. Lint ──
+echo "${YELLOW}├─ ESLint (max-warnings=0)${NC}"
+if [ -n "$TS_FILES" ]; then
+  # Exit code checked directly (no pipe) — a lint failure must FAIL the commit.
+  if echo "$TS_FILES" | xargs npx eslint --fix --no-warn-ignored --max-warnings=0 > /tmp/husky-eslint.log 2>&1; then
+    echo "$TS_FILES" | xargs git add 2>/dev/null || true
+    echo "${GREEN}├── ✓ clean (0 errors, 0 warnings)${NC}"
+  else
+    grep -v '^$' /tmp/husky-eslint.log | sed 's/^/│  /'
+    echo "${RED}├── ✗ ESLint errors or warnings — fix before commit${NC}"
+    exit 1
+  fi
+else
+  echo "${GREEN}├── ✓ skipped${NC}"
+fi
+
+# ── 3. TypeScript ──
+echo "${YELLOW}├─ TypeScript (tsc --noEmit)${NC}"
+if [ -n "$TS_FILES" ]; then
+  # The workspace root exposes the compiler as tsc6 (npm:@typescript/typescript6
+  # alias) — try it first, fall back to tsc for repos without the alias. Never
+  # let npx fetch a compiler from the registry (offline-safe).
+  if npx --no-install tsc6 --noEmit > /tmp/husky-tsc.log 2>&1 || npx --no-install tsc --noEmit > /tmp/husky-tsc.log 2>&1; then
+    echo "${GREEN}├── ✓ types ok${NC}"
+  else
+    tail -5 /tmp/husky-tsc.log | sed 's/^/│  /'
+    echo "${RED}├── ✗ TypeScript errors${NC}"
+    exit 1
+  fi
+else
+  echo "${GREEN}├── ✓ skipped${NC}"
+fi
+
+# ── 4. Infra drift (env files ↔ generated wrangler configs) ──
+echo "${YELLOW}├─ Infra drift (pnpm check:infra)${NC}"
+if node scripts/gen-wrangler.mjs --check > /tmp/husky-infra.log 2>&1 && node scripts/gen-wrangler.mjs --env testco --check >> /tmp/husky-infra.log 2>&1; then
+  echo "${GREEN}├── ✓ env files ↔ wrangler configs in sync${NC}"
+else
+  cat /tmp/husky-infra.log | sed 's/^/│  /'
+  echo "${RED}├── ✗ Infra drift — edit infra/env.* then run pnpm gen:infra${NC}"
+  exit 1
+fi
+
+# ── 5. Security ──
+echo "${YELLOW}├─ Security Scan${NC}"
+if [ -n "$TS_FILES" ]; then
+  # CLI is a terminal tool — console.log is its output channel, not debug noise.
+  SCAN_FILES=$(echo "$TS_FILES" | grep -v '^packages/cli/' || true)
+  if [ -n "$SCAN_FILES" ]; then
+    # Skip comment lines (//, /*, * JSDoc) so doc examples with console.log aren't flagged
+    BAD=$(echo "$SCAN_FILES" | xargs git diff --cached --no-color -- 2>/dev/null | grep -E '^\+' | grep -vE '^\+\s*(//|/\*|\*)' | grep -E 'debugger|console\.log\(|\.only\(|fdescribe\(|fit\(' || true)
+    if [ -n "$BAD" ]; then
+      echo "${RED}├── ✗ Found debugger/console.log/.only/fdescribe/fit:${NC}"
+      echo "$BAD" | sed 's/^\+/  /' | sed 's/^/│  /'
+      exit 1
+    fi
+  fi
+fi
+echo "${GREEN}├── ✓ no security issues${NC}"
+
+echo "${GREEN}┴ All checks passed ✓${NC}"

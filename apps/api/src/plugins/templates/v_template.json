@@ -1,0 +1,90 @@
+{
+	"templates": {
+		"hrm": {
+			"name": "HR Management",
+			"description": "Employees, Departments, Positions, Attendance, Leave, Payroll",
+			"entities": [
+				{
+					"name": "Departments",
+					"slug": "departments",
+					"fields": [
+						{ "name": "name", "type": "text" },
+						{ "name": "code", "type": "text" },
+						{ "name": "budget", "type": "currency" }
+					]
+				},
+				{
+					"name": "Positions",
+					"slug": "positions",
+					"fields": [
+						{ "name": "title", "type": "text" },
+						{ "name": "department", "type": "m2o", "related_collection": "departments" },
+						{ "name": "min_salary", "type": "currency" },
+						{ "name": "max_salary", "type": "currency" }
+					]
+				},
+				{
+					"name": "Employees",
+					"slug": "employees",
+					"naming_series": "EMP-",
+					"fields": [
+						{ "name": "name", "type": "text", "required": true },
+						{ "name": "email", "type": "text" },
+						{ "name": "phone", "type": "text" },
+						{ "name": "department", "type": "m2o", "related_collection": "departments" },
+						{ "name": "position", "type": "m2o", "related_collection": "positions" },
+						{ "name": "joining_date", "type": "timestamp" },
+						{ "name": "salary", "type": "currency" },
+						{ "name": "status", "type": "select" }
+					]
+				},
+				{
+					"name": "Leave Applications",
+					"slug": "leave_applications",
+					"naming_series": "LV-",
+					"fields": [
+						{ "name": "employee", "type": "m2o", "related_collection": "employees" },
+						{ "name": "from_date", "type": "date" },
+						{ "name": "to_date", "type": "date" },
+						{ "name": "reason", "type": "longtext" },
+						{ "name": "status", "type": "select" }
+					]
+				},
+				{
+					"name": "Attendance",
+					"slug": "attendance",
+					"fields": [
+						{ "name": "employee", "type": "m2o", "related_collection": "employees" },
+						{ "name": "date", "type": "date" },
+						{ "name": "check_in", "type": "time" },
+						{ "name": "check_out", "type": "time" },
+						{ "name": "status", "type": "select" }
+					]
+				},
+				{
+					"name": "Payroll Periods",
+					"slug": "payroll_periods",
+					"fields": [
+						{ "name": "name", "type": "text" },
+						{ "name": "start_date", "type": "date" },
+						{ "name": "end_date", "type": "date" },
+						{ "name": "payment_date", "type": "date" },
+						{ "name": "status", "type": "select" }
+					]
+				},
+				{
+					"name": "Payslips",
+					"slug": "payslips",
+					"naming_series": "PAY-",
+					"fields": [
+						{ "name": "employee", "type": "m2o", "related_collection": "employees" },
+						{ "name": "period", "type": "m2o", "related_collection": "payroll_periods" },
+						{ "name": "basic", "type": "currency" },
+						{ "name": "net", "type": "currency" },
+						{ "name": "status", "type": "select" }
+					]
+				}
+			]
+		}
+	}
+}
