@@ -46,4 +46,18 @@ describe('stitch design-source adapter (fixtures)', () => {
 		expect(types).toContain('boolean');
 		expect(a.relations[0]).toMatchObject({ from: 'purchase_order', to: 'purchase_order_line', cardinality: 'many' });
 	});
+
+	it('turns the Stitch screen into a page of real blocks (design → UI)', () => {
+		// The point of the bridge: the design does not stop at schema. Each screen
+		// becomes a page of blocks from the REAL registry, bound to the collection.
+		const parsed = normalizeDesignDNA(dna).dna!;
+		const proposal = buildProposal({ collection: { name: 'Purchase Order', slug: 'purchase_order' }, dna: parsed }, { maxFields: 40 });
+		expect(proposal.pages).toHaveLength(1);
+		const page = proposal.pages![0];
+		expect(page.path).toBe('/purchase-order');
+		// fixture: a `form` then a `table` component
+		expect(page.blocks.map((b) => b.type)).toEqual(['entity-form', 'table']);
+		expect((page.blocks[0].config as { collection: string }).collection).toBe('purchase_order');
+		expect((page.blocks[1].config as { collection: string }).collection).toBe('purchase_order');
+	});
 });

@@ -218,17 +218,12 @@ app.put('/', async (c) => {
 			generation.max_fields_per_proposal = Math.min(Math.floor(n), 200);
 		}
 	}
-	// Design source — only a known provider, string hosts.
-	const designSource = merged.design_source as { provider?: unknown; allowed_hosts?: unknown } | undefined;
+	// Design source — only a known provider (no host allowlist: only the AGENT
+	// fetches a design, so the Worker has nothing to allowlist).
+	const designSource = merged.design_source as { provider?: unknown } | undefined;
 	if (designSource && typeof designSource === 'object') {
 		if (designSource.provider !== undefined && !['none', 'stitch', 'figma', 'manual'].includes(String(designSource.provider))) {
 			return fail(c, 'design_source.provider must be one of: none, stitch, figma, manual', 400);
-		}
-		if (designSource.allowed_hosts !== undefined) {
-			if (!Array.isArray(designSource.allowed_hosts) || designSource.allowed_hosts.some((h) => typeof h !== 'string' || !h.trim())) {
-				return fail(c, 'design_source.allowed_hosts must be an array of non-empty hostnames', 400);
-			}
-			designSource.allowed_hosts = (designSource.allowed_hosts as string[]).map((h) => h.trim());
 		}
 	}
 	schemaJson.policies = merged;

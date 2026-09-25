@@ -119,7 +119,7 @@ settable via `PUT /api/collections/:slug/policies`:
 ```json
 {
 	"generation": { "enabled": false, "require_review": true, "max_fields_per_proposal": 40, "allow_llm_fallback": true },
-	"design_source": { "provider": "none", "allowed_hosts": [] }
+	"design_source": { "provider": "none" }
 }
 ```
 

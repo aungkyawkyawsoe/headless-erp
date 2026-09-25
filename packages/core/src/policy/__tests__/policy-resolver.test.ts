@@ -136,11 +136,8 @@ describe('resolvePolicy', () => {
 	});
 
 	it('trusts no design source by default and only a named provider', () => {
-		expect(resolvePolicy(undefined).designSource).toEqual({ provider: 'none', allowedHosts: [] });
-		expect(resolvePolicy({ design_source: { provider: 'stitch', allowed_hosts: ['stitch.googleapis.com'] } }).designSource).toEqual({
-			provider: 'stitch',
-			allowedHosts: ['stitch.googleapis.com'],
-		});
+		expect(resolvePolicy(undefined).designSource).toEqual({ provider: 'none' });
+		expect(resolvePolicy({ design_source: { provider: 'stitch' } }).designSource).toEqual({ provider: 'stitch' });
 		// An unknown provider falls back to `none` rather than trusting it.
 		expect(resolvePolicy({ design_source: { provider: 'evil' as never } }).designSource.provider).toBe('none');
 	});

@@ -190,7 +190,7 @@ export interface CollectionPolicy {
 		allow_llm_fallback?: boolean;
 	};
 	/** Accepted external design source (deny by default: `none`). */
-	design_source?: { provider?: 'none' | 'stitch' | 'figma' | 'manual'; allowed_hosts?: string[] };
+	design_source?: { provider?: 'none' | 'stitch' | 'figma' | 'manual' };
 	/**
 	 * Who may mutate ROWS through the GENERIC entity API (POST/PUT/DELETE
 	 * /api/entities/:slug). This never constrains the owning domain service, which
