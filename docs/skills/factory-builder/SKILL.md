@@ -144,6 +144,7 @@ your code.
 | Publish a standard export                   | manifest `reports` (materialized on demand, no cron yet)            |
 | Dry-run a field list                        | `validate_fields` (the same validator apply uses)                   |
 | Learn how to build a page                   | read `factory://blocks` — each entry has `defaults` + nesting rules |
+| Save tokens describing an app               | pass `app` (compact DSL) instead of `manifest` — ~38% fewer bytes   |
 | Reads                                       | `query`                                                             |
 | Data writes                                 | `mutate` (create/update/delete/import)                              |
 | Audit                                       | `get_audit`                                                         |

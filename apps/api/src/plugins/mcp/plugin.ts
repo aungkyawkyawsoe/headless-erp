@@ -18,6 +18,7 @@
 import type { Plugin, PluginRegistration, PluginContext } from '@mmbix/types/worker';
 import { applyOps, type BlockNode, type PatchOp, type FieldDefinition } from '@mmbix/types';
 import { blockVocabulary, normalizeBlocks } from '@/lib/services/block-validation';
+import { decodeApp } from '@mmbix/types';
 import { Hono, type Context } from 'hono';
 import { D1Client, getIndexAdvisor, resolvePolicy } from '@mmbix/core';
 import { requireAuth } from '@/routes/auth';
@@ -45,11 +46,19 @@ const GUIDE = [
 	'',
 	'Build with the Manifest primitive, not one call per field:',
 	'1. `search_capabilities` / read `factory://capabilities` to discover verbs.',
-	'2. `plan_manifest` { manifest } — diff, writes nothing.',
-	'3. `apply_manifest` { manifest } — the only write (admin + write scope).',
+	'2. `plan_manifest` { app } — diff, writes nothing.',
+	'3. `apply_manifest` { app } — the only write (admin + write scope).',
+	'',
+	'Prefer the COMPACT `app` DSL (fewer tokens than the full manifest; both feed the same validator):',
+	'{ v:1, cols:[{ s:"po", n:"Purchase Order", f:["code:text!","total:currency","supplier:m2o>supplier","status:select(draft,approved)"] }],',
+	'  pages:[{ p:"/orders", t:"Orders", b:[{ id:"t1", type:"table", layout:{order:0}, config:{collection:"po"} }] }],',
+	'  roles:["Clerk"], grants:[{ r:"Clerk", c:"po", can:"rwc" }], menus:[{ m:"finance", l:"Orders", target:"po" }],',
+	'  kpis:[{ n:"PO Count", c:"po", agg:"count" }] }',
+	'Field shorthand: name:type with ! required, # unique, >target relation, (a,b,c) options. Types: text/currency/number/date/select/m2o/… (aliases: str num int cur pct bool dt ts sel fk).',
+	'Permission letters: r read, w write, c create, d delete, s submit, a approve.',
 	'4. `query` { requests:[{collection,params}] } — bounded reads.',
 	'',
-	'Manifest shape: { version:1, collections:[…], pages:[…], roles:[…], permissions:[…], workflows:[…], menus:[…], kpis:[…], serverFunctions:[…], apiKeys:[…], schedules:[…], reports:[…] }',
+	'Full manifest shape: { version:1, collections:[…], pages:[…], roles:[…], permissions:[…], workflows:[…], menus:[…], kpis:[…], serverFunctions:[…], apiKeys:[…], schedules:[…], reports:[…] }',
 	'collection: { slug, name?, naming_series?, fields:[{name,type,required?,related_collection?,options?,unique?}], policies? }',
 	'page: { module?, path, title, blocks? } · permission: { role, collection, can_read?, can_write?, can_create?, can_delete?, can_approve?, can_submit? }',
 	'workflow: { name, collection, initial, states[], transitions[] } · menu: { module, label, type?, target?, icon?, roles? }',
@@ -139,13 +148,21 @@ const TOOLS = [
 	},
 	{
 		name: 'plan_manifest',
-		description: 'Diff a manifest (collections + pages) against the live factory. WRITES NOTHING.',
-		inputSchema: { type: 'object', properties: { manifest: { type: 'object' } }, required: ['manifest'], additionalProperties: false },
+		description: 'Diff an app/manifest against the live factory. WRITES NOTHING. Pass `manifest` (full JSON) or `app` (compact DSL).',
+		inputSchema: {
+			type: 'object',
+			properties: { manifest: { type: 'object' }, app: { type: 'object' } },
+			additionalProperties: false,
+		},
 	},
 	{
 		name: 'apply_manifest',
-		description: 'Apply a manifest — the only write. Creates collections + upserts pages (admin; write scope).',
-		inputSchema: { type: 'object', properties: { manifest: { type: 'object' } }, required: ['manifest'], additionalProperties: false },
+		description: 'Apply an app/manifest — the only write (admin; write scope). Pass `manifest` (full JSON) or `app` (compact DSL).',
+		inputSchema: {
+			type: 'object',
+			properties: { manifest: { type: 'object' }, app: { type: 'object' } },
+			additionalProperties: false,
+		},
 	},
 	{
 		name: 'validate_fields',
@@ -363,15 +380,20 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 	}
 	if (name === 'plan_manifest' || name === 'apply_manifest') {
 		if (name === 'apply_manifest' && !auth?.is_admin) throw new Error('Admin access required to apply a manifest');
-		const { manifest, warnings } = validateManifest(args.manifest);
-		if (!manifest) throw new Error(warnings[0] ?? 'Invalid manifest');
+		// Two encodings, ONE write path: `app` is the compact DSL (fewer tokens),
+		// `manifest` is the full JSON. Both decode to the same manifest and then run
+		// the SAME validator — so they cannot disagree on what is valid.
+		const decoded = args.app !== undefined ? decodeApp(args.app) : null;
+		const { manifest, warnings } = validateManifest(decoded ? decoded.manifest : args.manifest);
+		const allWarnings = [...(decoded?.warnings ?? []), ...warnings];
+		if (!manifest) throw new Error(allWarnings[0] ?? 'Invalid manifest');
 		if (name === 'plan_manifest') {
 			const plan = await planManifest(db, manifest);
-			plan.warnings.unshift(...warnings);
+			plan.warnings.unshift(...allWarnings);
 			return plan;
 		}
 		const applied = await applyManifest(db, auth!, manifest, c.env as unknown as ManifestEnv);
-		applied.plan.warnings.unshift(...warnings);
+		applied.plan.warnings.unshift(...allWarnings);
 		return applied;
 	}
 	if (name === 'validate_fields') {

@@ -38,7 +38,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<{ status: numbe
 }
 
 interface ApplyResult {
-	plan: { warnings: string[] };
+	plan: { warnings: string[]; actions: Array<{ target: string; kind: string }> };
 	results: Array<{ target: string; ok: boolean; error?: string }>;
 }
 
@@ -55,10 +55,16 @@ async function seedRows(): Promise<void> {
 
 describe('factory jobs execute', () => {
 	it('a one-shot job declared by the manifest runs and materializes its rollup', async () => {
+		// Collection + data FIRST. The job is due immediately, so the DO alarm and
+		// our explicit run race each other — seeding first is what makes the
+		// assertion deterministic whichever path wins (and the alarm path is the
+		// production behaviour: a declared job runs with no operator).
+		await tool('apply_manifest', { manifest: { version: 1, collections: [COLLECTION] } });
+		await seedRows();
+
 		const applied = await tool<ApplyResult>('apply_manifest', {
 			manifest: {
 				version: 1,
-				collections: [COLLECTION],
 				schedules: [
 					{
 						name: 'job_sales_rollup',
@@ -70,19 +76,15 @@ describe('factory jobs execute', () => {
 			},
 		});
 		expect(applied.results.find((r) => r.target === 'schedule:job_sales_rollup')?.ok).toBe(true);
-		await seedRows();
 
-		// The task is due immediately (a cron schedule would be armed in the future).
-		const declared = await env.DB.prepare('SELECT id, run_at FROM _scheduler_tasks WHERE name = ?')
+		const declared = await env.DB.prepare('SELECT id FROM _scheduler_tasks WHERE name = ?')
 			.bind('job_sales_rollup')
-			.first<{ id: string; run_at: string }>();
+			.first<{ id: string }>();
 		expect(declared).toBeTruthy();
 
-		// Run it the way an operator does. This executes the HANDLER for real.
-		const run = await api<{ status: string; result?: { rows?: number; values?: number } }>(
-			`/api/scheduler/tasks/${encodeURIComponent(declared!.id)}/run`,
-			{ method: 'POST' },
-		);
+		// Run it the way an operator does. This executes the HANDLER for real (and is
+		// a no-op reporting `done` if the alarm already consumed the one-shot).
+		const run = await api<{ status: string }>(`/api/scheduler/tasks/${encodeURIComponent(declared!.id)}/run`, { method: 'POST' });
 		expect(run.status).toBe(200);
 		expect(run.data?.status).toBe('done');
 
@@ -102,18 +104,17 @@ describe('factory jobs execute', () => {
 			],
 		};
 		await tool<ApplyResult>('apply_manifest', { manifest });
-		const first = await env.DB.prepare('SELECT run_count FROM _scheduler_tasks WHERE name = ?')
-			.bind('job_once')
-			.first<{ run_count: number }>();
-		const before = first?.run_count ?? 0;
 
-		// Replay: the plan must SKIP, so the job cannot fire a second time.
+		// Replay: the planner must SKIP the spent trigger rather than re-arm it. The
+		// assertion is the plan's own verdict, not a run_count comparison — an alarm
+		// may legitimately run the one-shot between two reads.
 		const replay = await tool<ApplyResult>('apply_manifest', { manifest });
-		const after = await env.DB.prepare('SELECT run_count FROM _scheduler_tasks WHERE name = ?')
+		const action = replay.plan.actions.find((a) => a.target === 'schedule:job_once');
+		expect(action?.kind).toBe('skip');
+		const rows = await env.DB.prepare('SELECT COUNT(*) AS count FROM _scheduler_tasks WHERE name = ?')
 			.bind('job_once')
-			.first<{ run_count: number }>();
-		expect(after?.run_count).toBe(before);
-		expect(replay.results.find((r) => r.target === 'schedule:job_once')?.ok).toBe(true);
+			.first<{ count: number }>();
+		expect(rows?.count).toBe(1);
 	});
 
 	it('run_now and a cron together are refused (one-shot or recurring, never both)', async () => {

@@ -1,3 +1,5 @@
+export { decodeApp, parseField } from './dsl/app.ts';
+export type { AppDoc, AppDecode } from './dsl/app.ts';
 export type {
 	FieldType,
 	DocStatus,

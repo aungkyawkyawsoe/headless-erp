@@ -109,6 +109,51 @@ an existing module. Per-item failures are isolated — one bad entry never abort
 | `schedules`       | a recurring job over a **registered handler** | re-armed by derived id (never duplicated)               |
 | `reports`         | a saved on-demand export                      | upserted by derived id                                  |
 
+### The compact App DSL (fewer tokens)
+
+`plan_manifest` and `apply_manifest` accept **either** `manifest` (full JSON) **or** `app` (a compact document).
+Both decode to the same manifest and run the SAME validator, planner and writer — the compact form is an
+_encoding_, never a second engine.
+
+```jsonc
+{
+	"v": 1,
+	"cols": [
+		{
+			"s": "purchase_order",
+			"n": "Purchase Order",
+			"f": ["code:text!", "total:currency", "supplier:m2o>supplier", "status:select(draft,approved)"],
+		},
+	],
+	"pages": [
+		{
+			"p": "/orders",
+			"t": "Orders",
+			"m": "finance",
+			"b": [{ "id": "t1", "type": "table", "layout": { "order": 0 }, "config": { "collection": "purchase_order" } }],
+		},
+	],
+	"roles": ["Clerk", { "n": "Manager", "d": "approves" }],
+	"grants": [{ "r": "Clerk", "c": "purchase_order", "can": "rwc" }],
+	"menus": [{ "m": "finance", "l": "Orders", "target": "purchase_order" }],
+	"kpis": [{ "n": "PO Count", "c": "purchase_order", "agg": "count" }],
+}
+```
+
+| Shorthand      | Meaning                                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `name:type`    | a field; `!` required, `#` unique                                                                                            |
+| `>target`      | relation target (`supplier:m2o>supplier`)                                                                                    |
+| `(a,b,c)`      | select options                                                                                                               |
+| type aliases   | `str num int cur pct bool dt ts sel rel fk` (→ canonical 41-type names)                                                      |
+| `grants[].can` | letters `r` read, `w` write, `c` create, `d` delete, `s` submit, `a` approve (default `r`)                                   |
+| keys           | `cols s n ns f pol · pages p t m b · roles n d · grants r c can · menus m l t target i o roles · kpis n c agg f g per sched` |
+
+Full-form keys pass through unchanged: `workflows`, `serverFunctions`, `schedules`, `reports`, `apiKeys`. Anything
+malformed is **dropped with a warning** (never guessed): an unparsable field shorthand, an unknown permission
+letter, an unknown top-level key. On a representative 3-collection app the compact document is **~38% fewer
+bytes** than the equivalent manifest, pinned by `packages/types/src/dsl/__tests__/app.test.ts`.
+
 ### Jobs and reports — what is real
 
 - **`schedules`** writes a `_scheduler_tasks` row and arms the `SchedulerDO`; if arming is unavailable the
@@ -172,5 +217,8 @@ one-shot is not re-fired, `run_now`+cron is refused, a broken payload surfaces `
 targets the right id) ·
 `apps/api/test/factory-ui-blocks.spec.ts` (the vocabulary carries defaults + container flags; an unknown
 block is dropped with a warning on both the manifest and the patch path) ·
+`apps/api/test/factory-app-dsl.spec.ts` (the compact `app` builds the same app a full manifest would;
+a broken line is reported and the rest still builds) ·
+`packages/types/src/dsl/__tests__/app.test.ts` (field shorthand, alias targets are real types, ~38% smaller) ·
 `apps/api/test/factory-acceptance.spec.ts` (the end-to-end "can it build an app" contract — 13 checks across
 every capability domain).

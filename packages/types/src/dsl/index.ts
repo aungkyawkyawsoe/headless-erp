@@ -27,3 +27,4 @@ export type {
 	ProposalStatus,
 } from './design.ts';
 export { applyOps, type BlockNode, type PatchOp } from './patch.ts';
+export { decodeApp, parseField, type AppDoc, type AppDecode } from './app.ts';
