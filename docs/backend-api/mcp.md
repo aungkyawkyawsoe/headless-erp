@@ -220,5 +220,7 @@ block is dropped with a warning on both the manifest and the patch path) ·
 `apps/api/test/factory-app-dsl.spec.ts` (the compact `app` builds the same app a full manifest would;
 a broken line is reported and the rest still builds) ·
 `packages/types/src/dsl/__tests__/app.test.ts` (field shorthand, alias targets are real types, ~38% smaller) ·
+`apps/api/test/generation-design-ui.spec.ts` (design components compile to real blocks bound to the
+collection; unknown component skipped + warned; the gate applies collection AND page) ·
 `apps/api/test/factory-acceptance.spec.ts` (the end-to-end "can it build an app" contract — 13 checks across
 every capability domain).

@@ -144,6 +144,7 @@ export type {
 	RelationProposal,
 	ProposalWarning,
 	SchemaProposal,
+	ProposedPage,
 	ProposalStatus,
 	BlockNode,
 	PatchOp,

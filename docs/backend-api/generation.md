@@ -159,3 +159,25 @@ dev-token) carry no scope and are already role-gated; a key created before scope
 - `apps/api/test/mcp-inbound.spec.ts` — tool catalog; JSON-RPC errors; gate tools; scope enforcement; `apply_patch`.
 - `apps/api/test/design-source-stitch.spec.ts` — recorded-fixture adapter (no network).
 - `apps/studio/src/lib/generation.spec.ts` — the action/state and summary logic.
+
+## Design → UI (the app, not just the data)
+
+`inferFields` turns a design into a collection; `designToBlocks`
+(`apps/api/src/plugins/generation/design-blocks.ts`) turns the SAME design into a
+screen, so a proposal now carries **pages** as well as fields:
+
+- each design component maps onto a real `BLOCK_REGISTRY` block
+  (`table` → `table`, `form` → `entity-form`, `stat-card` → `kpi`, `header` →
+  `section-header`, `chart` → `chart`, …), taking its config baseline from
+  `blockDefaults` (the renderer's SSOT) and binding `collection` to the slug the
+  proposal creates;
+- a component with no mapping is **skipped with a warning** — never invented into
+  a block that would render as nothing;
+- one page per design screen, deterministically named from the screen id, capped
+  (default 10);
+- `apply` materializes the collection first, then upserts each page by path
+  (idempotent) after re-validating its blocks against the block registry. It also
+  runs the core migrations, so a fresh database can apply a proposal directly.
+
+`propose_schema` returns `pages` alongside `fields`, so the human gate reviews the
+whole app — schema and UI — before anything is written.

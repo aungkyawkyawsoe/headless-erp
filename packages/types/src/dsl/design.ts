@@ -100,11 +100,23 @@ export interface ProposalWarning {
 	message: string;
 }
 
+/**
+ * A page the design implies — real blocks from the BLOCK_REGISTRY, bound to the
+ * collection the proposal creates. The UI half of "design → app".
+ */
+export interface ProposedPage {
+	path: string;
+	title: string;
+	blocks: Array<Record<string, unknown>>;
+}
+
 /** Deterministic output of the mapping stage. Same DNA ⇒ same proposal. */
 export interface SchemaProposal {
 	collection: { slug: string; name: string; fields: FieldProposal[] };
 	relations: RelationProposal[];
 	warnings: ProposalWarning[];
+	/** Screens the design implies (empty when the design has no mappable UI). */
+	pages?: ProposedPage[];
 	/** Lineage, copied onto the created collection when the proposal goes live. */
 	dna?: DesignSourceRef;
 }

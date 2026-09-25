@@ -11,6 +11,7 @@
 import { inferFields, inferRelations, snakeName } from '@mmbix/core';
 import { sanitizeIdentifier } from '@mmbix/utils';
 import type { DesignDNA, DesignHint, FieldProposal, ProposalWarning, RelationProposal, SchemaProposal } from '@mmbix/types';
+import { designToBlocks } from './design-blocks';
 
 export interface BuildProposalInput {
 	/** Target collection identity; when omitted a name is derived from the design. */
@@ -118,10 +119,15 @@ export function buildProposal(input: BuildProposalInput, opts: BuildProposalOpti
 		warnings.push({ code: 'fields_truncated', message: `Truncated the proposal to ${opts.maxFields} fields` });
 	}
 
+	// The UI half: screens become pages of real blocks bound to this collection.
+	const ui = designToBlocks(input.dna, { collection: slug });
+	warnings.push(...ui.warnings);
+
 	return {
 		collection: { slug, name, fields: limited },
 		relations,
 		warnings,
+		...(ui.pages.length ? { pages: ui.pages } : {}),
 		dna: input.dna.source,
 	};
 }

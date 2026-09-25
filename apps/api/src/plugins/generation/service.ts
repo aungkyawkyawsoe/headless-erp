@@ -11,11 +11,13 @@
  * racing a promote cannot both apply — the loser gets a 409.
  */
 
-import { D1Client, fnv1a, QueryBuilder } from '@mmbix/core';
+import { D1Client, fnv1a, MigrationRunner, QueryBuilder } from '@mmbix/core';
 import { ValidationError, VALID_FIELD_TYPES } from '@mmbix/utils';
 import type { FieldDefinition, FieldProposal, ProposalStatus, SchemaProposal } from '@mmbix/types';
 import type { AuthContext } from '@/lib/services/auth.service';
 import { CollectionService } from '@/lib/services/collection.service';
+import { PageService, type PageBlocks } from '@/lib/services/page.service';
+import { normalizeBlocks } from '@/lib/services/block-validation';
 
 export type GenerationAction = 'submit' | 'approve' | 'reject' | 'apply';
 
@@ -244,6 +246,10 @@ export class GenerationService {
 		// Idempotent replay first: an already-applied proposal is a no-op, never a
 		// state error — so a client retry after a network blip succeeds.
 		if (record.applied_slug) return record;
+		// A fresh database may not have the core tables yet: apply is a schema +
+		// page write, so it must run the core migrations itself (the manifest
+		// writer does the same) instead of assuming a read ran first.
+		await new MigrationRunner(this.db).runPending();
 		const autoOk = !record.require_review && (record.status === 'draft' || record.status === 'review');
 		if (record.status !== 'promoted' && !autoOk) {
 			throw new GenerationError(`Apply requires the "promoted" state (currently "${record.status}")`, 409, 'NOT_REVIEWED');
@@ -273,6 +279,20 @@ export class GenerationService {
 		} catch (err) {
 			if (err instanceof ValidationError) throw new GenerationError(err.message, 409, 'CONFLICT');
 			throw err;
+		}
+
+		// Then the UI: each proposed page is upserted by path (idempotent), and its
+		// blocks re-validated against the block registry before they are persisted.
+		const pageSvc = new PageService(this.db, this.getAuth() ?? undefined);
+		for (const page of record.proposal.pages ?? []) {
+			const blockWarnings: string[] = [];
+			const blocks = normalizeBlocks(`page "${page.path}"`, page.blocks, blockWarnings);
+			await pageSvc.save({
+				module_id: null,
+				path: page.path,
+				title: page.title,
+				blocks: blocks as unknown as PageBlocks[],
+			});
 		}
 
 		const now = new Date().toISOString();

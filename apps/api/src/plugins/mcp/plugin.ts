@@ -330,7 +330,13 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 			requireReview: true,
 			actor: auth.user_id ?? null,
 		});
-		return { id: record.id, status: record.status, collection_slug: record.collection_slug, fields: record.proposal.collection.fields };
+		return {
+			id: record.id,
+			status: record.status,
+			collection_slug: record.collection_slug,
+			fields: record.proposal.collection.fields,
+			pages: record.proposal.pages ?? [],
+		};
 	}
 	if (name === 'submit_for_review' || name === 'promote') {
 		if (!auth?.is_admin) throw new Error('Admin access required');

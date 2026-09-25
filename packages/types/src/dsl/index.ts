@@ -24,6 +24,7 @@ export type {
 	RelationProposal,
 	ProposalWarning,
 	SchemaProposal,
+	ProposedPage,
 	ProposalStatus,
 } from './design.ts';
 export { applyOps, type BlockNode, type PatchOp } from './patch.ts';
