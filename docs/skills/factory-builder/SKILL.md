@@ -156,16 +156,22 @@ your code.
 The Worker cannot run a `stdio` MCP client, so **you are the MCP client**: you pull the design and POST a
 normalized `DesignDNA`. The Worker only maps it.
 
-1. **Fetch** — Stitch: `list_projects` → `get_project { name }` → `list_screens { projectId }` →
-   `get_screen { name }`.
-2. **Normalize** — map each screen to a `StitchScreenFixture`
+1. **Fetch** — Stitch (verified against the hosted server):
+   `list_projects` → `get_project { name }` → `list_screens { projectId }` → `get_screen { name }`.
+   A screen is `{ name, title, deviceType, width, height, htmlCode, screenshot }`.
+2. **Read the design** — `htmlCode` is a **file reference**, not markup: fetch `htmlCode.downloadUrl`
+   (`mimeType: text/html`). `screenshot.downloadUrl` is the rendered image — read both; the HTML is a styled
+   mockup, so judgment compiles the screen, not a regex.
+3. **Normalize** — map each screen to a `StitchScreenFixture`
    (`id`, `anatomy`, `components[{ kind, label, hints[{ label, valueFormat }] }]`,
    `relations[{ from, to, cardinality }]`) and run `stitchToDesignDNA()`
-   (`apps/api/src/plugins/generation/stitch-adapter.ts`). `valueFormat` is limited to
-   currency/date/phone/email/text/number/boolean; anything else is dropped.
-3. **Propose** — `propose_schema { dna, collection: { name, slug } }`. The result carries `fields` **and**
+   (`apps/api/src/plugins/generation/stitch-adapter.ts`; `stitchScreenRef()` reads the structural fields off the
+   raw `get_screen` result). There is no `anatomy` on the wire — you author it from the fetched HTML +
+   screenshot. `valueFormat` is limited to currency/date/phone/email/text/number/boolean; anything else is
+   dropped.
+4. **Propose** — `propose_schema { dna, collection: { name, slug } }`. The result carries `fields` **and**
    `pages` (design components → real blocks, bound to the slug).
-4. **Gate** — `submit_for_review` → `promote` → `POST /api/generation/:id/apply`. Apply creates the
+5. **Gate** — `submit_for_review` → `promote` → `POST /api/generation/:id/apply`. Apply creates the
    collection first, then the pages.
 
 Component kinds that map to blocks: `table`/`datatable`/`list`, `form`/`entity-form`, `stat-card`/`kpi`/`metric`,

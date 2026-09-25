@@ -6,6 +6,19 @@
  * Stitch and any other design source, normalizes them HERE, and POSTs the
  * resulting `DesignDNA` to `POST /api/generation/propose`.
  *
+ * The REAL Stitch chain (verified against the hosted server) is:
+ *   `list_projects` → `get_project { name }` → `list_screens { projectId }` →
+ *   `get_screen { name }`.
+ * A screen is `{ name, title, deviceType, width, height, htmlCode, screenshot }`,
+ * where `htmlCode` is NOT the markup — it is a `{ downloadUrl, mimeType }` FILE
+ * REFERENCE, so the agent must FETCH `htmlCode.downloadUrl` (text/html) to read
+ * the design; `screenshot.downloadUrl` is the rendered image. There is no
+ * `anatomy` field on the wire: `anatomy`/`components` in the fixture below are
+ * AGENT-AUTHORED from the fetched HTML + screenshot, which is why the adapter
+ * only maps the structural fields and leaves the reading to judgment. (The HTML
+ * is a styled mockup, so a tag-scraping extractor yields little — the screen is
+ * compiled by the agent, not by a regex.)
+ *
  * This module is intentionally NOT imported by the plugin — it is a reference
  * mapping the agent (or the CLI) runs in Node. It is exercised only by
  * recorded-fixture tests, so CI is network-free. If Stitch's tool surface
@@ -13,6 +26,38 @@
  */
 
 import type { DesignDNA, DesignHint, DesignRelation, DesignScreen } from '@mmbix/types';
+
+/** The structural fields of a real Stitch `get_screen` result (post-fetch refs). */
+export interface StitchScreenRef {
+	/** The screen id (last segment of `name`). */
+	id: string;
+	title: string;
+	deviceType?: string;
+	/** `htmlCode.downloadUrl` — fetch this to read the design (text/html). */
+	htmlUrl?: string;
+	/** `screenshot.downloadUrl` — the rendered image. */
+	screenshotUrl?: string;
+}
+
+/** Read the STRUCTURAL fields off a real `get_screen` payload. Never guesses. */
+export function stitchScreenRef(screen: unknown): StitchScreenRef | null {
+	const s = screen && typeof screen === 'object' && !Array.isArray(screen) ? (screen as Record<string, unknown>) : null;
+	if (!s) return null;
+	const name = typeof s.name === 'string' ? s.name : '';
+	const id = name.split('/').filter(Boolean).pop();
+	if (!id) return null;
+	const urlOf = (v: unknown): string | undefined => {
+		const o = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+		return typeof o?.downloadUrl === 'string' && o.downloadUrl ? o.downloadUrl : undefined;
+	};
+	return {
+		id,
+		title: typeof s.title === 'string' ? s.title : id,
+		...(typeof s.deviceType === 'string' ? { deviceType: s.deviceType } : {}),
+		...(urlOf(s.htmlCode) ? { htmlUrl: urlOf(s.htmlCode) as string } : {}),
+		...(urlOf(s.screenshot) ? { screenshotUrl: urlOf(s.screenshot) as string } : {}),
+	};
+}
 
 /** What the agent extracts from one Stitch screen (tool-name-agnostic). */
 export interface StitchScreenFixture {

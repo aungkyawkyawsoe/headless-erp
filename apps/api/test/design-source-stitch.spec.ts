@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { describe, expect, it } from 'vitest';
 import fixture from './fixtures/stitch-screens.json';
-import { stitchToDesignDNA, type StitchFixture } from '@/plugins/generation/stitch-adapter';
+import { stitchScreenRef, stitchToDesignDNA, type StitchFixture } from '@/plugins/generation/stitch-adapter';
 import { normalizeDesignDNA } from '@/plugins/generation/design-dna';
 import { buildProposal } from '@/plugins/generation/proposal';
 
@@ -12,6 +12,32 @@ import { buildProposal } from '@/plugins/generation/proposal';
  * DesignDNA, survives normalization, and yields a deterministic proposal. The
  * adapter is agent-side; the Worker never speaks to Stitch.
  */
+
+describe('stitch screen ref (real payload shape)', () => {
+	it('reads the structural fields off a real get_screen result', () => {
+		// Shape verified against the hosted Stitch server: `htmlCode` is a FILE
+		// REFERENCE, not markup, and there is no `anatomy` on the wire.
+		const screen = {
+			name: 'projects/12013215614564949498/screens/8c6cb94d6d6340219c75d8740bd9d6ff',
+			title: 'Tasks & Operations Hub',
+			deviceType: 'MOBILE',
+			width: 390,
+			height: 844,
+			htmlCode: { name: '.../fileEntries/html', downloadUrl: 'https://x/html', mimeType: 'text/html' },
+			screenshot: { name: '.../fileEntries/screenshot', downloadUrl: 'https://x/png' },
+		};
+		expect(stitchScreenRef(screen)).toEqual({
+			id: '8c6cb94d6d6340219c75d8740bd9d6ff',
+			title: 'Tasks & Operations Hub',
+			deviceType: 'MOBILE',
+			htmlUrl: 'https://x/html',
+			screenshotUrl: 'https://x/png',
+		});
+		// A payload with no usable name yields null rather than a guessed id.
+		expect(stitchScreenRef({ title: 'x' })).toBeNull();
+		expect(stitchScreenRef(null)).toBeNull();
+	});
+});
 
 describe('stitch design-source adapter (fixtures)', () => {
 	const dna = stitchToDesignDNA(fixture as StitchFixture);
