@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button } from '@mmbix/design-system';
+import { Badge, Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@mmbix/design-system';
 import { Blocks, Download, Trash2 } from 'lucide-react';
 import { installAddon, uninstallAddon, type AddonEntry } from '../../lib/api';
 import { addonsQuery, modulesQuery } from '../../lib/queries';
 import { qk } from '../../lib/query-keys';
+import StatusBadge from '../StatusBadge';
 
 /* ── Add-ons tab — install/remove modules at runtime (the zero-waste gate) ──
  *
@@ -15,11 +16,11 @@ import { qk } from '../../lib/query-keys';
 const SCOPE_COLOR: Record<AddonEntry['scope'], string> = {
 	platform: '#0ea5e9',
 	domain: '#8b5cf6',
-	ui: '#f59e0b',
+	ui: 'var(--mmbix-tone-warning-fg, #f59e0b)',
 };
 
-const th = { textAlign: 'left' as const, padding: '0.25rem 0.5rem', color: '#9ca3af', fontWeight: 600 };
-const td = { padding: '0.35rem 0.5rem', verticalAlign: 'top' as const };
+const th = { textAlign: 'left' as const, padding: '0.25rem 0.5rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', fontWeight: 600 };
+const td = { padding: '0.35rem 0.5rem', verticalAlign: 'top' as const, whiteSpace: 'normal' as const };
 
 export function AddonsTab({ token }: { token: string }) {
 	const queryClient = useQueryClient();
@@ -56,58 +57,54 @@ export function AddonsTab({ token }: { token: string }) {
 
 	return (
 		<div style={{ padding: '0.5rem 0.75rem' }}>
-			<p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '0 0 0.6rem' }}>
+			<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: '0 0 0.6rem' }}>
 				Install or remove add-ons at runtime. An uninstalled add-on&apos;s routes answer 404 and its tables/hooks do not run — zero waste,
 				no redeploy.
 			</p>
 
 			{msg && (
-				<p role="alert" style={{ fontSize: '0.72rem', color: '#dc2626', margin: '0 0 0.5rem' }}>
+				<p role="alert" style={{ fontSize: '0.72rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)', margin: '0 0 0.5rem' }}>
 					{msg}
 				</p>
 			)}
 
 			{addonsQ.isLoading ? (
-				<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Loading add-ons…</p>
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>Loading add-ons…</p>
 			) : addons.length === 0 ? (
-				<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>No add-ons in this build.</p>
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>No add-ons in this build.</p>
 			) : (
-				<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem' }}>
-					<thead>
-						<tr>
-							<th style={th}>Add-on</th>
-							<th style={th}>Scope</th>
-							<th style={th}>Depends / Capabilities</th>
-							<th style={th}>State</th>
-							<th style={th} />
-						</tr>
-					</thead>
-					<tbody>
+				<Table style={{ width: '100%', fontSize: '0.74rem' }}>
+					<TableHeader>
+						<TableRow>
+							<TableHead style={th}>Add-on</TableHead>
+							<TableHead style={th}>Scope</TableHead>
+							<TableHead style={th}>Depends / Capabilities</TableHead>
+							<TableHead style={th}>State</TableHead>
+							<TableHead style={th} />
+						</TableRow>
+					</TableHeader>
+					<TableBody>
 						{addons.map((a) => (
-							<tr key={a.id} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
-								<td style={td}>
+							<TableRow key={a.id}>
+								<TableCell style={td}>
 									<strong>{a.name}</strong>
-									<div style={{ color: '#9ca3af' }}>
+									<div style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
 										{a.id} · v{a.version}
 									</div>
-								</td>
-								<td style={td}>
+								</TableCell>
+								<TableCell style={td}>
 									<Badge style={{ background: SCOPE_COLOR[a.scope], color: '#fff' }}>{a.scope}</Badge>
-								</td>
-								<td style={{ ...td, color: '#6b7280' }}>
+								</TableCell>
+								<TableCell style={{ ...td, color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
 									{a.depends.length > 0 && <div>needs: {a.depends.join(', ')}</div>}
 									{a.provides.length > 0 && <div>provides: {a.provides.join(', ')}</div>}
 									{a.requires.length > 0 && <div>requires: {a.requires.join(', ')}</div>}
 									{a.depends.length + a.provides.length + a.requires.length === 0 && <span>—</span>}
-								</td>
-								<td style={td}>
-									{a.installed ? (
-										<Badge style={{ background: '#059669', color: '#fff' }}>installed</Badge>
-									) : (
-										<Badge variant="outline">not installed</Badge>
-									)}
-								</td>
-								<td style={{ ...td, textAlign: 'right' as const }}>
+								</TableCell>
+								<TableCell style={td}>
+									<StatusBadge status={a.installed ? 'installed' : 'not installed'} />
+								</TableCell>
+								<TableCell style={{ ...td, textAlign: 'right' as const }}>
 									<Button
 										variant={a.installed ? 'outline' : 'default'}
 										size="sm"
@@ -118,19 +115,19 @@ export function AddonsTab({ token }: { token: string }) {
 										{a.installed ? <Trash2 size={13} /> : <Download size={13} />}
 										{a.installed ? 'Remove' : 'Install'}
 									</Button>
-								</td>
-							</tr>
+								</TableCell>
+							</TableRow>
 						))}
-					</tbody>
-				</table>
+					</TableBody>
+				</Table>
 			)}
 
 			{issues.length > 0 && (
 				<div style={{ marginTop: '0.75rem' }}>
-					<p style={{ fontSize: '0.7rem', fontWeight: 700, color: '#b45309', margin: '0 0 0.25rem' }}>
+					<p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-tone-warning-fg, #b45309)', margin: '0 0 0.25rem' }}>
 						<Blocks size={12} /> Graph issues
 					</p>
-					<ul style={{ fontSize: '0.7rem', color: '#b45309', margin: 0, paddingLeft: '1.1rem' }}>
+					<ul style={{ fontSize: '0.7rem', color: 'var(--mmbix-tone-warning-fg, #b45309)', margin: 0, paddingLeft: '1.1rem' }}>
 						{issues.map((i, n) => (
 							<li key={`${i.id}-${n}`}>
 								{i.id}: {i.issue}

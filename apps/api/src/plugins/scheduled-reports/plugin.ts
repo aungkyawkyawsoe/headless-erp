@@ -53,6 +53,15 @@ export function scheduledReportsPlugin(): Plugin {
 					},
 				],
 			},
+			{
+				// Ownership marker. `'manifest'` = the control plane's `apply_manifest`
+				// created this saved report, so an apply that no longer declares it may
+				// reconcile (delete) it. Studio/CLI/hand-created reports stay NULL and are
+				// INVISIBLE to reconciliation. Nullable + additive; the plugin runner
+				// probes the column, so a re-run on a partially-migrated DB is safe.
+				name: '044_report_schedules_source',
+				up: [{ sql: `ALTER TABLE _report_schedules ADD COLUMN source TEXT DEFAULT NULL`, bindings: [] }],
+			},
 		],
 		register(_ctx: PluginContext): PluginRegistration {
 			type ScheduledReportsEnv = {

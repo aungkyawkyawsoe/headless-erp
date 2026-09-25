@@ -94,8 +94,14 @@ export class OutboxService {
 			const { setChainEnv } = await import('@/plugins/marketplace/chain');
 			setChainEnv(env);
 		}
+		// `failed` rows are RETRYING, not terminal: `markFailed` backs them off and
+		// sets `next_attempt_at`. Selecting only `pending` orphaned every row after
+		// its FIRST failure — the exponential backoff and the dead-letter path were
+		// unreachable, so a poison message sat silently in the table forever. A
+		// dead letter is the only terminal state; include `failed` so the retry
+		// actually happens and eventually dead-letters.
 		const due = await this.db.all<OutboxEntry>({
-			sql: `SELECT * FROM _outbox WHERE status = 'pending' AND next_attempt_at <= ? ORDER BY created_at ASC LIMIT ?`,
+			sql: `SELECT * FROM _outbox WHERE status IN ('pending', 'failed') AND next_attempt_at <= ? ORDER BY created_at ASC LIMIT ?`,
 			bindings: [new Date().toISOString(), limit],
 		});
 		let succeeded = 0;
@@ -175,6 +181,10 @@ export class OutboxService {
 	}
 
 	private async deadLetter(row: OutboxEntry, error: string): Promise<void> {
+		// The DLQ row is the durable, queryable evidence (`GET /api/outbox/dlq`); the
+		// log is on top of it, never instead of it — a poison message must be visible
+		// both to an operator watching logs and to one reading the queue.
+		console.error(`[outbox] dead-lettering ${row.type} (${row.id}) after ${row.attempts + 1} attempts: ${error}`);
 		await this.db.run({
 			sql: `INSERT INTO _outbox_dlq (id, type, dedupe_key, payload_json, attempts, error, failed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			bindings: [row.id, row.type, row.dedupe_key, row.payload_json, row.attempts + 1, error, new Date().toISOString()],

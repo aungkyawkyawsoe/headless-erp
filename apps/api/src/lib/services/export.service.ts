@@ -8,7 +8,7 @@
 import { D1Client } from '@mmbix/core';
 import { QueryBuilder } from '@mmbix/core';
 import { mergeRowData } from '@mmbix/core';
-import { NotFoundError } from '@mmbix/utils';
+import { NotFoundError, SEARCHABLE_FIELD_TYPES } from '@mmbix/utils';
 import { DataFilterService, type DataFilterContext } from '@/lib/services/data-filter.service';
 import type { AuthContext } from '@/lib/services/auth.service';
 import type { EntitySchema, FieldDefinition } from '@mmbix/types';
@@ -119,29 +119,7 @@ export class ExportImportService {
 		}
 		if (options.search) {
 			const schemaJson = JSON.parse(collection.schema_json || '{}') as { fields?: FieldDefinition[] };
-			const textFields = (schemaJson.fields || [])
-				.filter((f) =>
-					[
-						'text',
-						'longtext',
-						'text_editor',
-						'markdown',
-						'code',
-						'slug',
-						'phone',
-						'email',
-						'url',
-						'icon',
-						'barcode',
-						'csv',
-						'tags',
-						'uuid',
-						'color',
-						'select',
-						'time',
-					].includes(f.type),
-				)
-				.map((f) => f.name);
+			const textFields = (schemaJson.fields || []).filter((f) => SEARCHABLE_FIELD_TYPES.has(f.type)).map((f) => f.name);
 			if (textFields.length > 0) {
 				// Parenthesized OR group AND-joined to the rest of the query:
 				// whereGroup with per-clause 'or' types yields AND (a LIKE ? OR b LIKE ?).

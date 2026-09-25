@@ -21,6 +21,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@mmbix/design-system';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import PaneBoundary from './PaneBoundary';
+import { useIsNarrow } from '../lib/use-media-query';
 
 interface StudioLayoutProps {
 	header?: ReactNode;
@@ -64,6 +65,16 @@ export default function StudioLayout({ header, left, right, footer, storageKey, 
 		return typeof s === 'number' && s > 0 ? s : 26;
 	});
 	const [leftCollapsed, setLeftCollapsed] = useState(() => loadPersisted(storageKey)?.leftCollapsed ?? false);
+	// Responsive: on a narrow viewport, collapse both inspectors to their slim
+	// strips so the canvas keeps the width. Runs only when `narrow` CHANGES (so a
+	// deliberate manual expand on a wide screen is not undone), and the user can
+	// still re-expand by hand while narrow.
+	const narrow = useIsNarrow();
+	useEffect(() => {
+		if (!narrow) return;
+		setLeftCollapsed(true);
+		setRightCollapsed(true);
+	}, [narrow]);
 	useEffect(() => {
 		if (!storageKey) return;
 		try {
@@ -119,7 +130,7 @@ export default function StudioLayout({ header, left, right, footer, storageKey, 
 					) : left ? (
 						<aside
 							style={{
-								width: 340,
+								width: 'min(340px, 85vw)',
 								flexShrink: 0,
 								borderRight: '1px solid var(--mmbix-border, #e5e7eb)',
 								background: 'var(--mmbix-muted, #f9fafb)',

@@ -28,11 +28,14 @@ const IdpAccessPage = lazy(() => import('./pages/IdpAccessPage'));
 const IdpUsersPage = lazy(() => import('./pages/IdpUsersPage'));
 import ThemeToggle from './components/ThemeToggle';
 import { CommandPalette } from './components/CommandPalette';
+import { ConfirmDialogHost } from '@mmbix/design-system';
 import { useTenantTheme } from './lib/tenant-theme';
 import { useTranslation } from './lib/i18n';
 
 /** Suspense fallback for a lazy route chunk. */
-const RouteFallback = () => <div style={{ padding: '1.5rem', color: '#9ca3af', fontSize: '0.8rem' }}>Loading…</div>;
+const RouteFallback = () => (
+	<div style={{ padding: '1.5rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', fontSize: '0.8rem' }}>Loading…</div>
+);
 
 const TOKEN_KEY = 'studio_token';
 const USER_KEY = 'studio_user';
@@ -158,6 +161,8 @@ function AppInner({ token, user, onLogout }: { token: string; user: { email: str
 			</div>
 			{/* Command palette — mounted once, available on every authed surface. */}
 			<CommandPalette token={token} />
+			{/* Themed confirm/alert — one host for every imperative confirmation. */}
+			<ConfirmDialogHost />
 		</div>
 	);
 }

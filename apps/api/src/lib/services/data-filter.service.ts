@@ -24,6 +24,26 @@ export interface DataFilterContext {
 
 export class DataFilterService {
 	/**
+	 * One operator table, shared by the single- and multi-condition paths so the two
+	 * can never disagree. Before this was hoisted the single-condition branch passed
+	 * the raw value only — collapsing `neq/gt/gte/lt/lte/like/nin` into `=` (a
+	 * silently wrong (over-exposed or empty) result set, not merely noise).
+	 */
+	private static readonly OPERATOR_MAP: Record<string, string> = {
+		eq: '=',
+		neq: '!=',
+		gt: '>',
+		gte: '>=',
+		lt: '<',
+		lte: '<=',
+		in: 'IN',
+		nin: 'NOT IN',
+		null: 'IS NULL',
+		nnull: 'IS NOT NULL',
+		like: 'LIKE',
+	};
+
+	/**
 	 * Apply row-level filter WHERE conditions to a QueryBuilder.
 	 * Reads row_filters from _role_permissions and injects them.
 	 *
@@ -41,19 +61,7 @@ export class DataFilterService {
 		const conditions = filter.conditions as Array<{ field: string; op: string; value: unknown }> | undefined;
 		if (!conditions || !Array.isArray(conditions) || conditions.length === 0) return qb;
 
-		const operatorMap: Record<string, string> = {
-			eq: '=',
-			neq: '!=',
-			gt: '>',
-			gte: '>=',
-			lt: '<',
-			lte: '<=',
-			in: 'IN',
-			nin: 'NOT IN',
-			null: 'IS NULL',
-			nnull: 'IS NOT NULL',
-			like: 'LIKE',
-		};
+		const operatorMap = DataFilterService.OPERATOR_MAP;
 
 		const combiner = (filter.combiner === 'or' || filter.combiner === 'any' ? 'or' : 'and') as 'and' | 'or';
 
@@ -77,14 +85,21 @@ export class DataFilterService {
 	}
 
 	private static _applySingleCondition(qb: QueryBuilder, field: string, op: string, value: unknown): void {
-		if (op === 'null' || op === 'IS NULL') {
+		const mapped = DataFilterService.OPERATOR_MAP[op] ?? op;
+		if (mapped === 'IS NULL') {
 			qb.whereNull(field);
-		} else if (op === 'nnull' || op === 'IS NOT NULL') {
+		} else if (mapped === 'IS NOT NULL') {
 			qb.whereNotNull(field);
-		} else if (op === 'in' && Array.isArray(value)) {
+		} else if (mapped === 'IN' && Array.isArray(value)) {
 			qb.whereIn(field, value as string[]);
+		} else if (mapped === 'NOT IN' && Array.isArray(value)) {
+			qb.whereNotIn(field, value as string[]);
 		} else {
-			qb.where(field, value as string);
+			// Every comparison operator (incl. `=` and `LIKE`) goes through the SAME
+			// whitelisted render path the multi-condition branch uses. Coercing every
+			// op to `=` here was the bug: a `neq`/`gt`/`lt` filter silently matched
+			// equality instead of the intended comparison.
+			qb.whereGroup([{ column: field, op: mapped, value }], 'and');
 		}
 	}
 

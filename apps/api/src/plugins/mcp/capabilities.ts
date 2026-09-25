@@ -16,16 +16,34 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'read',
 		summary: 'Search the capability catalog.',
 		params: 'q?, domain?, class?',
+		tools: ['search_capabilities'],
 		available: true,
 	},
-	{ id: 'meta.capabilities.describe', domain: 'meta', class: 'read', summary: 'Describe one capability.', params: 'id', available: true },
-	{ id: 'meta.collections.list', domain: 'meta', class: 'read', summary: 'List collections.', params: '', available: true },
+	{
+		id: 'meta.capabilities.describe',
+		domain: 'meta',
+		class: 'read',
+		summary: 'Describe one capability.',
+		params: 'id',
+		tools: ['describe_capability'],
+		available: true,
+	},
+	{
+		id: 'meta.collections.list',
+		domain: 'meta',
+		class: 'read',
+		summary: 'List collections.',
+		params: '',
+		tools: ['list_collections'],
+		available: true,
+	},
 	{
 		id: 'meta.collection.describe',
 		domain: 'meta',
 		class: 'read',
 		summary: 'Describe a collection’s fields.',
 		params: 'slug',
+		tools: ['describe_collection'],
 		available: true,
 	},
 
@@ -36,6 +54,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'plan',
 		summary: 'Plan a manifest (collections + pages) without writing.',
 		params: 'manifest',
+		tools: ['plan_manifest'],
 		available: true,
 	},
 	{
@@ -44,6 +63,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Apply a manifest — creates collections + upserts pages.',
 		params: 'manifest',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -52,6 +72,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Create one collection from a manifest entry.',
 		params: 'collection',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -60,6 +81,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Add missing fields to an existing collection (manifest `collections`).',
 		params: 'slug, fields',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -68,6 +90,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Set runtime policies on a collection.',
 		params: 'slug, policies',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -76,6 +99,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'read',
 		summary: 'Dry-run a field list against the 41-type SSOT (`validate_fields` — the same validator apply uses).',
 		params: 'collection?, fields',
+		tools: ['validate_fields'],
 		available: true,
 	},
 
@@ -86,6 +110,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Upsert pages from a manifest entry.',
 		params: 'pages[]',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -94,6 +119,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Apply structural patch ops to a stored page.',
 		params: 'page_id, ops',
+		tools: ['apply_patch'],
 		available: true,
 	},
 	{
@@ -102,6 +128,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Create a menu item under an existing module.',
 		params: 'module, label, type?, target?',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -110,14 +137,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'read',
 		summary: 'The block vocabulary with defaults + nesting rules (`factory://blocks`) — how to configure a real UI block.',
 		params: '—',
-		available: true,
-	},
-	{
-		id: 'pages.blocks.registry',
-		domain: 'pages',
-		class: 'read',
-		summary: 'The block vocabulary (BLOCK_REGISTRY).',
-		params: '',
+		// A discovery-only RESOURCE (`factory://blocks`), not a tool — no `tools`.
 		available: true,
 	},
 
@@ -128,6 +148,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'read',
 		summary: 'Bounded multi-collection read.',
 		params: 'requests[] = { collection, params }',
+		tools: ['query'],
 		available: true,
 	},
 	{
@@ -136,6 +157,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Create an item (via `mutate`).',
 		params: 'collection, body',
+		tools: ['mutate'],
 		available: true,
 	},
 	{
@@ -144,6 +166,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Update an item (via `mutate`).',
 		params: 'collection, id, body',
+		tools: ['mutate'],
 		available: true,
 	},
 	{
@@ -152,6 +175,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Soft-delete an item (via `mutate`).',
 		params: 'collection, id',
+		tools: ['mutate'],
 		available: true,
 	},
 	{
@@ -160,6 +184,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Bulk import records (via `mutate` op import).',
 		params: 'collection, format, data',
+		tools: ['mutate'],
 		available: true,
 	},
 
@@ -170,6 +195,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Create a role.',
 		params: 'name, description',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -178,6 +204,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Grant a role permission on a collection.',
 		params: 'role, collection, flags',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -186,6 +213,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Provision a scoped machine key (manifest `apiKeys`; plaintext returned once).',
 		params: 'name, user_id, scope',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -194,6 +222,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'read',
 		summary: 'Read the audit trail.',
 		params: 'collection, document_id?, limit?',
+		tools: ['get_audit'],
 		available: true,
 	},
 
@@ -204,6 +233,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Define a workflow.',
 		params: 'collection, states, transitions',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -212,6 +242,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Define a declarative server function (manifest `serverFunctions`).',
 		params: 'name, collection, trigger_event, rules',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -221,6 +252,16 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		summary:
 			'Schedule a recurring job (manifest `schedules`). The work is a registered handler — see `list_handlers`; an unknown type is refused.',
 		params: 'name, type, cron|repeat_ms, timezone?, payload?',
+		tools: ['apply_manifest'],
+		available: true,
+	},
+	{
+		id: 'automation.handlers.list',
+		domain: 'automation',
+		class: 'read',
+		summary: 'List the scheduler handler types a manifest `schedules[]` entry may reference.',
+		params: '—',
+		tools: ['list_handlers'],
 		available: true,
 	},
 
@@ -232,6 +273,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		summary:
 			'Define a saved report (manifest `reports`) — a named on-demand export, materialized by the scheduled-reports route. Aggregates live on `analytics.kpi.define`.',
 		params: 'name, collection, format',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 	{
@@ -240,17 +282,27 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Define a KPI.',
 		params: 'name, collection, agg',
+		tools: ['apply_manifest'],
 		available: true,
 	},
 
 	// ── ops ─────────────────────────────────────────────────
-	{ id: 'ops.indexAdvisor.read', domain: 'ops', class: 'read', summary: 'Index-advisor telemetry.', params: '', available: true },
+	{
+		id: 'ops.indexAdvisor.read',
+		domain: 'ops',
+		class: 'read',
+		summary: 'Index-advisor telemetry.',
+		params: '',
+		tools: ['get_operations'],
+		available: true,
+	},
 	{
 		id: 'ops.integrity.run',
 		domain: 'ops',
 		class: 'read',
 		summary: 'Run a collection’s integrity rules.',
 		params: 'slug',
+		tools: ['run_integrity'],
 		available: true,
 	},
 
@@ -261,6 +313,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'plan',
 		summary: 'Map a DesignDNA or prompt to a schema proposal.',
 		params: 'collection, dna | prompt',
+		tools: ['propose_schema'],
 		available: true,
 	},
 	{
@@ -269,6 +322,7 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		class: 'apply',
 		summary: 'Advance a proposal through the human gate.',
 		params: 'proposal_id, action',
+		tools: ['submit_for_review', 'promote'],
 		available: true,
 	},
 ];

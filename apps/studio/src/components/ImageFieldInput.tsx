@@ -23,14 +23,26 @@ import {
 	DropdownMenuTrigger,
 	Input,
 } from '@mmbix/design-system';
-import { Image as ImageIcon, ImagePlus, Link as LinkIcon, MoreVertical, Pen, Upload, X } from 'lucide-react';
+import { Camera, Image as ImageIcon, ImagePlus, Link as LinkIcon, MoreVertical, Pen, Upload, X } from 'lucide-react';
 
 import { listMedia, isImageAsset, deleteMediaKey, clearUnusedMedia, type MediaAsset } from '../lib/api';
 import { ImageEditorDialog, type ImageEditRequest } from './ImageEditorDialog';
+import {
+	CameraCaptureDialog,
+	barcodeDetectorSupported,
+	cameraSupported,
+	decodeBarcodeFromFile,
+	type CameraCaptureResult,
+} from './CameraCaptureDialog';
 
 /** Fixed preview tile — every hover/chrome action anchors to this square canvas,
  *  so the overlays are stable no matter the source image's aspect ratio. */
 const TILE = 96;
+
+/** The only URLs an image field may store (mirrors the server's accepted values). */
+function isImageUrl(v: string): boolean {
+	return /^(https?:\/\/|\/api\/media\/)/i.test(v.trim());
+}
 
 /** Small circular overlay control used on top of the image (kept lightweight —
  *  pixel-perfect chips rather than full Design-System buttons). */
@@ -120,6 +132,12 @@ export function ImageFieldInput({ value, onChange, token }: { value: unknown; on
 	const [galleryNotice, setGalleryNotice] = useState<{ type: 'error' | 'info'; text: string } | null>(null);
 	// Image queued for the inline editor (crop/rotate/zoom/colour).
 	const [editReq, setEditReq] = useState<ImageEditRequest | null>(null);
+	// Camera capture dialog (a photo becomes the field value via the upload path).
+	const [showCamera, setShowCamera] = useState(false);
+	// Feature-detect once per render: no camera ⇒ no camera affordance; no native
+	// BarcodeDetector ⇒ no scan promise (capture still works).
+	const canUseCamera = cameraSupported();
+	const canScanCodes = barcodeDetectorSupported();
 
 	const clear = () => {
 		// `null` = explicit clear — the form builders send it through so the server
@@ -141,7 +159,7 @@ export function ImageFieldInput({ value, onChange, token }: { value: unknown; on
 		setEditReq(null);
 	};
 
-	const handleFile = (file: File | undefined) => {
+	const handleFile = async (file: File | undefined) => {
 		if (!file) return;
 		setError(null);
 		if (!file.type || !/^image\//i.test(file.type)) {
@@ -152,7 +170,37 @@ export function ImageFieldInput({ value, onChange, token }: { value: unknown; on
 			setError('Media upload is unavailable here (no session token).');
 			return;
 		}
+		// A QR/barcode in the image can fill the field directly (native decode only).
+		acceptImage(file, await decodeBarcodeFromFile(file));
+	};
+
+	/** A decoded barcode/QR value fills the field ONLY when it is a storable URL;
+	 *  anything else is surfaced (an image field cannot hold free text). */
+	const acceptScannedCode = (code: string | null | undefined): boolean => {
+		if (!code) return false;
+		if (isImageUrl(code)) {
+			setError(null);
+			onChange(code);
+			return true;
+		}
+		setError(`Scanned “${code}” — not an image URL, so it can't fill this field.`);
+		return false;
+	};
+
+	/** Route a captured/selected image into the field: a scanned URL wins, else
+	 *  the photo goes through the existing crop → upload editor. */
+	const acceptImage = (file: File, code?: string | null) => {
+		if (acceptScannedCode(code)) return;
 		openObjectUrl(file);
+	};
+
+	const handleCapture = (result: CameraCaptureResult) => {
+		setShowCamera(false);
+		if (!token) {
+			setError('Media upload is unavailable here (no session token).');
+			return;
+		}
+		acceptImage(result.file, result.code);
 	};
 
 	const refreshGallery = async () => {
@@ -211,7 +259,7 @@ export function ImageFieldInput({ value, onChange, token }: { value: unknown; on
 		if (!v) return;
 		// Only http(s) URLs or a relative /api/media path may be stored — never
 		// `javascript:`/`blob:` etc.
-		if (!/^(https?:\/\/|\/api\/media\/)/i.test(v)) {
+		if (!isImageUrl(v)) {
 			setError('Enter an http(s) URL or a /api/media asset path.');
 			return;
 		}
@@ -279,7 +327,7 @@ export function ImageFieldInput({ value, onChange, token }: { value: unknown; on
 							className={`absolute inset-0 flex items-center justify-center ${overlayReveal}`}
 							style={{ zIndex: 3, pointerEvents: 'none' }}
 						>
-							<span style={{ pointerEvents: 'auto' }}>
+							<span style={{ pointerEvents: 'auto', display: 'flex', gap: 8 }}>
 								<Chip
 									onClick={() => fileRef.current?.click()}
 									title={token ? 'Upload an image' : 'Media upload is unavailable here (no session token)'}
@@ -290,6 +338,24 @@ export function ImageFieldInput({ value, onChange, token }: { value: unknown; on
 								>
 									<Upload size={18} />
 								</Chip>
+								{canUseCamera && (
+									<Chip
+										onClick={() => setShowCamera(true)}
+										title={
+											!token
+												? 'Camera is unavailable here (no session token)'
+												: canScanCodes
+													? 'Take a photo or scan a QR/barcode'
+													: 'Take a photo'
+										}
+										ariaLabel="Take a photo"
+										disabled={!token || busy}
+										size={38}
+										style={{ pointerEvents: 'auto' }}
+									>
+										<Camera size={18} />
+									</Chip>
+								)}
 							</span>
 						</div>
 
@@ -556,6 +622,10 @@ export function ImageFieldInput({ value, onChange, token }: { value: unknown; on
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+
+			{/* Camera capture — a photo becomes the field value via the same editor →
+			    upload path as a file; a QR/barcode in the frame fills the field directly. */}
+			<CameraCaptureDialog open={showCamera} onClose={() => setShowCamera(false)} onCapture={handleCapture} />
 
 			{/* Inline crop / rotate / zoom / colour editor — fires on Upload (raw file)
 			    and on Library picks; Apply exports + uploads a NEW derived asset whose

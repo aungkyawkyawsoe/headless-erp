@@ -154,43 +154,63 @@ async function fetchCollections(source) {
 }
 
 // src/typegen/generate.ts
-var STRING_TYPES = /* @__PURE__ */ new Set([
-  "text",
-  "longtext",
-  "text_editor",
-  "markdown",
-  "code",
-  "slug",
-  "phone",
-  "email",
-  "url",
-  "icon",
-  "barcode",
-  "csv",
-  "tags",
-  "uuid",
-  "color",
-  "time",
-  "password",
-  "rich_text",
-  "m2o"
-]);
-var NUMBER_TYPES = /* @__PURE__ */ new Set(["integer", "number", "decimal", "float"]);
-var VIRTUAL_TYPES = /* @__PURE__ */ new Set(["o2m", "m2m", "table"]);
+var TS_KIND = {
+  text: "string",
+  longtext: "string",
+  slug: "string",
+  password: "string",
+  integer: "number",
+  number: "number",
+  bigint: "number",
+  currency: "number",
+  percent: "number",
+  rating: "number",
+  boolean: "boolean",
+  json: "string",
+  csv: "string",
+  location: "string",
+  tags: "string",
+  timestamp: "string",
+  date: "string",
+  datetime: "string",
+  time: "string",
+  duration: "number",
+  progress: "number",
+  color: "string",
+  m2o: "string",
+  m2a: "virtual",
+  file: "string",
+  image: "string",
+  select: "string",
+  // special-cased to an enum when options are declared
+  uuid: "string",
+  text_editor: "string",
+  code: "string",
+  markdown: "string",
+  signature: "string",
+  barcode: "string",
+  phone: "string",
+  email: "string",
+  url: "string",
+  icon: "string",
+  o2m: "virtual",
+  m2m: "virtual",
+  table: "virtual",
+  formula: "virtual"
+  // special-cased by store/result_type
+};
+var FORMULA_TS_TYPE = {
+  number: "number",
+  boolean: "boolean | number",
+  // D1 stores booleans as INTEGER 0/1
+  string: "string",
+  json: "string"
+  // D1 stores JSON columns as text
+};
 function formulaType(field) {
   if (field.store !== true) return "never";
-  switch (field.result_type ?? "number") {
-    case "boolean":
-      return "boolean | number";
-    // D1 stores booleans as INTEGER 0/1
-    case "string":
-      return "string";
-    case "json":
-      return "string";
-    // D1 stores JSON columns as text
-    default:
-      return "number";
-  }
+  const rt = field.result_type ?? "number";
+  return FORMULA_TS_TYPE[rt] ?? "number";
 }
 function selectOptions(field) {
   if (typeof field.options === "string") {
@@ -235,14 +255,18 @@ function tsTypeFor(field) {
     if (options && options.length > 0) return options.map((o) => stringLiteral(o)).join(" | ");
     return "string";
   }
-  if (field.type === "boolean") return "boolean | number";
-  if (NUMBER_TYPES.has(field.type)) return "number";
-  if (field.type === "json") return "string";
-  if (STRING_TYPES.has(field.type) || field.type === "datetime" || field.type === "timestamp" || field.type === "date") {
-    return "string";
+  switch (TS_KIND[field.type]) {
+    case "number":
+      return "number";
+    case "boolean":
+      return "boolean | number";
+    // D1 stores booleans as INTEGER 0/1 — the wire value is a number
+    case "virtual":
+      return "never";
+    // only present when expanded / not a plain column
+    default:
+      return "string";
   }
-  if (VIRTUAL_TYPES.has(field.type)) return "never";
-  return "string";
 }
 function pascalName(slug) {
   const base = slug.split(/[^a-zA-Z0-9]+/).filter(Boolean).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join("");
@@ -299,11 +323,15 @@ function zodTypeFor(field, optional, indent) {
   return `${zodScalarTypeFor(field)}${suffix}`;
 }
 function zodScalarTypeFor(field) {
-  if (field.type === "boolean") return "z.union([z.boolean(), z.number()])";
-  if (NUMBER_TYPES.has(field.type)) return "z.number()";
-  if (field.type === "json") return "z.string()";
-  if (field.type === "datetime" || field.type === "timestamp" || field.type === "date") return "z.string()";
-  return "z.string()";
+  switch (TS_KIND[field.type]) {
+    case "number":
+      return "z.number()";
+    case "boolean":
+      return "z.union([z.boolean(), z.number()])";
+    // D1 returns raw 0/1 integers for boolean columns
+    default:
+      return "z.string()";
+  }
 }
 function headerFor(meta) {
   const markers = meta?.sourceHash ? [`// generated from ${meta.source ?? "<unknown source>"}`, `// source-hash: ${meta.sourceHash}`] : [];
@@ -331,7 +359,8 @@ function indentFirstLine(entry) {
 function generateTypes(collections, meta) {
   const schemas = [];
   const mapEntries = [];
-  for (const collection of collections) {
+  const ordered = [...collections].sort((a, b) => a.slug.localeCompare(b.slug));
+  for (const collection of ordered) {
     assertSafeSlug(collection.slug);
     const name = pascalName(collection.slug);
     assertSafeTypeName(name, collection.slug);
@@ -354,7 +383,7 @@ ${zodFields.map(indentFirstLine).join("\n")}
 ${mapEntries.join("\n")}
 };`;
   const schemasMap = `export const Schemas = {
-${collections.map((c) => `	${c.slug}: ${pascalName(c.slug)}Schema,`).join("\n")}
+${ordered.map((c) => `	${c.slug}: ${pascalName(c.slug)}Schema,`).join("\n")}
 };`;
   const content = [
     headerFor(meta),
@@ -413,10 +442,9 @@ try {
   let meta;
   if (values.schema) {
     const resolved = path.resolve(values.schema);
-    meta = {
-      source: values.schema,
-      sourceHash: createHash("sha256").update(readFileSync(resolved)).digest("hex")
-    };
+    meta = { source: values.schema, sourceHash: createHash("sha256").update(readFileSync(resolved)).digest("hex") };
+  } else {
+    meta = { source: values.url ?? "live API", sourceHash: createHash("sha256").update(JSON.stringify(collections)).digest("hex") };
   }
   if (collections.length === 0) {
     console.error(import_picocolors.default.red("No collections found \u2014 is the API reachable / schema file valid?"));
@@ -426,9 +454,18 @@ try {
   const outDir = values.out;
   const outFile = path.join(outDir, values.name);
   mkdirSync(outDir, { recursive: true });
-  writeFileSync(outFile, content, "utf-8");
-  console.log(import_picocolors.default.green(`\u2713 ${summary}`));
-  console.log(import_picocolors.default.dim(`  wrote ${outFile}`));
+  let unchanged = false;
+  try {
+    unchanged = readFileSync(outFile, "utf-8") === content;
+  } catch {
+  }
+  if (unchanged) {
+    console.log(import_picocolors.default.dim(`= ${summary} (unchanged, ${outFile})`));
+  } else {
+    writeFileSync(outFile, content, "utf-8");
+    console.log(import_picocolors.default.green(`\u2713 ${summary}`));
+    console.log(import_picocolors.default.dim(`  wrote ${outFile}`));
+  }
 } catch (err) {
   console.error(import_picocolors.default.red(`Typegen failed: ${err instanceof Error ? err.message : String(err)}`));
   process.exit(1);

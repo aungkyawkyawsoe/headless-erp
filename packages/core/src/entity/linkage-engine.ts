@@ -11,7 +11,7 @@
  * Bundle: ~1.5KB, zero dependencies
  */
 
-import { evaluateExpression } from './expression';
+import { callBuiltin, evaluateExpression } from './expression';
 import { coerceValue } from './field-utils';
 import type { FieldType } from '@mmbix/types';
 
@@ -205,15 +205,15 @@ export class LinkageEngine {
 	static _resolveValue(value: unknown, data: Record<string, unknown>): unknown {
 		if (typeof value !== 'string') return value;
 
+		// $-named variables resolve through the evaluator registry — the ONE source
+		// of NOW/TODAY/UUID/TIMESTAMP, shared with defaults.ts ($NOW …) and the
+		// `NOW()` call path, so a built-in's implementation exists in one place.
 		switch (value) {
 			case '$NOW':
-				return new Date().toISOString();
 			case '$TODAY':
-				return new Date().toISOString().split('T')[0];
 			case '$UUID':
-				return crypto.randomUUID();
 			case '$TIMESTAMP':
-				return Date.now();
+				return callBuiltin(value.slice(1));
 		}
 
 		// Expression: =expr
@@ -231,16 +231,9 @@ export class LinkageEngine {
 	// ─── Expression Evaluation ────────────────────────────
 
 	static _evaluateExpression(expr: string, data: Record<string, unknown>): unknown {
-		// Build scope with all data fields + utility functions
-		const scope: Record<string, unknown> = {
-			...data,
-			NOW: () => new Date().toISOString(),
-			TODAY: () => new Date().toISOString().split('T')[0],
-			UUID: () => crypto.randomUUID(),
-			Math,
-			parseInt,
-			parseFloat,
-		};
+		// Function calls resolve from the shared evaluator registry (the ONE source of
+		// NOW/TODAY/UUID/parseInt/…); `Math` stays a scope value for member access.
+		const scope: Record<string, unknown> = { ...data, Math };
 
 		try {
 			// workerd-safe evaluator — new Function()/eval are disallowed in Workers

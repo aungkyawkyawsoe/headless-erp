@@ -110,15 +110,21 @@ describe('FieldValidator', () => {
 		expect(errors[0].message).toBe('Email is mandatory!');
 	});
 
-	// --- unique (DB-enforced; the standalone validator reports that) ---
-	it('reports that unique is DB-enforced when used standalone', () => {
+	// --- unique (DB-enforced; the standalone validator must NOT block) ---
+	it('treats unique as DB-enforced and never reports a standalone failure', () => {
+		// Reporting an error here blocked every create/update on a collection whose
+		// field declared a `unique` validation rule (item-mutation/smart-collection
+		// throw on any validation error). The DB pre-check + partial index are the
+		// sole authority.
 		const errors = FieldValidator.validateField('username', 'exists', [{ type: 'unique' }]);
-		expect(errors).toHaveLength(1);
-		expect(errors[0].rule).toBe('unique');
-		expect(errors[0].message).toContain('unique'); // points at the DB check, not a silent no-op
+		expect(errors).toHaveLength(0);
 	});
 
 	// --- validateAll ---
+	it('does not block a write for a unique validation rule (regression)', () => {
+		const errors = FieldValidator.validateAll([{ name: 'sku', validation: [{ type: 'unique' }] }], { sku: 'ABC-1' });
+		expect(errors).toHaveLength(0);
+	});
 	it('should validate all fields in an object', () => {
 		const errors = FieldValidator.validateAll(
 			[

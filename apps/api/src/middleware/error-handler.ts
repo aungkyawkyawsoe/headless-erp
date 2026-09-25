@@ -146,7 +146,11 @@ export const errorHandler: ErrorHandler = async (err, c) => {
 		};
 	}
 
-	// Structured logging
+	// Structured logging. 🔒 In production the raw `err.message` is NOT logged:
+	// a D1 failure embeds SQL + bound values (PII), and the log stream is a second
+	// sink besides the R2 archive below — which already drops it. Only `code`
+	// (a canonical, safe contract value) and the request id correlate a prod
+	// incident; full detail + stack stay when isDev.
 	console.error(
 		JSON.stringify({
 			level: 'error',
@@ -154,7 +158,7 @@ export const errorHandler: ErrorHandler = async (err, c) => {
 			request_id: requestId,
 			status: statusCode,
 			code: body.code,
-			message: err instanceof Error ? err.message : String(err),
+			message: config.isDev ? (err instanceof Error ? err.message : String(err)) : body.code,
 			...(config.isDev && err instanceof Error && err.stack ? { stack: err.stack.split('\n').slice(0, 5).join('\n') } : {}),
 		}),
 	);

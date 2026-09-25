@@ -3,6 +3,7 @@ import {
 	Badge,
 	Button,
 	Checkbox,
+	confirmDialog,
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -43,7 +44,7 @@ export function ViewModesTab({ meta, api }: { meta: StudioMeta | null; api: Admi
 							display: 'inline-flex',
 							alignItems: 'center',
 							justifyContent: 'center',
-							color: '#6b7280',
+							color: 'var(--mmbix-muted-foreground, #6b7280)',
 							flexShrink: 0,
 						}}
 					>
@@ -87,7 +88,9 @@ export function ViewModesTab({ meta, api }: { meta: StudioMeta | null; api: Admi
 							block
 						</Badge>
 					)}
-					{row.original.description && <span style={{ fontSize: '0.65rem', color: '#9ca3af' }}>{row.original.description}</span>}
+					{row.original.description && (
+						<span style={{ fontSize: '0.65rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{row.original.description}</span>
+					)}
 				</div>
 			),
 		},
@@ -115,10 +118,18 @@ export function ViewModesTab({ meta, api }: { meta: StudioMeta | null; api: Admi
 						variant="ghost"
 						size="icon-xs"
 						title="Delete"
-						style={{ color: '#dc2626' }}
-						onClick={() => {
-							if (confirm(`Delete view mode "${row.original.label}"?`))
-								void api(`/api/studio/view-mode?key=${encodeURIComponent(row.original.key)}`, { method: 'DELETE' });
+						style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
+						onClick={async () => {
+							if (
+								!(await confirmDialog({
+									title: 'Delete view mode',
+									description: `Delete view mode "${row.original.label}"?`,
+									destructive: true,
+									confirmLabel: 'Delete',
+								}))
+							)
+								return;
+							await api(`/api/studio/view-mode?key=${encodeURIComponent(row.original.key)}`, { method: 'DELETE' });
 						}}
 					>
 						<Trash2 size={13} />

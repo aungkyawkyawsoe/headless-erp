@@ -62,6 +62,7 @@
 | [Idempotency & Outbox](backend-plugins/idempotency-outbox.md)            | Durable side-effects, dedupe, dead-letter queue                        |
 | [Data Lineage](backend-plugins/data-lineage.md)                          | Per-field audit — who set what, when                                   |
 | [Computed Fields](backend-plugins/computed-fields.md)                    | Formula fields — virtual / stored / lookup aggregates + cascade recalc |
+| [Migrations & Rollback](backend-plugins/migrations.md)                   | Forward-only migration set, CI dry-run, snapshot rollback + restore    |
 
 ### Compute & Core — reusable engine (`packages/compute` + `packages/core`)
 
@@ -91,20 +92,20 @@
 
 ## ⚡ Quick Facts (Verified)
 
-| Metric            | Value                                                                                                                                                                                                  |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bundle (gzip)     | ~224 KB                                                                                                                                                                                                |
-| Cold start        | ~5 ms                                                                                                                                                                                                  |
-| Tests             | **733 passing** on `dev` (core 287 · api 81 · compute 68 · utils 50 · sdk 87 · sdk-react 14 · design-system 42 · studio 75 · client app 24 · cli 5)                                                    |
-| Field types       | 40                                                                                                                                                                                                     |
-| Plugins           | 20                                                                                                                                                                                                     |
-| Compute functions | 150 (13 groups, tree-shaken sub-path imports)                                                                                                                                                          |
-| Auth              | JWT + Bearer token (dev-token in dev mode)                                                                                                                                                             |
-| Error codes       | **Canonical catalog in `@mmbix/types`** (`ERROR_CODES`) — `fail()` derives codes via `errorCodeForStatus`, `GET /api/meta` advertises `data.error_codes`, SDK builds typed errors from the same source |
-| Page size         | **Default 25, max 100** — one contract everywhere (`@mmbix/config` → `GET /api/meta` → `@mmbix/sdk` `loadLimits()`); every endpoint clamps                                                             |
-| Pagination        | Cursor-based (O(log n) indexed seek)                                                                                                                                                                   |
-| Edge caching      | Cache-Control: s-maxage=30s (CDN)                                                                                                                                                                      |
-| Rate limiting     | Role-aware tiers (anon 100, auth 300, admin 1000 req/min)                                                                                                                                              |
+| Metric            | Value                                                                                                                                                                                                                                          |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bundle (gzip)     | ~224 KB                                                                                                                                                                                                                                        |
+| Cold start        | ~5 ms                                                                                                                                                                                                                                          |
+| Tests             | **733 passing** on `dev` (core 287 · api 81 · compute 68 · utils 50 · sdk 87 · sdk-react 14 · design-system 42 · studio 75 · client app 24 · cli 5)                                                                                            |
+| Field types       | 41                                                                                                                                                                                                                                             |
+| Plugins           | 31                                                                                                                                                                                                                                             |
+| Compute functions | 150 (13 groups, tree-shaken sub-path imports)                                                                                                                                                                                                  |
+| Auth              | JWT + Bearer token (dev-token in dev mode)                                                                                                                                                                                                     |
+| Error codes       | **Canonical catalog in `@mmbix/utils`** (`ERROR_CODES`, re-exported by `@mmbix/types/contract`) — `fail()` derives codes via `errorCodeForStatus`, `GET /api/meta` advertises `data.error_codes`, SDK builds typed errors from the same source |
+| Page size         | **Default 25, max 100** — one contract everywhere (`@mmbix/config` → `GET /api/meta` → `@mmbix/sdk` `loadLimits()`); every endpoint clamps                                                                                                     |
+| Pagination        | Cursor-based (O(log n) indexed seek)                                                                                                                                                                                                           |
+| Edge caching      | Cache-Control: s-maxage=30s (CDN)                                                                                                                                                                                                              |
+| Rate limiting     | Role-aware tiers (anon 100, auth 300, admin 1000 req/min)                                                                                                                                                                                      |
 
 ---
 

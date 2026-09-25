@@ -58,8 +58,10 @@ export interface FilterFieldMeta {
 export interface BuildColumnsOptions {
 	/** Names hidden from the table by default. System fields can still be filtered. */
 	systemFieldNames?: ReadonlySet<string>;
-	/** Cell renderer (e.g. DataCell). Omit for raw cell rendering. */
-	renderCell?: (field: FieldDefinition, value: unknown) => ReactNode;
+	/** Cell renderer (e.g. DataCell / InlineCellEditor). `row` is the record's
+	 *  `original` — the inline editor needs its id to persist an edit. Omit for
+	 *  the DataTable's raw cell rendering. */
+	renderCell?: (field: FieldDefinition, value: unknown, row: Record<string, unknown>) => ReactNode;
 }
 
 // ── Field-type sets ──────────────────────────────────────────────────────
@@ -276,7 +278,7 @@ export function buildTableColumns(
 			header: f.label || f.name,
 			enableSorting: true,
 			defaultVisible: visible,
-			...(renderCell ? { cell: ({ value }) => renderCell(f, value) } : {}),
+			...(renderCell ? { cell: ({ value, row }) => renderCell(f, value, row.original) } : {}),
 			...(kind ? { filter: filterDefFor(kind, f.name, f.label || f.name) } : {}),
 		});
 	}

@@ -9,7 +9,7 @@
  * Bundle: ~0.5KB, zero dependencies
  */
 
-import { evaluateExpression } from './expression';
+import { callBuiltin, evaluateExpression } from './expression';
 
 // ─── Default Context ────────────────────────────────────
 
@@ -28,10 +28,13 @@ export interface DefaultContext {
 type NamedResolver = (ctx?: DefaultContext) => unknown;
 
 const NAMED_DEFAULTS: Record<string, NamedResolver> = {
-	$NOW: () => new Date().toISOString(),
-	$TODAY: () => new Date().toISOString().split('T')[0],
-	$UUID: () => crypto.randomUUID(),
-	$TIMESTAMP: () => Date.now(),
+	// The $-named time/id variables resolve THROUGH the evaluator registry — the
+	// ONE source of the built-ins (`NOW`/`TODAY`/`UUID`/`TIMESTAMP`), shared with
+	// the `NOW()` call path, so the two can never drift into two implementations.
+	$NOW: () => callBuiltin('NOW'),
+	$TODAY: () => callBuiltin('TODAY'),
+	$UUID: () => callBuiltin('UUID'),
+	$TIMESTAMP: () => callBuiltin('TIMESTAMP'),
 	$USER_ID: (ctx) => ctx?.user_id || null,
 	$USER_NAME: (ctx) => ctx?.user_name || null,
 	$USER_EMAIL: (ctx) => ctx?.user_email || null,
@@ -111,18 +114,11 @@ export class DefaultResolver {
 	// ── Private ──────────────────────────────────────────
 
 	private static _evaluateExpression(expr: string, ctx?: DefaultContext): unknown {
-		// Build a safe evaluation context
-		const scope: Record<string, unknown> = {
-			...ctx,
-			// Utility functions
-			UUID: () => crypto.randomUUID(),
-			NOW: () => new Date().toISOString(),
-			TODAY: () => new Date().toISOString().split('T')[0],
-			TIMESTAMP: () => Date.now(),
-			Math,
-			parseInt,
-			parseFloat,
-		};
+		// Function calls (UUID(), NOW(), TODAY(), TIMESTAMP(), parseInt(), …) resolve
+		// from the shared evaluator registry — its built-ins are the ONE source; a
+		// scope copy only shadowed them (the parser consults the registry first).
+		// `Math` stays a scope value because member access (`Math.max`) reads it here.
+		const scope: Record<string, unknown> = { ...ctx, Math };
 
 		try {
 			// workerd-safe evaluator — new Function()/eval are disallowed in Workers

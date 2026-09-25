@@ -19,6 +19,7 @@ import { createMiddleware } from 'hono/factory';
 import { MigrationRunner } from '@mmbix/core';
 import { rateLimiter } from '@/middleware/rate-limiter';
 import { isLocalDevRequest } from '@/middleware/rate-limit-tiers';
+import { securityAudit, SECURITY_COLLECTIONS } from '@/lib/services/security-audit';
 import { success, fail } from '@/lib/api/response';
 
 type AV = {
@@ -70,10 +71,33 @@ export const requireAuth = createMiddleware<AV>(async (c, next) => {
 	if (token.startsWith('mmk_')) {
 		const db = new D1Client(c.env.DB);
 		const keyHash = await sha256Hex(token);
-		const key = await db.first<{ id: string; user_id: string; role_id: string | null; is_active: number; scope: string | null }>(
-			QueryBuilder.from('_api_keys').select('*').where('key_hash', keyHash).toSelect(),
-		);
+		const key = await db.first<{
+			id: string;
+			user_id: string;
+			role_id: string | null;
+			is_active: number;
+			scope: string | null;
+			expires_at: string | null;
+		}>(QueryBuilder.from('_api_keys').select('*').where('key_hash', keyHash).toSelect());
 		if (!key || key.is_active !== 1) return fail(c, 'Invalid API key', 401);
+		// 🔒 Expiry (deny-by-default). A machine key MAY carry an `expires_at` (an ISO
+		// timestamp; NULL = never expires). Once the clock passes it — or the stamp is
+		// unreadable — the key is refused HERE, before it can act. The rejection is the
+		// SAME canonical 401 the other key failures return, so a caller cannot tell an
+		// expired key from any other invalid one (no enumeration oracle); visibility
+		// comes from the audit event instead of the response body.
+		if (key.expires_at) {
+			const expiresAt = Date.parse(key.expires_at);
+			if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+				securityAudit(c, {
+					collection: SECURITY_COLLECTIONS.auth,
+					action: 'login_failed',
+					document_id: key.id,
+					changes: { reason: 'api_key_expired', key_id: key.id, expires_at: key.expires_at },
+				});
+				return fail(c, 'Invalid API key', 401);
+			}
+		}
 		const user = await db.first<{ id: string; email: string; full_name: string; role_id: string | null }>(
 			QueryBuilder.from('_users').select('*').where('id', key.user_id).toSelect(),
 		);
@@ -91,9 +115,10 @@ export const requireAuth = createMiddleware<AV>(async (c, next) => {
 			role_name: roleName,
 			email: user.email,
 			is_admin: roleName === 'Administrator',
-			// PoLP: a scoped key is limited to its scope; a legacy key (null) keeps
-			// full access so the migration never silently breaks an integration.
-			api_key_scope: key.scope === 'read' || key.scope === 'write' || key.scope === 'admin' ? key.scope : 'admin',
+			// PoLP: a scoped key is limited to its scope. A key with a missing/legacy
+			// scope is treated as READ (deny-by-default) — never escalated to admin; an
+			// un-scoped integration can be widened explicitly, one key at a time.
+			api_key_scope: key.scope === 'write' || key.scope === 'admin' ? key.scope : 'read',
 		} satisfies AuthContext);
 		return next();
 	}
@@ -179,7 +204,29 @@ app.post('/login', async (c) => {
 		(c.env.IS_DEV as string) === 'true',
 		((c.env as Record<string, unknown>).ADMIN_NAME as string) || 'Administrator',
 	);
-	const result = await auth.login(email, password, adminPassword, jwtSecret);
+	const result = await auth.login(email, password, adminPassword, jwtSecret).catch((err) => {
+		// A refused sign-in is exactly the event a brute-force run makes invisible
+		// (STRIDE: Repudiation). Record the ATTEMPTED email + outcome — never the
+		// attempted password — then rethrow so the 401 response is unchanged.
+		const attempted = String(email).toLowerCase();
+		securityAudit(c, {
+			collection: SECURITY_COLLECTIONS.auth,
+			action: 'login_failed',
+			document_id: attempted,
+			changes: { email: attempted, outcome: 'failure', reason: err instanceof Error ? err.message : 'unknown' },
+		});
+		throw err;
+	});
+	// A successful sign-in is attributable: WHO signed in (user id) and with WHICH
+	// address. `changes` deliberately omits the password (and the masker is a second
+	// line of defence, not the first).
+	securityAudit(c, {
+		collection: SECURITY_COLLECTIONS.auth,
+		action: 'login',
+		document_id: result.user.id,
+		user_id: result.user.id,
+		changes: { email: result.user.email, outcome: 'success' },
+	});
 	return success(c, {
 		token: result.token,
 		user: { id: result.user.id, email: result.user.email, full_name: result.user.full_name },

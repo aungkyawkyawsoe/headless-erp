@@ -641,6 +641,47 @@ const MIGRATIONS: Migration[] = [
 			QueryBuilder.raw('ALTER TABLE _api_keys ADD COLUMN scope TEXT'),
 		],
 	},
+	{
+		name: '041_api_keys_source',
+		up: [
+			// Ownership marker — who created the key. `'manifest'` means the control
+			// plane's `apply_manifest` created it, so a later apply that no longer
+			// declares it may reconcile (delete) it. Studio/CLI/hand-created keys stay
+			// NULL and are INVISIBLE to reconciliation (the negative-control rule).
+			// Mirrors `_role_permissions.source` (migration 036).
+			QueryBuilder.raw('ALTER TABLE _api_keys ADD COLUMN source TEXT DEFAULT NULL'),
+		],
+	},
+	{
+		name: '045_api_keys_expires_at',
+		up: [
+			// Machine keys never expired: a leaked `mmk_…` was valid FOREVER. Nullable
+			// (NULL = never expires) so existing keys keep working; a set value is
+			// enforced at auth time (`requireAuth`'s mmk_ branch). Stored as an ISO
+			// timestamp string, matching every other `*_at` column.
+			QueryBuilder.raw('ALTER TABLE _api_keys ADD COLUMN expires_at TEXT DEFAULT NULL'),
+		],
+	},
+	{
+		name: '046_media_visibility',
+		up: [
+			// Media privacy. Default `'public'` is deliberate and NON-BREAKING: a stored
+			// value is a `/api/media/<key>` string that clients render as `<img src>`
+			// (which cannot send a bearer), so every EXISTING row keeps serving
+			// anonymously. A `'private'` row is served only to an authenticated caller —
+			// the fix for "serve is public" that does not break every client.
+			QueryBuilder.raw("ALTER TABLE _media ADD COLUMN visibility TEXT DEFAULT 'public'"),
+		],
+	},
+	{
+		name: '047_media_uploaded_by',
+		up: [
+			// Who uploaded an asset — lets the library list be scoped to the caller's own
+			// uploads for a non-admin instead of exposing every file. Nullable so rows
+			// uploaded before this column existed are simply unowned.
+			QueryBuilder.raw('ALTER TABLE _media ADD COLUMN uploaded_by TEXT DEFAULT NULL'),
+		],
+	},
 ];
 
 /** Source-of-truth migration names — the CLI imports these instead of keeping a stale copy. */

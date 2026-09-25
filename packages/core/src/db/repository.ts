@@ -61,6 +61,31 @@ const tablesWithoutUpdatedAt = new Set<string>();
 // ─── Constraint error parsing ──────────────────────────
 
 /**
+ * Absolute ceiling on rows a single `findMany`/`findAll` may return.
+ *
+ * `findAll({ limit })` is a documented escape hatch above the 1000-row default,
+ * but nothing bounded how far it could go: a caller passing a negative limit
+ * produced `LIMIT -1`, which SQLite reads as UNLIMITED (the whole table), and a
+ * NaN/Infinity produced a malformed clause. Callers today top out at 10 000
+ * (scheduled reports); this ceiling is two orders above that, so it never bites
+ * a real read while keeping an accidental full-table scan impossible.
+ */
+const MAX_FIND_ROWS = 100_000;
+
+/**
+ * Coerce a caller-supplied row limit to a finite, positive, bounded integer.
+ * `undefined`/non-finite/`< 1` fall back to the page default (never `-1`, which
+ * SQLite treats as "no limit"); an oversized value is clamped to
+ * `MAX_FIND_ROWS`.
+ */
+function normalizeLimit(limit: number | undefined): number {
+	if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_PAGE_SIZE;
+	const n = Math.floor(limit);
+	if (n < 1) return DEFAULT_PAGE_SIZE;
+	return Math.min(n, MAX_FIND_ROWS);
+}
+
+/**
  * Classify a SQLite/D1 constraint-violation message into a field-level
  * ValidationError, or null when the message is not a known constraint.
  *
@@ -119,7 +144,7 @@ export class Repository<T = any> {
 	 */
 	async findMany(options: FindManyOptions = {}): Promise<PaginatedResult<T>> {
 		const qb = QueryBuilder.from(this._table);
-		const limit = options.limit ?? DEFAULT_PAGE_SIZE;
+		const limit = normalizeLimit(options.limit);
 		const fetchLimit = limit + 1;
 
 		// Fields
@@ -145,11 +170,15 @@ export class Repository<T = any> {
 		const sortCol = orderEntries.length > 0 ? orderEntries[0][0] : 'id';
 		const sortDir: 'asc' | 'desc' = orderEntries.length > 0 ? orderEntries[0][1] : 'desc';
 
-		// ORDER BY
+		// ORDER BY. `id` is appended as a tiebreaker so the ordering is TOTAL:
+		// two reads of the same data return the same order (determinism), and a
+		// non-unique sort column (e.g. `status`) cannot let rows flip position
+		// between pages.
 		if (orderEntries.length > 0) {
 			for (const [key, dir] of orderEntries) {
 				qb.orderBy(key, dir);
 			}
+			if (!orderEntries.some(([key]) => key === 'id')) qb.orderBy('id', 'asc');
 		} else {
 			qb.orderBy('id', 'desc');
 		}
@@ -164,6 +193,7 @@ export class Repository<T = any> {
 				qb.clearOrderBy();
 				qb.where(sortCol, '<', options.cursor);
 				qb.orderBy(sortCol, 'desc');
+				if (sortCol !== 'id') qb.orderBy('id', 'desc');
 			} else {
 				// Continue after the cursor in the caller's sort direction — the
 				// comparison uses the orderBy column, not always id.

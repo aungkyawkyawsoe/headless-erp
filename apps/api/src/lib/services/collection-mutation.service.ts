@@ -1111,12 +1111,34 @@ export class ItemMutationService {
 		schemaFields: FieldDefinition[],
 	): Promise<Record<string, unknown>> {
 		const auth = this.getAuth();
-		if (!auth || auth.is_admin) return item;
-		return DataFilterService.applyFieldFilterToItem(
-			item,
-			{ db: this.db, auth, collectionSlug },
-			schemaFields.map((f) => f.name),
-		);
+		// Field-level RBAC first (so a hidden encrypted column is never decrypted in
+		// memory), then decrypt — the SAME order the read path uses. Without this the
+		// write response (and the webhook payload derived from it) echoed back the raw
+		// `v1:iv:ct` ciphertext for `encrypted` fields while a read returned plaintext:
+		// a client POSTing a secret got garbage back.
+		const visible =
+			!auth || auth.is_admin
+				? item
+				: await DataFilterService.applyFieldFilterToItem(
+						item,
+						{ db: this.db, auth, collectionSlug },
+						schemaFields.map((f) => f.name),
+					);
+		return this.decryptVisibleFields(visible, schemaFields);
+	}
+
+	/** Decrypt the `encrypted` fields present on a write response (copy, never fails the write). */
+	private async decryptVisibleFields(item: Record<string, unknown>, schemaFields: FieldDefinition[]): Promise<Record<string, unknown>> {
+		const encFields = this.encryptedFields(schemaFields).filter((f) => typeof item[f.name] === 'string' && item[f.name] !== '');
+		if (encFields.length === 0) return item;
+		try {
+			const { FieldEncryption } = await import('@/lib/services/field-encryption.service');
+			const out = { ...item };
+			for (const f of encFields) out[f.name] = await FieldEncryption.decrypt(out[f.name] as string);
+			return out;
+		} catch {
+			return item; // a decrypt failure must not fail an otherwise-successful write
+		}
 	}
 
 	/**
@@ -1347,7 +1369,9 @@ export class ItemMutationService {
 		}
 	}
 
-	/** Encrypt encrypted fields before write (no-op if not initialized) */
+	/** Encrypt encrypted fields before write. FAILS CLOSED: if a field is marked
+	 *  `encrypted` but the key is unavailable, the write is REFUSED rather than
+	 *  silently persisted as plaintext (the same rule the nightly backup follows). */
 	private async encryptColumns(columns: Record<string, unknown>, schemaFields: FieldDefinition[]): Promise<Record<string, unknown>> {
 		const encFields = this.encryptedFields(schemaFields);
 		if (encFields.length === 0) return columns;
@@ -1355,12 +1379,15 @@ export class ItemMutationService {
 			const { FieldEncryption } = await import('@/lib/services/field-encryption.service');
 			return await FieldEncryption.encryptFields(columns, encFields);
 		} catch {
-			// Fail-open WRITE path — never silently store plaintext for fields that
-			// are supposed to be encrypted at rest.
+			// Deny-by-default: never store plaintext for a field declared encrypted at
+			// rest. A missing/rotated ENCRYPTION_KEY is an operator error — refuse the
+			// write loudly instead of leaking PII into the table.
 			console.error(
-				'[encryption] WARNING: ENCRYPTION_KEY missing — writing sensitive fields in PLAINTEXT! Set ENCRYPTION_KEY (or SECRET_KEY) to enable field encryption.',
+				'[encryption] REFUSED write: ENCRYPTION_KEY missing/invalid but the collection has `encrypted` fields. Set ENCRYPTION_KEY (64 hex chars) to enable field encryption.',
 			);
-			return columns;
+			throw new Error(
+				`Cannot write encrypted field(s) [${encFields.map((f) => f.name).join(', ')}]: field encryption is not configured (set ENCRYPTION_KEY).`,
+			);
 		}
 	}
 }

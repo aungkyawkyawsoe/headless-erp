@@ -217,16 +217,14 @@ export class FieldValidator {
 			}
 
 			case 'unique': {
-				// Uniqueness is enforced outside this validator: CollectionService
-				// runs a DB pre-check (_validateFieldConstraints) AND the column gets
-				// a real UNIQUE index (applyFieldDefinitions). The standalone
-				// validator has no DB handle, so it reports that the rule requires
-				// the DB check rather than silently passing.
-				return {
-					field: fieldName,
-					message: msg(`${fieldName} must be unique — uniqueness is checked against the database`),
-					rule: 'unique',
-				};
+				// Uniqueness is enforced OUTSIDE this validator: ItemMutationService runs
+				// a batched DB pre-check AND the column carries a soft-delete-aware
+				// partial UNIQUE index. The standalone validator has no DB handle, so it
+				// must NOT report a failure here — doing so blocked EVERY create/update
+				// on any collection whose field declared a `unique` validation rule (and
+				// SmartCollectionService throws on any validation error). Return null:
+				// the DB is the sole authority on uniqueness.
+				return null;
 			}
 
 			default:

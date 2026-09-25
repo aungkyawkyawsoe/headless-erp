@@ -59,7 +59,15 @@ export interface ModuleManifest {
 	path?: string;
 	/** The module's Hono app, mounted at `path`. */
 	routes: Hono;
-	/** Compiled hook registrars — run once per isolate, only when enabled. */
+	/**
+	 * Compiled hook registrars — run once per isolate, only when enabled.
+	 *
+	 * Each registrar MUST register through `pluginHookRegistry.createAPI(manifest.id)`
+	 * so its hooks carry the module id: `bootModuleHooks` revokes a module's hooks
+	 * by that id when the module is UNINSTALLED at runtime. Registering under any
+	 * other id (or bypassing the registry) makes the module un-revocable — its
+	 * hooks would keep firing until the isolate recycles.
+	 */
 	hooks?: Array<() => void>;
 	/** Plugin ids this module depends on (enabled together). */
 	plugins?: string[];

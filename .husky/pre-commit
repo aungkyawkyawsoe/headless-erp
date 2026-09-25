@@ -69,8 +69,9 @@ fi
 # ── 5. Security ──
 echo "${YELLOW}├─ Security Scan${NC}"
 if [ -n "$TS_FILES" ]; then
-  # CLI is a terminal tool — console.log is its output channel, not debug noise.
-  SCAN_FILES=$(echo "$TS_FILES" | grep -v '^packages/cli/' || true)
+  # A terminal tool's console.log IS its output channel, not debug noise —
+  # mirrors scripts/security-scan.mjs (packages/cli/** + every bin/ entrypoint).
+  SCAN_FILES=$(echo "$TS_FILES" | grep -v -E '^packages/cli/|/bin/' || true)
   if [ -n "$SCAN_FILES" ]; then
     # Skip comment lines (//, /*, * JSDoc) so doc examples with console.log aren't flagged
     BAD=$(echo "$SCAN_FILES" | xargs git diff --cached --no-color -- 2>/dev/null | grep -E '^\+' | grep -vE '^\+\s*(//|/\*|\*)' | grep -E 'debugger|console\.log\(|\.only\(|fdescribe\(|fit\(' || true)

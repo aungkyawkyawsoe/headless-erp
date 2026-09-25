@@ -11,7 +11,7 @@ import { D1Client } from '@mmbix/core';
 import { R2Client } from '@mmbix/core';
 import { QueryBuilder } from '@mmbix/core';
 import { MigrationRunner } from '@mmbix/core';
-import { ValidationError, PayloadTooLargeError, UnsupportedMediaError } from '@mmbix/utils';
+import { ValidationError, PayloadTooLargeError, UnsupportedMediaError, UnauthorizedError, ForbiddenError } from '@mmbix/utils';
 import type { MediaUploadResult } from '@mmbix/types';
 import { MediaRefService } from '@/lib/services/media-ref.service';
 
@@ -24,6 +24,40 @@ export interface MediaListItem {
 	mime_type: string;
 	size: number;
 	created_at?: string | null;
+}
+
+/**
+ * Per-asset privacy. `'public'` (the default) is served ANONYMOUSLY — a stored
+ * value is a `/api/media/<key>` string that clients render as `<img src>`, and an
+ * `<img>` cannot send a bearer, so gating public assets would break every client.
+ * `'private'` is served only to an authenticated caller (its uploader or an admin).
+ * Anything other than the literal `'private'` is treated as public — so a legacy
+ * row (or a NULL) keeps serving, which is the non-breaking default.
+ */
+export type MediaVisibility = 'public' | 'private';
+
+/** Who is asking — resolved by the route from an OPTIONAL bearer (never required). */
+export interface MediaActor {
+	userId: string | null;
+	isAdmin: boolean;
+	authenticated: boolean;
+}
+
+/** Provenance + privacy recorded for an upload. */
+export interface MediaUploadOptions {
+	/** The authenticated user that uploaded the file (`NULL` = unowned/legacy). */
+	uploadedBy?: string | null;
+	/** `'public'` (default) or an explicit `'private'`. */
+	visibility?: MediaVisibility;
+}
+
+/** A served asset plus the visibility the route needs for cache-header policy. */
+export interface MediaServeResult {
+	body: ArrayBuffer;
+	contentType: string;
+	contentLength: number;
+	etag: string;
+	visibility: MediaVisibility;
 }
 
 // ─── Config ────────────────────────────────────────────
@@ -156,8 +190,12 @@ export class MediaService {
 
 	/**
 	 * Upload a file to R2 and record metadata in D1.
+	 *
+	 * `opts` records PRIVACY provenance: `uploadedBy` links the asset to its owner
+	 * and `visibility` decides whether serving requires a caller. The default is
+	 * `'public'` for backward compatibility with every existing client.
 	 */
-	async upload(file: File): Promise<MediaUploadResult> {
+	async upload(file: File, opts: MediaUploadOptions = {}): Promise<MediaUploadResult> {
 		// Validate file
 		if (!file || file.size === 0) {
 			throw new ValidationError('Uploaded file is empty');
@@ -199,6 +237,10 @@ export class MediaService {
 			size: file.size,
 			mime_type: file.type || 'application/octet-stream',
 			url: uploadResult.url,
+			// Privacy provenance (migrations 046/047). Default 'public' is deliberate
+			// and non-breaking: an existing `/api/media/<key>` value keeps rendering.
+			uploaded_by: opts.uploadedBy ?? null,
+			visibility: opts.visibility === 'private' ? 'private' : 'public',
 		};
 
 		const insertStmt = QueryBuilder.from('_media').toInsert(mediaEntry);
@@ -217,8 +259,14 @@ export class MediaService {
 	 * List media assets (auth'd) — powers the Studio media-library gallery.
 	 * Newest-first with LIMIT/OFFSET (internal authoring tool, bounded pages), an
 	 * optional `imageOnly` filter (mime_type LIKE 'image/%') and image-safe shape.
+	 *
+	 * Scoping is per-caller: an ADMIN sees the whole library; a non-admin sees only
+	 * their OWN uploads plus every PUBLIC asset — never another user's private file.
+	 * Deny-by-default: an unidentifiable viewer sees only public assets.
 	 */
-	async list(opts: { limit?: number; offset?: number; imageOnly?: boolean } = {}): Promise<MediaListItem[]> {
+	async list(
+		opts: { limit?: number; offset?: number; imageOnly?: boolean; viewerId?: string | null; isAdmin?: boolean } = {},
+	): Promise<MediaListItem[]> {
 		const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? 50), 100));
 		const offset = Math.max(0, Math.floor(opts.offset ?? 0));
 
@@ -226,21 +274,66 @@ export class MediaService {
 			.select('id', 'key', 'url', 'filename', 'mime_type', 'size', 'created_at')
 			.orderBy('created_at', 'desc');
 		if (opts.imageOnly) qb = qb.where('mime_type', 'LIKE', 'image/%');
+
+		if (!opts.isAdmin) {
+			// Parenthesized OR — an ungrouped `OR` would re-open the whole query and
+			// leak every private row regardless of the other predicates.
+			qb = opts.viewerId
+				? qb.whereGroup(
+						[
+							{ column: 'uploaded_by', op: '=', value: opts.viewerId, type: 'or' },
+							{ column: 'visibility', op: '=', value: 'public', type: 'or' },
+						],
+						'and',
+					)
+				: qb.where('visibility', '=', 'public');
+		}
+
 		qb = qb.limit(limit).offset(offset);
 		return this.db.all<MediaListItem>(qb.toSelect());
 	}
 
 	/**
-	 * Serve a media file from R2.
-	 * Returns the raw response body + headers.
+	 * A `_media` row's privacy metadata (a unique-indexed point read). A missing row
+	 * is treated as public + unowned — the pre-migration contract, so an asset kept
+	 * in R2 but absent from `_media` still serves. Anything but `'private'` is public.
 	 */
-	async serve(key: string): Promise<{ body: ArrayBuffer; contentType: string; contentLength: number; etag: string } | null> {
+	private async privacyOf(key: string): Promise<{ visibility: MediaVisibility; uploadedBy: string | null }> {
+		const row = await this.db.first<{ visibility: string | null; uploaded_by: string | null }>(
+			QueryBuilder.from('_media').select('visibility', 'uploaded_by').where('key', key).toSelect(),
+		);
+		return {
+			visibility: row?.visibility === 'private' ? 'private' : 'public',
+			uploadedBy: row?.uploaded_by ?? null,
+		};
+	}
+
+	/**
+	 * Serve a media file from R2.
+	 *
+	 * A PUBLIC asset is served to anyone (the capability-URL contract — non-breaking).
+	 * A PRIVATE asset requires an authenticated caller, and only its uploader or an
+	 * admin may read it: anonymous → 401, a non-owner → 403. Authorization happens
+	 * BEFORE the bytes are read, so a private object is never materialized for a
+	 * caller who cannot have it (a download-amplification guard, not just a policy).
+	 */
+	async serve(key: string, actor?: MediaActor): Promise<MediaServeResult | null> {
 		// Validate key — prevent path traversal
 		if (!key || typeof key !== 'string') {
 			throw new ValidationError('Missing or invalid media key');
 		}
 		if (key.includes('..') || key.includes('/')) {
 			throw new ValidationError('Invalid media key');
+		}
+
+		const { visibility, uploadedBy } = await this.privacyOf(key);
+		if (visibility === 'private') {
+			if (!actor?.authenticated) {
+				throw new UnauthorizedError('Authentication required to access this private asset');
+			}
+			if (!actor.isAdmin && actor.userId !== uploadedBy) {
+				throw new ForbiddenError('You do not have access to this private asset');
+			}
 		}
 
 		const object = await this.r2.get(key);
@@ -254,6 +347,7 @@ export class MediaService {
 			contentType: object.httpMetadata?.contentType ?? 'application/octet-stream',
 			contentLength: object.size,
 			etag: object.httpEtag,
+			visibility,
 		};
 	}
 

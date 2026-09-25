@@ -26,6 +26,7 @@ import {
 	type EmployeeRow,
 	type UserState,
 } from '../../lib/users';
+import StatusBadge from '../StatusBadge';
 
 /**
  * Users — the `_users` registry, the Directus-style account table.
@@ -59,9 +60,9 @@ const sectionTitle = {
 	fontWeight: 700,
 	textTransform: 'uppercase' as const,
 	letterSpacing: '0.05em',
-	color: '#64748b',
+	color: 'var(--mmbix-muted-foreground, #64748b)',
 };
-const note = { fontSize: '0.7rem', color: '#9ca3af', margin: 0 };
+const note = { fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: 0 };
 const field = {
 	width: '100%',
 	boxSizing: 'border-box' as const,
@@ -74,8 +75,7 @@ const field = {
 	outline: 'none',
 };
 
-/** Pre-attentive state colour — the column is scanned, not read. */
-const STATE_COLOR: Record<UserState, string> = { active: '#059669', disabled: '#dc2626', unknown: '#9ca3af' };
+/** State label; the colour comes from the ONE tokenized StatusBadge (see `lib/status.ts`). */
 const STATE_LABEL: Record<UserState, string> = { active: 'Active', disabled: 'Disabled', unknown: 'Unknown' };
 
 /** The dialog is one component in two modes — a new account, or one row. */
@@ -92,7 +92,7 @@ interface FormState {
 }
 
 const employeeName = { fontWeight: 600 } as const;
-const muted = { color: '#9ca3af' } as const;
+const muted = { color: 'var(--mmbix-muted-foreground, #9ca3af)' } as const;
 
 export function UsersTab({ token, currentEmail }: { token: string; currentEmail?: string }) {
 	const queryClient = useQueryClient();
@@ -543,7 +543,10 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 						<Save size={12} /> {busy ? 'Saving…' : isNew ? 'Create user' : 'Save changes'}
 					</Button>
 					{msg && (
-						<p role={msgIsFailure ? 'alert' : undefined} style={{ ...note, color: msgIsFailure ? '#d97706' : '#059669' }}>
+						<p
+							role={msgIsFailure ? 'alert' : undefined}
+							style={{ ...note, color: msgIsFailure ? 'var(--mmbix-tone-warning-fg, #d97706)' : 'var(--mmbix-tone-positive-fg, #059669)' }}
+						>
 							{msg}
 						</p>
 					)}
@@ -568,7 +571,7 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 			cell: ({ row }) => (
 				<div style={{ minWidth: 0 }}>
 					<div style={{ fontWeight: 600 }}>{displayNameOf(row.original)}</div>
-					<div style={{ fontSize: '0.66rem', color: '#9ca3af' }}>{row.original.email}</div>
+					<div style={{ fontSize: '0.66rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{row.original.email}</div>
 				</div>
 			),
 		},
@@ -576,7 +579,9 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 			id: 'identity',
 			header: 'Signs in via',
 			accessorFn: (u) => IDENTITY_KIND_LABEL[identityKindOf(u)],
-			cell: ({ row }) => <span style={{ color: '#6b7280' }}>{IDENTITY_KIND_LABEL[identityKindOf(row.original)]}</span>,
+			cell: ({ row }) => (
+				<span style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }}>{IDENTITY_KIND_LABEL[identityKindOf(row.original)]}</span>
+			),
 		},
 		{
 			id: 'employee',
@@ -594,7 +599,11 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 			id: 'role',
 			header: 'Role',
 			accessorFn: (u) => roleNameOf(u.role_id),
-			cell: ({ row }) => <span style={{ color: row.original.role_id ? '#1d4ed8' : '#9ca3af' }}>{roleNameOf(row.original.role_id)}</span>,
+			cell: ({ row }) => (
+				<span style={{ color: row.original.role_id ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-muted-foreground, #9ca3af)' }}>
+					{roleNameOf(row.original.role_id)}
+				</span>
+			),
 		},
 		{
 			id: 'status',
@@ -602,20 +611,28 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 			accessorFn: (u) => userStateOf(u),
 			cell: ({ row }) => {
 				const state = userStateOf(row.original);
-				return <span style={{ fontWeight: 700, color: STATE_COLOR[state] }}>{STATE_LABEL[state]}</span>;
+				return <StatusBadge status={state} label={STATE_LABEL[state]} />;
 			},
 		},
 		{
 			id: 'last_login',
 			accessorKey: 'last_login',
 			header: 'Last sign-in',
-			cell: ({ row }) => <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{formatStamp(row.original.last_login)}</span>,
+			cell: ({ row }) => (
+				<span style={{ color: 'var(--mmbix-muted-foreground, #6b7280)', whiteSpace: 'nowrap' }}>
+					{formatStamp(row.original.last_login)}
+				</span>
+			),
 		},
 		{
 			id: 'created_at',
 			accessorKey: 'created_at',
 			header: 'Created',
-			cell: ({ row }) => <span style={{ color: '#9ca3af', whiteSpace: 'nowrap' }}>{formatStamp(row.original.created_at)}</span>,
+			cell: ({ row }) => (
+				<span style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)', whiteSpace: 'nowrap' }}>
+					{formatStamp(row.original.created_at)}
+				</span>
+			),
 		},
 		{
 			id: 'actions',
@@ -634,7 +651,7 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 		<div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0.75rem 0.9rem' }}>
 			<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
 				<span style={sectionTitle}>Users</span>
-				<span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>{users.length}</span>
+				<span style={{ fontSize: '0.6rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{users.length}</span>
 				<Button size="sm" style={{ marginLeft: 'auto' }} disabled={!rolesQ.isSuccess} onClick={openNew}>
 					<Plus size={12} /> New user
 				</Button>
@@ -652,7 +669,7 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 			/>
 
 			{loadError && (
-				<p role="alert" style={{ ...note, color: '#dc2626' }}>
+				<p role="alert" style={{ ...note, color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
 					{loadError instanceof Error ? loadError.message : 'Failed to load users'}
 				</p>
 			)}
@@ -681,7 +698,13 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 			)}
 
 			{msg && (
-				<span role={msgIsFailure ? 'alert' : undefined} style={{ fontSize: '0.72rem', color: msgIsFailure ? '#d97706' : '#059669' }}>
+				<span
+					role={msgIsFailure ? 'alert' : undefined}
+					style={{
+						fontSize: '0.72rem',
+						color: msgIsFailure ? 'var(--mmbix-tone-warning-fg, #d97706)' : 'var(--mmbix-tone-positive-fg, #059669)',
+					}}
+				>
 					{msg}
 				</span>
 			)}

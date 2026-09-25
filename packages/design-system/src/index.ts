@@ -28,6 +28,7 @@ export * from './components/choice-card';
 export * from './components/collapsible';
 export * from './components/color-picker';
 export * from './components/combobox';
+export * from './components/confirm-dialog';
 export * from './components/context-menu';
 export * from './components/counter-chip';
 export * from './components/dialog';

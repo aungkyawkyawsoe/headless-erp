@@ -205,6 +205,47 @@ export async function runSchedulerTask(token: string, id: string) {
 		method: 'POST',
 	});
 }
+
+/** The declared rule a violation belongs to (opaque to the Studio — the API owns
+ *  the shape; these are the keys the labels read). */
+export interface IntegrityRuleRef {
+	type?: string;
+	field?: string;
+	fields?: string[];
+	fn?: string;
+	max_age_days?: number;
+	child?: { collection?: string; fk?: string; field?: string };
+}
+
+/** One rule's verdict. `count` is bounded by the policy `limit`; `truncated` says
+ *  more violating rows exist beyond it. */
+export interface IntegrityRuleViolation {
+	rule: IntegrityRuleRef;
+	count: number;
+	truncated: boolean;
+	rows: Record<string, unknown>[];
+}
+
+/**
+ * The generic data-quality report for one collection
+ * (`GET /api/collections/:slug/integrity`). Mirrors `IntegrityReport` in
+ * `apps/api/src/lib/services/integrity.service.ts`, with the route's `enabled`
+ * flag in front. `enabled: false` is the deny-by-default state — the collection
+ * declares no integrity rules — and is answered with 200, not an error.
+ */
+export interface IntegrityReport {
+	enabled: boolean;
+	checked: number;
+	violations: number;
+	results: IntegrityRuleViolation[];
+	/** Rules that were malformed / referenced unknown identifiers (skipped). */
+	errors: Array<{ rule: unknown; error: string }>;
+}
+
+/** Run a collection's declared integrity rules. Read-gated; no rules ⇒ `enabled:false`. */
+export async function runIntegrity(token: string, slug: string) {
+	return api<IntegrityReport>(token, `/api/collections/${slug}/integrity`);
+}
 export async function installAddon(token: string, id: string) {
 	return api<AddonCatalogResponse>(token, `/api/addons/${encodeURIComponent(id)}/install`, { method: 'POST' });
 }

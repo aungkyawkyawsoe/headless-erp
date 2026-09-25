@@ -293,8 +293,17 @@ export async function checkRowFilterAccess(
 	if (!row) throw new ForbiddenError('You do not have access to this record');
 }
 
-/** Stable per-session identity for response-cache keys (never the raw JWT). */
-export function authFingerprint(auth: AuthContext | null): string {
+/**
+ * Stable per-session identity for response-cache keys (never the raw JWT).
+ *
+ * `authzVersion` (from `@/lib/services/authz-version`) is folded in when supplied
+ * so a role / permission / row-filter change — which bumps the stamp from ANY
+ * isolate — retires this user's cached read bodies on the next read. Without it
+ * the per-isolate `readc:*` drop (`_dropPolicyDerivedPayloads`) cannot reach
+ * another isolate's cache, so a revoked row/field kept being served until TTL.
+ */
+export function authFingerprint(auth: AuthContext | null, authzVersion?: string): string {
 	if (!auth) return 'anon';
-	return auth.user_id || auth.email || 'anon';
+	const id = auth.user_id || auth.email || 'anon';
+	return authzVersion ? `${id}:v${authzVersion}` : id;
 }

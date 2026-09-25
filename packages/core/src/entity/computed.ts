@@ -10,19 +10,21 @@
  * the aggregate functions (SUM/COUNT/MIN/MAX/AVG) are registered in the safe
  * expression evaluator's registry (see expression/registry.ts).
  */
-import type { FieldDefinition } from '@mmbix/types';
+import { FORMULA_RESULT_TYPES, type FieldDefinition, type FormulaResultType } from '@mmbix/types';
 import { isCallableFunction } from './expression';
 
-/** Result types a formula may produce — drives column type + SDK type. */
-export type FormulaResultType = 'number' | 'string' | 'boolean' | 'json';
-
-/** Default result type when a formula field does not declare one. */
-export const DEFAULT_FORMULA_RESULT_TYPE: FormulaResultType = 'number';
-
-export const FORMULA_RESULT_TYPES: readonly FormulaResultType[] = ['number', 'string', 'boolean', 'json'];
+/**
+ * Result types a formula may produce — re-exported from the ONE definition in
+ * `@mmbix/types` (never a local copy). Drives the SQL column type + SDK type.
+ */
+export { FORMULA_RESULT_TYPES };
+export type { FormulaResultType };
 
 /** Rounding modes for `precision` on numeric formulas (default 'half_up'). */
 export type RoundingMode = 'half_up' | 'half_even' | 'up' | 'down';
+
+/** Default result type when a formula field does not declare one. */
+export const DEFAULT_FORMULA_RESULT_TYPE: FormulaResultType = 'number';
 
 export const FORMULA_ROUNDING_MODES: readonly RoundingMode[] = ['half_up', 'half_even', 'up', 'down'];
 

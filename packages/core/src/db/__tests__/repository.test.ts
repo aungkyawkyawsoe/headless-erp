@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { D1Client } from '../d1-client';
 import { Repository } from '../repository';
+import { DEFAULT_PAGE_SIZE } from '@mmbix/utils';
 
 // ─── Tiny in-memory D1 stand-in ───────────────────────────
 
@@ -67,6 +68,8 @@ function evalSegment(seg: string, bindings: unknown[], row: Row): boolean {
 
 class FakeD1 {
 	tables: Record<string, Row[]> = {};
+	/** Every SQL string passed to prepare() — lets a test assert the emitted shape. */
+	log: string[] = [];
 
 	constructor(tables: Record<string, Row[]> = {}) {
 		for (const [k, v] of Object.entries(tables)) this.tables[k] = v.map((r) => ({ ...r }));
@@ -176,6 +179,7 @@ class FakeD1 {
 	}
 
 	prepare(sql: string) {
+		this.log.push(sql);
 		return {
 			bind: (...bindings: unknown[]) => ({
 				all: async <T>(): Promise<{ results: T[]; success: boolean }> => {
@@ -294,6 +298,51 @@ describe('Repository — keyset pagination respects orderBy column', () => {
 	it('after with orderBy desc compares against the orderBy column', async () => {
 		const next = await repo.findMany({ orderBy: { seq: 'desc' }, limit: 3, cursor: '7', dir: 'after' });
 		expect(next.data.map((r) => r.seq)).toEqual([6, 5, 4]);
+	});
+});
+
+describe('Repository — findMany bounds the row count (no unbounded read)', () => {
+	let fake: FakeD1;
+	let repo: Repository<Row>;
+
+	beforeEach(() => {
+		fake = new FakeD1({ cms_items: idRows(10) });
+		repo = new Repository<Row>(new D1Client(fake as unknown as D1Database), 'cms_items');
+	});
+
+	it('a negative limit cannot become `LIMIT -1` (SQLite unlimited)', async () => {
+		// fetchLimit = limit + 1, so limit ≤ -2 emitted `LIMIT -1` = the whole table.
+		const page = await repo.findMany({ limit: -2 });
+		expect(page.meta.limit).toBe(DEFAULT_PAGE_SIZE);
+		expect(page.data).toHaveLength(10);
+		expect(page.meta.has_more).toBe(false);
+	});
+
+	it('zero and non-finite limits fall back to the page default', async () => {
+		expect((await repo.findMany({ limit: 0 })).meta.limit).toBe(DEFAULT_PAGE_SIZE);
+		expect((await repo.findMany({ limit: Number.NaN })).meta.limit).toBe(DEFAULT_PAGE_SIZE);
+		expect((await repo.findMany({ limit: Number.POSITIVE_INFINITY })).meta.limit).toBe(DEFAULT_PAGE_SIZE);
+	});
+
+	it('an oversized limit is clamped to the absolute ceiling', async () => {
+		expect((await repo.findMany({ limit: 1_000_000_000 })).meta.limit).toBe(100_000);
+	});
+
+	it('a legitimate explicit limit above the default is preserved (findAll escape hatch)', async () => {
+		expect((await repo.findMany({ limit: 1200 })).meta.limit).toBe(1200);
+	});
+
+	it('the ORDER BY is TOTAL — an `id` tiebreaker is appended', async () => {
+		await repo.findMany({ orderBy: { seq: 'asc' }, limit: 3 });
+		const sql = fake.log.find((s) => /ORDER BY/i.test(s)) ?? '';
+		expect(sql).toMatch(/ORDER BY seq ASC, id ASC/);
+	});
+
+	it('does not duplicate the tiebreaker when `id` is already the sort key', async () => {
+		await repo.findMany({ orderBy: { id: 'asc' }, limit: 3 });
+		const sql = fake.log.find((s) => /ORDER BY/i.test(s)) ?? '';
+		expect(sql).toMatch(/ORDER BY id ASC/);
+		expect(sql).not.toMatch(/id ASC, id ASC/);
 	});
 });
 

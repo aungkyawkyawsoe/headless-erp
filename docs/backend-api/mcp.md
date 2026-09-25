@@ -7,7 +7,7 @@
 ## Why few tools
 
 Standing context is the cost driver. ~150 MCP tools ≈ 30k tokens injected **every turn**; the control plane
-ships **15 tools (~1k tokens)** plus on-demand knowledge:
+ships **17 tools (~1k tokens)** plus on-demand knowledge:
 
 | Tier | What                                               | Cost                      |
 | ---- | -------------------------------------------------- | ------------------------- |
@@ -176,6 +176,25 @@ bytes** than the equivalent manifest, pinned by `packages/types/src/dsl/__tests_
 An `apiKeys` entry provisions a scoped machine key; its **plaintext is returned once** in the apply result
 (`results[].secret`). It is the only place a secret is ever surfaced.
 
+### Reconciliation — a manifest removes only what it created
+
+A manifest is a DECLARATION: when a later apply no longer names a `schedule`, `apiKey`, `serverFunction` or
+`report` it created before, that row is **removed** (a schedule is deleted and its `SchedulerDO` alarm disarmed;
+a key and a hook are deleted; a report row is deleted). This closes the old additive-only hole where a dropped
+dedaration left the row LIVE (a job kept firing, a key stayed valid, a hook kept running). It is safe by
+construction:
+
+- **Ownership marker** — every row `apply_manifest` writes carries `source = 'manifest'` on
+  `_scheduler_tasks` / `_api_keys` / `_server_functions` / `_report_schedules` (migrations `041`–`044`, mirroring
+  `_role_permissions.source`). Rows with any other `source` (Studio / CLI / hand-created) stay `NULL` and are
+  **invisible** to reconciliation — a manifest can never remove a row it did not create.
+- **Presence semantics** — a domain is reconciled only when its key is PRESENT. An ABSENT key means "this
+  manifest does not manage that domain", so a partial manifest (e.g. three `schedules` added to an existing app)
+  can never nuke another domain. A present key (even `[]`) declares that domain's full manifest-owned set.
+- **Honest plan** — `plan_manifest` reports the pending removals as `kind: 'remove'` actions (counted in
+  `summary.remove`) and **never writes**; replaying an unchanged manifest produces no removals, and every read is
+  `LIMIT`-bounded and fails CLOSED (a not-yet-migrated table reads as "nothing owned", never deletes).
+
 ```bash
 # plan (no write)
 curl -s localhost:8788/api/mcp -H 'Authorization: Bearer dev-token' -H 'Content-Type: application/json' \
@@ -223,4 +242,8 @@ a broken line is reported and the rest still builds) ·
 `apps/api/test/generation-design-ui.spec.ts` (design components compile to real blocks bound to the
 collection; unknown component skipped + warned; the gate applies collection AND page) ·
 `apps/api/test/factory-acceptance.spec.ts` (the end-to-end "can it build an app" contract — 13 checks across
-every capability domain).
+every capability domain) ·
+`apps/api/test/manifest-reconcile.spec.ts` (a created row is marked `source='manifest'`; a replay removes nothing;
+dropping a schedule deletes it AND disarms its alarm; `plan_manifest` reports the pending `remove` without
+writing; the NEGATIVE CONTROL proves a hand-created row with `source IS NULL` survives; a partial manifest never
+touches another domain).

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
 	DndContext,
 	DragOverlay,
@@ -11,11 +11,20 @@ import {
 	type DragStartEvent,
 } from '@dnd-kit/core';
 import { reviewSchemaChange, updateCollectionFields, SYSTEM_FIELD_NAMES, type EntitySchema, type FieldDefinition } from '../../lib/api';
+import { confirmDialog } from '@mmbix/design-system';
 import { useQueryClient } from '@tanstack/react-query';
 import { collectionQuery } from '../../lib/queries';
-import type { FormGroup, FormTab, SerializedFormGroup, SerializedFormLayout } from './types';
+import type { FormGroup, FormTab, SerializedFormLayout } from './types';
 import { humanize } from './palette-data';
-import { mapGroups, flattenGroups, serGroups, parseGroups, spanShortcut } from './serialize';
+import {
+	mapGroups,
+	flattenGroups,
+	serializeLayout,
+	tabsFromSerialized,
+	tabsFromLayout,
+	trimGroupsToFields,
+	type StoredFormLayout,
+} from './serialize';
 import {
 	moveGroup as moveGroupOp,
 	removeGroup as removeGroupOp,
@@ -27,106 +36,19 @@ import {
 	swapFields as swapFieldsOp,
 	moveField as moveFieldOp,
 	removeFieldFromLayout as removeFieldFromLayoutOp,
+	moveFieldToTab,
+	insertFieldRelative,
 } from './tree-ops';
+import { makeFormLayoutKeyHandler } from './keyboard';
+import { Ctx, type FormLayoutCtx } from './form-layout-context';
 import { useSnapshotHistory } from '../../lib/use-snapshot-history';
 
-/* Group-tree helpers (mapGroups/flattenGroups/serGroups/parseGroups) live in ./serialize. */
-
-/** Uncurated forms (no saved form_layout) seed this many user fields into the General group —
- *  mirroring the table (DEFAULT_LIST_COLUMNS) and card (DEFAULT_CARD_FIELDS) defaults so a
- *  fresh form doesn't dump every collection field. The rest stay one click away in the palette. */
-const DEFAULT_FORM_FIELDS = 8;
-
-export interface FormLayoutCtx {
-	token: string;
-	slug: string;
-	schema: EntitySchema | null;
-	fields: FieldDefinition[];
-	tabs: FormTab[];
-	activeTabId: string | null;
-	setActiveTabId: (id: string | null) => void;
-	/** The group currently focused for inspection (highlight + right-pane properties). */
-	activeGroupId: string | null;
-	setActiveGroupId: (id: string | null) => void;
-	/** The group object for `activeGroupId` (null when none). */
-	activeGroup: FormGroup | null;
-	/** What the right pane inspects: the form itself, the open tab, the active group, or the selected field. */
-	inspectorKind: 'form' | 'tab' | 'group' | 'field';
-	setInspectorKind: (k: 'form' | 'tab' | 'group' | 'field') => void;
-	selected: string | null;
-	setSelected: (id: string | null) => void;
-	/** Undo/redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) — snapshot history of tabs + fields. */
-	canUndo: boolean;
-	canRedo: boolean;
-	undo: () => void;
-	redo: () => void;
-	/** Keyboard-shortcut help overlay. */
-	helpOpen: boolean;
-	setHelpOpen: (v: boolean) => void;
-	/** Active drag-drop insertion target (field name + before/after) for the drop-position preview. */
-	dropOver: { name: string; before: boolean } | null;
-	dirty: boolean;
-	saving: boolean;
-	loading: boolean;
-	error: string | null;
-	activeDrag: { label?: string } | null;
-	userFields: FieldDefinition[];
-	systemFields: FieldDefinition[];
-	selectedField: FieldDefinition | null;
-	activeTab: FormTab | null;
-	activeFirstGroupId: string;
-	/** Form-level: the tab opened by default at runtime (persisted as form_layout.default_tab). */
-	defaultTabId: string | null;
-	setDefaultTabId: (id: string | null) => void;
-	markDirty: () => void;
-	/** Patch a group (by id) wherever it lives across tabs — e.g. toggle its column grid. */
-	patchGroup: (gid: string, patch: (g: FormGroup) => FormGroup) => void;
-	/** Move a group up/down within its parent (tab groups or nested sub-groups) — Arrow keys on the group title. */
-	moveGroup: (gid: string, dir: -1 | 1) => void;
-	/** Delete a group (with its sub-groups) wherever it lives. */
-	removeGroup: (gid: string) => void;
-	/** Move a sub-group out of its parent up to the tab's top level. */
-	promoteGroup: (gid: string) => void;
-	/** Move a group to become a child of another group (nesting). */
-	moveGroupUnder: (gid: string, targetGid: string) => void;
-	addTab: () => void;
-	renameTab: (id: string, label: string) => void;
-	removeTab: (id: string) => void;
-	/** Add a group to a tab — pass `parentId` to nest it inside that group (sub-group). */
-	addGroup: (tabId: string, parentId?: string) => void;
-	addNewField: (type: string, groupId: string) => void;
-	addFields: (batch: FieldDefinition[]) => void;
-	addExistingField: (name: string, groupId: string) => void;
-	updateField: (name: string, patch: Partial<FieldDefinition>) => void;
-	/** Set a field's grid width inside its group ('full' spans all columns; 'half' is the default). */
-	setFieldWidth: (name: string, width: 'half' | 'full') => void;
-	/** Set a field's grid span (1..group.columns) — the Studio 1/2/3/4 shortcut. */
-	setFieldSpan: (name: string, span: number) => void;
-	/** Swap two fields' positions inside the group that contains `name` (WASD reordering). */
-	swapFields: (name: string, other: string) => void;
-	moveField: (name: string, dir: -1 | 1) => void;
-	removeFieldFromLayout: (name: string) => void;
-	removeField: (name: string) => void;
-	duplicateField: (name: string) => void;
-	save: () => Promise<void>;
-	refresh: () => Promise<void>;
-	copyLayout: () => void;
-	pasteLayout: () => void;
-	currentLayout: () => SerializedFormLayout;
-	exportModel: () => void;
-	importModel: (file: File) => void;
-	onDragStart: (e: DragStartEvent) => void;
-	onDragMove: (e: DragMoveEvent) => void;
-	onDragEnd: (e: DragEndEvent) => void;
-	onDragOver: (e: DragOverEvent) => void;
-}
-
-const Ctx = createContext<FormLayoutCtx | null>(null);
-
-/** Read the form-layout engine. Returns null when no provider is mounted (components render nothing then). */
-export function useFormLayout(): FormLayoutCtx | null {
-	return useContext(Ctx);
-}
+/* Group-tree + layout helpers live in ./serialize; the drag-drop tree transforms
+ * in ./tree-ops; the keyboard handler in ./keyboard; the context contract + hook
+ * (FormLayoutCtx, useFormLayout) in ./form-layout-context — re-exported below so
+ * existing importers are unaffected. */
+export { useFormLayout } from './form-layout-context';
+export type { FormLayoutCtx } from './form-layout-context';
 
 /**
  * FormLayoutProvider — the shared enterprise form layout engine.
@@ -212,49 +134,11 @@ export function FormLayoutProvider({
 			const all = s.schema_json?.fields ?? [];
 			setFields(all);
 			const userNames = all.filter((f) => !SYSTEM_FIELD_NAMES.has(f.name)).map((f) => f.name);
-			// Form layout: tabs → groups → fields (groups may nest). Falls back to the
-			// legacy flat `groups` (or a single default tab) so old collections keep working.
-			const layout = (
-				s.schema_json as {
-					form_layout?: { tabs?: Array<{ key?: string; label?: string; groups?: SerializedFormGroup[] }>; groups?: SerializedFormGroup[] };
-				}
-			).form_layout;
-			const fromTabs = layout?.tabs;
-			const legacyGroups = layout?.groups ?? [];
-			let next: FormTab[] = [];
-			if (fromTabs && fromTabs.length > 0) {
-				next = fromTabs.map((t, ti) => ({
-					id: t.key || `t${ti}`,
-					label: t.label || `Tab ${ti + 1}`,
-					groups: parseGroups(t.groups ?? [], `t${ti}`),
-				}));
-			} else if (legacyGroups.length > 0) {
-				next = [{ id: 't1', label: 'General', groups: parseGroups(legacyGroups, 'g') }];
-			} else {
-				const seeded = userNames.slice(0, DEFAULT_FORM_FIELDS);
-				next = [
-					{
-						id: 't1',
-						label: 'General',
-						groups: [
-							{
-								id: 'g1',
-								title: 'General',
-								columns: 6,
-								fieldNames: seeded,
-								// Half-width default on the 6-grid (2 per row) — the width shortcuts
-								// (Shift+1 → 2/6, Shift+2 → 4/6, Shift+3 → full) fine-tune it.
-								fieldSpans: Object.fromEntries(seeded.map((n) => [n, 3])),
-								fieldWidths: {},
-							},
-						],
-					},
-				];
-			}
+			// Form layout: tabs → groups → fields (groups may nest), falling back to the
+			// legacy flat `groups` / a seeded default tab so old collections keep working.
+			const layout = (s.schema_json as { form_layout?: StoredFormLayout }).form_layout;
+			const { tabs: next, defaultTabId: validDefault } = tabsFromLayout(layout, userNames);
 			setTabs(next);
-			// Form-level default tab: honor form_layout.default_tab when it still exists.
-			const storedDefault = (layout as { default_tab?: string } | undefined)?.default_tab ?? null;
-			const validDefault = storedDefault && next.some((t) => t.id === storedDefault) ? storedDefault : null;
 			setDefaultTabId(validDefault);
 			setActiveTabId(validDefault ?? next[0]?.id ?? null);
 			setActiveGroupId(next.find((t) => t.id === (validDefault ?? next[0]?.id))?.groups[0]?.id ?? null);
@@ -551,42 +435,15 @@ export function FormLayoutProvider({
 			} else if (target.kind === 'tab') {
 				// Drop an existing field onto a tab → move it to that tab's first group.
 				if (source.kind === 'existing' && source.name) {
-					const tid = target.tid!;
-					setTabs((prev) =>
-						prev.map((t) => {
-							if (t.id !== tid)
-								return { ...t, groups: mapGroups(t.groups, (g) => ({ ...g, fieldNames: g.fieldNames.filter((n) => n !== source.name) })) };
-							const first = t.groups[0];
-							if (!first) return t;
-							return {
-								...t,
-								groups: mapGroups(t.groups, (g) =>
-									g.id === first.id && !g.fieldNames.includes(source.name!) ? { ...g, fieldNames: [...g.fieldNames, source.name!] } : g,
-								),
-							};
-						}),
-					);
+					const name = source.name;
+					setTabs((prev) => moveFieldToTab(prev, target.tid!, name));
 					markDirty();
 				}
 			} else if (target.kind === 'field' && source.kind === 'existing' && source.name && target.name !== source.name) {
 				// Drop ONTO a field chip → insert the source at that chip's position (before/after by drop position).
 				const before = dropOver && dropOver.name === target.name ? dropOver.before : true;
-				setTabs((prev) =>
-					prev.map((t) => ({
-						...t,
-						groups: mapGroups(t.groups, (g) => {
-							const ti = g.fieldNames.indexOf(target.name!);
-							if (ti < 0) return g;
-							const without = g.fieldNames.filter((n) => n !== source.name);
-							const ti2 = without.indexOf(target.name!);
-							if (ti2 < 0) return g;
-							const insertAt = Math.max(0, ti2 + (before ? 0 : 1));
-							const next = [...without];
-							next.splice(insertAt, 0, source.name!);
-							return { ...g, fieldNames: next };
-						}),
-					})),
-				);
+				const name = source.name;
+				setTabs((prev) => insertFieldRelative(prev, target.name!, name, before));
 				markDirty();
 			}
 		},
@@ -611,7 +468,12 @@ export function FormLayoutProvider({
 				current &&
 				serverBaseline &&
 				JSON.stringify(current.schema_json) !== serverBaseline &&
-				!window.confirm('This collection was modified by someone else since you opened it. Overwrite their changes?')
+				!(await confirmDialog({
+					title: 'Overwrite changes?',
+					description: 'This collection was modified by someone else since you opened it. Overwrite their changes?',
+					confirmLabel: 'Overwrite',
+					destructive: true,
+				}))
 			) {
 				return;
 			}
@@ -626,10 +488,7 @@ export function FormLayoutProvider({
 			for (const f of userFields) if (!ordered.includes(f.name)) ordered.push(f.name);
 			const fieldMap = new Map(fields.map((f) => [f.name, f]));
 			const merged = [...ordered.map((n) => fieldMap.get(n)).filter(Boolean), ...systemFields] as FieldDefinition[];
-			const formLayout: SerializedFormLayout = {
-				tabs: tabs.map((t) => ({ key: t.id, label: t.label, groups: serGroups(t.groups) })),
-				...(defaultTabId ? { default_tab: defaultTabId } : {}),
-			};
+			const formLayout: SerializedFormLayout = serializeLayout(tabs, defaultTabId);
 			// REVIEW before APPLY: ask the server what this schema change does, and
 			// surface any BREAKING change for an explicit confirmation. Best-effort —
 			// a diff that cannot be computed must never block a legitimate save.
@@ -638,7 +497,12 @@ export function FormLayoutProvider({
 				const breaking = summary?.breakingChanges ?? [];
 				if (
 					breaking.length > 0 &&
-					!window.confirm(`This change has ${breaking.length} breaking change(s):\n- ${breaking.join('\n- ')}\n\nApply anyway?`)
+					!(await confirmDialog({
+						title: 'Breaking changes',
+						description: `This change has ${breaking.length} breaking change(s):\n- ${breaking.join('\n- ')}\n\nApply anyway?`,
+						confirmLabel: 'Apply anyway',
+						destructive: true,
+					}))
 				) {
 					return;
 				}
@@ -661,12 +525,7 @@ export function FormLayoutProvider({
 	}, [slug, saving, dirty, token, serverBaseline, tabs, userFields, fields, systemFields, defaultTabId, refresh, onSaved, queryClient]);
 
 	/* ── Export / Import (canonical model JSON) ── */
-	const currentLayout = useCallback((): SerializedFormLayout => {
-		return {
-			tabs: tabs.map((t) => ({ key: t.id, label: t.label, groups: serGroups(t.groups) })),
-			...(defaultTabId ? { default_tab: defaultTabId } : {}),
-		};
-	}, [tabs, defaultTabId]);
+	const currentLayout = useCallback((): SerializedFormLayout => serializeLayout(tabs, defaultTabId), [tabs, defaultTabId]);
 
 	const copyLayout = useCallback(() => {
 		const text = JSON.stringify(currentLayout(), null, 2);
@@ -679,24 +538,15 @@ export function FormLayoutProvider({
 			?.readText()
 			.then((text) => {
 				try {
-					const parsed = JSON.parse(text) as { tabs?: Array<{ key?: string; label?: string; groups?: SerializedFormGroup[] }> };
+					const parsed = JSON.parse(text) as StoredFormLayout;
 					const incoming = parsed.tabs;
 					if (!incoming || incoming.length === 0) throw new Error('Clipboard does not contain a form layout');
 					const known = new Set(fields.map((f) => f.name));
-					const trimGroup = (gs: SerializedFormGroup[]): SerializedFormGroup[] =>
-						gs
-							.map((g) => ({
-								...g,
-								fieldNames: (g.fieldNames ?? []).filter((n) => known.has(n)),
-								groups: g.groups?.length ? trimGroup(g.groups) : undefined,
-							}))
-							.filter((g) => g.fieldNames.length > 0 || (g.groups?.length ?? 0) > 0);
 					setTabs(
-						incoming.map((t, ti) => ({
-							id: t.key || `t${Date.now().toString(36)}${ti}`,
-							label: t.label || `Tab ${ti + 1}`,
-							groups: parseGroups(trimGroup(t.groups ?? []), `t${Date.now().toString(36)}${ti}`),
-						})),
+						tabsFromSerialized(
+							incoming.map((t) => ({ ...t, groups: trimGroupsToFields(t.groups ?? [], known) })),
+							(ti) => `t${Date.now().toString(36)}${ti}`,
+						),
 					);
 					setActiveTabId(null);
 					setError(null);
@@ -731,7 +581,7 @@ export function FormLayoutProvider({
 				try {
 					const parsed = JSON.parse(text) as {
 						model?: { fields?: Record<string, FieldDefinition> };
-						layout?: { tabs?: Array<{ key?: string; label?: string; groups?: SerializedFormGroup[] }> };
+						layout?: StoredFormLayout;
 					};
 					const incoming = parsed.model?.fields ? Object.values(parsed.model.fields) : [];
 					if (incoming.length === 0 && !parsed.layout) throw new Error('No fields in file');
@@ -742,20 +592,11 @@ export function FormLayoutProvider({
 					setFields(next);
 					if (parsed.layout?.tabs && parsed.layout.tabs.length > 0) {
 						const known = new Set(next.map((f) => f.name));
-						const trimGroup = (gs: SerializedFormGroup[]): SerializedFormGroup[] =>
-							gs
-								.map((g) => ({
-									...g,
-									fieldNames: (g.fieldNames ?? []).filter((n) => known.has(n)),
-									groups: g.groups?.length ? trimGroup(g.groups) : undefined,
-								}))
-								.filter((g) => g.fieldNames.length > 0 || (g.groups?.length ?? 0) > 0);
 						setTabs(
-							parsed.layout.tabs.map((t, ti) => ({
-								id: t.key || `t${Date.now().toString(36)}${ti}`,
-								label: t.label || `Tab ${ti + 1}`,
-								groups: parseGroups(trimGroup(t.groups ?? []), `t${Date.now().toString(36)}${ti}`),
-							})),
+							tabsFromSerialized(
+								parsed.layout.tabs.map((t) => ({ ...t, groups: trimGroupsToFields(t.groups ?? [], known) })),
+								(ti) => `t${Date.now().toString(36)}${ti}`,
+							),
 						);
 						setActiveTabId(null);
 					} else {
@@ -783,76 +624,19 @@ export function FormLayoutProvider({
 		// macOS) consume plain keydowns for composition — keyup still fires. Register
 		// in the CAPTURE phase so no other listener (menu wrappers, etc.) can claim
 		// the key first, and dedupe so a normal keydown+keyup pair acts only once.
-		const handledAt = new Map<string, number>();
-		const onKey = (e: KeyboardEvent) => {
-			const mod = e.ctrlKey || e.metaKey;
-			// Modifier combos (Ctrl/Cmd+…) act on keydown only — keyup would double-fire.
-			if (e.type === 'keyup' && mod) return;
-			// Save — handled before the input guard so Ctrl/Cmd+S works while typing.
-			if (mod && (e.key === 's' || e.key === 'S')) {
-				e.preventDefault();
-				void save();
-				return;
-			}
-			const t = e.target as HTMLElement | null;
-			if (t && ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName)) return;
-			if (mod && (e.key === 'z' || e.key === 'Z')) {
-				e.preventDefault();
-				if (e.shiftKey) redoTabs();
-				else undoTabs();
-				return;
-			}
-			if (mod && (e.key === 'y' || e.key === 'Y')) {
-				e.preventDefault();
-				redoTabs();
-				return;
-			}
-			if (e.type === 'keydown' && e.key === '?') {
-				e.preventDefault();
-				setHelpOpen((v) => !v);
-				return;
-			}
-
-			// Plain-key shortcuts below (span/WASD/arrows/Delete/Ctrl+D) — dedupe the
-			// keydown+keyup pair; act on keyup when the IME swallowed the keydown.
-			const code = e.code ?? '';
-			const last = handledAt.get(code);
-			if (e.type === 'keyup' && last !== undefined && Date.now() - last < 500) return;
-			if (e.type === 'keydown') handledAt.set(code, Date.now());
-
-			const selField = selected && fields.some((f) => f.name === selected) ? selected : null;
-			const allGroups = tabs.flatMap((tb) => flattenGroups(tb.groups));
-			const actGroup = activeGroupId ? (allGroups.find((g) => g.id === activeGroupId) ?? null) : null;
-
-			// Ctrl+D — duplicate: owned by the canvas group's own key handler (so it never
-			// double-fires with this capture-phase listener).
-			if (mod && (e.key === 'd' || e.key === 'D')) return;
-
-			// Width — mirror the block canvas semantics: plain N → span N,
-			// Shift+N → 2N (doubled), Alt+Shift+N → N (single). Clamped to the
-			// group's column count. Also handled on the field chip itself.
-			const spanN = spanShortcut(e);
-			if (spanN !== null) {
-				e.preventDefault();
-				const cols = selField ? (allGroups.find((g) => g.fieldNames.includes(selField))?.columns ?? 2) : (actGroup?.columns ?? 2);
-				const clamped = Math.max(1, Math.min(cols, spanN));
-				if (selField) {
-					setFieldSpan(selField, clamped);
-				} else if (actGroup) {
-					patchGroup(actGroup.id, (g) => ({ ...g, columns: clamped }));
-				}
-				return;
-			}
-			if (!selField) return;
-
-			// Delete / Backspace — remove the selected field from the layout.
-			// (A/D/W/S movement + arrow-key navigation are handled by the canvas group's
-			// own key handler — visual-neighbor based, so they never jump to another group.)
-			if (e.key === 'Delete' || e.key === 'Backspace') {
-				e.preventDefault();
-				removeFieldFromLayout(selField);
-			}
-		};
+		const onKey = makeFormLayoutKeyHandler({
+			save,
+			undo: undoTabs,
+			redo: redoTabs,
+			setHelpOpen,
+			selected,
+			fields,
+			tabs,
+			activeGroupId,
+			setFieldSpan,
+			patchGroup,
+			removeFieldFromLayout,
+		});
 		window.addEventListener('keydown', onKey, true);
 		window.addEventListener('keyup', onKey, true);
 		return () => {

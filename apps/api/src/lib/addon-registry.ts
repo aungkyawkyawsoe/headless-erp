@@ -26,8 +26,21 @@ async function loadInstalled(db: D1Client, availableIds: Set<string>): Promise<S
 	let rows: Array<{ id: string; installed: number }> = [];
 	try {
 		rows = await db.all<{ id: string; installed: number }>(QueryBuilder.from('_addons').select('id', 'installed').toSelect());
-	} catch {
-		// `_addons` not migrated yet — treat every available add-on as installed.
+	} catch (err) {
+		// The `_addons` ledger may not exist yet on a COLD isolate whose first
+		// request hit a route that never ran core migrations (037_addons) — there
+		// is no global migration middleware, so this is an expected state, and the
+		// fallback is the BUILD allowlist (`DOMAIN_MODULES` / `PLUGINS`), which is
+		// already deny-by-default: an unknown install state means "no runtime
+		// override applied", not "everything on".
+		//
+		// Any OTHER failure is SURFACED, not swallowed: a broken install ledger
+		// must be visible, because the worst outcome is a module an operator
+		// disabled silently re-mounting with no trace.
+		const message = err instanceof Error ? err.message : String(err);
+		if (!/no such table/i.test(message)) {
+			console.error('[addon-registry] could not read the _addons install ledger:', message);
+		}
 		rows = [];
 	}
 	const off = new Set(rows.filter((r) => r.installed === 0).map((r) => r.id));

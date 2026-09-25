@@ -32,6 +32,16 @@ function escapeLikeTerm(term: string): string {
 	return term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
+/**
+ * The LIKE pattern for a `_contains`/`_startswith`/`_endswith` term, with the
+ * term escaped so a literal `%`/`_`/`\` matches its own bytes. Callers MUST pair
+ * it with an explicit `ESCAPE '\'` clause (SQLite has no default escape char),
+ * so `likeFilter()` above is the only intended consumer.
+ */
+function likePattern(prefix: '%' | '', term: unknown, suffix: '%' | ''): string {
+	return `${prefix}${escapeLikeTerm(String(term))}${suffix}`;
+}
+
 // ─── Types ──────────────────────────────────────────────
 
 export type FilterOperator =
@@ -540,16 +550,16 @@ export class QueryParser {
 					break;
 				case '_contains':
 				case '_icontains':
-					qb.where(f.field, 'LIKE', `%${f.value}%`);
+					qb.whereRaw(`${sanitizeIdentifier(f.field, 'QueryParser.filter')} LIKE ? ESCAPE '\\'`, [likePattern('%', f.value, '%')]);
 					break;
 				case '_ncontains':
-					qb.where(f.field, 'NOT LIKE', `%${f.value}%`);
+					qb.whereRaw(`${sanitizeIdentifier(f.field, 'QueryParser.filter')} NOT LIKE ? ESCAPE '\\'`, [likePattern('%', f.value, '%')]);
 					break;
 				case '_startswith':
-					qb.where(f.field, 'LIKE', `${f.value}%`);
+					qb.whereRaw(`${sanitizeIdentifier(f.field, 'QueryParser.filter')} LIKE ? ESCAPE '\\'`, [likePattern('', f.value, '%')]);
 					break;
 				case '_endswith':
-					qb.where(f.field, 'LIKE', `%${f.value}`);
+					qb.whereRaw(`${sanitizeIdentifier(f.field, 'QueryParser.filter')} LIKE ? ESCAPE '\\'`, [likePattern('%', f.value, '')]);
 					break;
 				case '_in':
 					qb.whereIn(f.field, f.value as unknown[]);
@@ -660,16 +670,16 @@ export class QueryParser {
 				}
 				case '_contains':
 				case '_icontains':
-					qb.whereRaw(`${fnExpr} LIKE ?`, [`%${ff.value}%`]);
+					qb.whereRaw(`${fnExpr} LIKE ? ESCAPE '\\'`, [likePattern('%', ff.value, '%')]);
 					break;
 				case '_ncontains':
-					qb.whereRaw(`${fnExpr} NOT LIKE ?`, [`%${ff.value}%`]);
+					qb.whereRaw(`${fnExpr} NOT LIKE ? ESCAPE '\\'`, [likePattern('%', ff.value, '%')]);
 					break;
 				case '_startswith':
-					qb.whereRaw(`${fnExpr} LIKE ?`, [`${ff.value}%`]);
+					qb.whereRaw(`${fnExpr} LIKE ? ESCAPE '\\'`, [likePattern('', ff.value, '%')]);
 					break;
 				case '_endswith':
-					qb.whereRaw(`${fnExpr} LIKE ?`, [`%${ff.value}`]);
+					qb.whereRaw(`${fnExpr} LIKE ? ESCAPE '\\'`, [likePattern('%', ff.value, '')]);
 					break;
 				case '_empty':
 					qb.whereRaw(`${fnExpr} = ''`);

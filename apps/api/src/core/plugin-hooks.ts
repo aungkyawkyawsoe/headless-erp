@@ -197,6 +197,21 @@ class PluginHookRegistry {
 	}
 
 	/**
+	 * Remove every hook registered under `pluginId`, returning how many were
+	 * removed.
+	 *
+	 * Registration happens ONCE per isolate (`bootModuleHooks`), so without this
+	 * a module UNINSTALLED at runtime would keep its compiled hooks live — and
+	 * keep writing their collections — until the isolate recycles. The reconciler
+	 * in `bootModuleHooks` calls it when the `_addons` state flips to off.
+	 */
+	unregisterPlugin(pluginId: string): number {
+		const before = this.hooks.length;
+		this.hooks = this.hooks.filter((h) => h.pluginId !== pluginId);
+		return before - this.hooks.length;
+	}
+
+	/**
 	 * Create a PluginHookAPI scoped to a specific plugin.
 	 * The pluginId is embedded in every registration for debugging.
 	 *

@@ -3,6 +3,7 @@ import {
 	Badge,
 	Button,
 	Checkbox,
+	confirmDialog,
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -40,10 +41,10 @@ export function TemplatesTab({ meta, api }: { meta: StudioMeta | null; api: Admi
 			filter: { id: 'label', label: 'Template', type: 'text' },
 			cell: ({ row }) => (
 				<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-					<LayoutTemplate size={14} style={{ color: '#6b7280', flexShrink: 0 }} />
+					<LayoutTemplate size={14} style={{ color: 'var(--mmbix-muted-foreground, #6b7280)', flexShrink: 0 }} />
 					<span style={{ fontSize: '0.82rem', fontWeight: 600 }}>{row.original.label}</span>
 					{row.original.is_default === 1 && (
-						<Badge variant="outline" style={{ fontSize: '0.55rem', color: '#2563eb' }}>
+						<Badge variant="outline" style={{ fontSize: '0.55rem', color: 'var(--mmbix-primary, #2563eb)' }}>
 							default
 						</Badge>
 					)}
@@ -61,7 +62,9 @@ export function TemplatesTab({ meta, api }: { meta: StudioMeta | null; api: Admi
 							{v}
 						</Badge>
 					))}
-					{row.original.views.length === 0 && <span style={{ fontSize: '0.65rem', color: '#9ca3af' }}>—</span>}
+					{row.original.views.length === 0 && (
+						<span style={{ fontSize: '0.65rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>—</span>
+					)}
 				</div>
 			),
 		},
@@ -89,10 +92,18 @@ export function TemplatesTab({ meta, api }: { meta: StudioMeta | null; api: Admi
 						variant="ghost"
 						size="icon-xs"
 						title="Delete"
-						style={{ color: '#dc2626' }}
-						onClick={() => {
-							if (confirm(`Delete template "${row.original.label}"?`))
-								void api(`/api/studio/template?key=${encodeURIComponent(row.original.key)}`, { method: 'DELETE' });
+						style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
+						onClick={async () => {
+							if (
+								!(await confirmDialog({
+									title: 'Delete template',
+									description: `Delete template "${row.original.label}"?`,
+									destructive: true,
+									confirmLabel: 'Delete',
+								}))
+							)
+								return;
+							await api(`/api/studio/template?key=${encodeURIComponent(row.original.key)}`, { method: 'DELETE' });
 						}}
 					>
 						<Trash2 size={13} />
@@ -150,7 +161,7 @@ export function TemplatesTab({ meta, api }: { meta: StudioMeta | null; api: Admi
 										<Label htmlFor={`tv-${vm.key}`} style={{ cursor: 'pointer', flex: 1 }}>
 											{vm.label}
 										</Label>
-										<span style={{ fontSize: '0.65rem', color: '#9ca3af' }}>{vm.key}</span>
+										<span style={{ fontSize: '0.65rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{vm.key}</span>
 									</div>
 								))}
 							</div>

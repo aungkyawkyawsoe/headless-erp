@@ -2,13 +2,17 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { sha256Hex } from '@/lib/services/api-key.service';
+import { mcpScopeAllows } from '@/plugins/mcp/plugin';
 
 /**
- * Inbound MCP — least privilege, read-first.
+ * Inbound MCP — least privilege.
  *
- * The surface is a JSON-RPC port over POST /api/mcp. v1 offers READ tools only;
- * a write tool is a deliberate absence, not an oversight, so the test asserts
- * the catalog contains no mutating tool.
+ * The surface is a JSON-RPC port over POST /api/mcp. Writes ARE shipped, but only
+ * through the governed manifest path, and authorization is enforced on TWO axes:
+ *   - key SCOPE (a read key is refused a mutating tool; an unclassified tool is
+ *     denied by default — see the `mcpScopeAllows` unit tests), and
+ *   - collection RBAC (every collection-scoped tool passes through the same
+ *     permission check the REST `businessGuard` applies).
  */
 
 const BASE_URL = 'http://localhost';
@@ -190,5 +194,29 @@ describe('inbound MCP server', () => {
 		});
 		const out = JSON.parse(res.body.result!.content[0].text) as { blocks: Array<{ children?: unknown[] }> };
 		expect(out.blocks[0].children).toHaveLength(1);
+	});
+});
+
+describe('MCP tool-scope policy (PoLP, deny-by-default)', () => {
+	it('allows a read tool to any scope', () => {
+		expect(mcpScopeAllows('read', 'query')).toBe(true);
+		expect(mcpScopeAllows(undefined, 'list_collections')).toBe(true);
+	});
+
+	it('refuses a mutating tool to a read or missing/empty scope', () => {
+		expect(mcpScopeAllows('read', 'mutate')).toBe(false);
+		expect(mcpScopeAllows('read', 'apply_manifest')).toBe(false);
+		// null / '' is NOT a session — it is an un-scoped key, denied write.
+		expect(mcpScopeAllows(null, 'mutate')).toBe(false);
+		expect(mcpScopeAllows('', 'mutate')).toBe(false);
+	});
+
+	it('lets a session bearer (undefined scope) reach a write tool — the tool’s own RBAC then decides', () => {
+		expect(mcpScopeAllows(undefined, 'mutate')).toBe(true);
+	});
+
+	it('denies an unclassified tool by default (a new write tool cannot ship readable)', () => {
+		expect(mcpScopeAllows('admin', 'brand_new_tool')).toBe(false);
+		expect(mcpScopeAllows(undefined, 'brand_new_tool')).toBe(false);
 	});
 });

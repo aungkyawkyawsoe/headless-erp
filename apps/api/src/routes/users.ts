@@ -19,6 +19,7 @@ import { MigrationRunner } from '@mmbix/core';
 import { requireAuth } from './auth';
 import { requireAdmin } from '@/middleware/rbac-guard';
 import { success, fail } from '@/lib/api/response';
+import { securityAudit, SECURITY_COLLECTIONS } from '@/lib/services/security-audit';
 import type { RoleRecord } from '@mmbix/types';
 
 /** Parse a raw role's `app_access` JSON TEXT into an array for the API body
@@ -74,6 +75,13 @@ app.post('/roles', requireAdmin, async (c) => {
 	const role = await auth.createRole(body);
 	// Invalidate cache for new role
 	PermissionEvaluator.invalidateAllBusinessCache();
+	securityAudit(c, {
+		collection: SECURITY_COLLECTIONS.access,
+		action: 'grant',
+		document_id: role.id,
+		user_id: c.get('auth')?.user_id ?? null,
+		changes: { kind: 'role_created', role_id: role.id, role_name: role.name },
+	});
 	return success(c, parseRoleAppAccess(role), 201);
 });
 
@@ -88,11 +96,20 @@ app.put('/roles/:id', requireAdmin, async (c) => {
 	let role = await auth.getRole(id);
 	if (!role) return fail(c, 'Role not found', 404, 'NOT_FOUND');
 	if (body.description !== undefined) role = await auth.updateRoleDescription(id, String(body.description));
+	let appAccess: string[] | null | undefined;
 	if (body.app_access !== undefined) {
-		const apps = Array.isArray(body.app_access) ? body.app_access.map(String) : null;
+		const apps: string[] | null = Array.isArray(body.app_access) ? body.app_access.map(String) : null;
 		await auth.setRoleAppAccess(id, apps);
+		appAccess = apps;
 	}
 	role = await auth.getRole(id);
+	securityAudit(c, {
+		collection: SECURITY_COLLECTIONS.access,
+		action: 'grant',
+		document_id: id,
+		user_id: c.get('auth')?.user_id ?? null,
+		changes: { kind: 'role_updated', role_id: id, ...(appAccess !== undefined ? { app_access: appAccess } : {}) },
+	});
 	return success(c, parseRoleAppAccess(role));
 });
 
@@ -107,6 +124,23 @@ app.post('/permissions', requireAdmin, async (c) => {
 	const perm = await auth.setPermission(body);
 	// Invalidate cache for this role
 	if (body.role_id) PermissionEvaluator.invalidateBusinessCache(body.role_id);
+	securityAudit(c, {
+		collection: SECURITY_COLLECTIONS.access,
+		action: 'grant',
+		document_id: perm.id,
+		user_id: c.get('auth')?.user_id ?? null,
+		changes: {
+			kind: 'permission_set',
+			role_id: body.role_id,
+			collection_slug: body.collection_slug,
+			can_read: perm.can_read,
+			can_write: perm.can_write,
+			can_create: perm.can_create,
+			can_delete: perm.can_delete,
+			can_approve: perm.can_approve,
+			can_submit: perm.can_submit,
+		},
+	});
 	return success(c, perm, 201);
 });
 

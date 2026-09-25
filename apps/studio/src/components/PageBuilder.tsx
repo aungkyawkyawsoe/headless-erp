@@ -15,6 +15,7 @@ import {
 	type PageData,
 } from '../lib/api';
 import { collectionQuery, collectionsQuery } from '../lib/queries';
+import { confirmDialog } from '@mmbix/design-system';
 import MenuPreview from './MenuPreview';
 import type { Node as MenuNode } from './MenuBuilder';
 import { useSnapshotHistory } from '../lib/use-snapshot-history';
@@ -650,7 +651,12 @@ export function PageBuilderProvider({
 					server &&
 					loadedUpdatedAt &&
 					server.updatedAt !== loadedUpdatedAt &&
-					!window.confirm('This page was modified by someone else since you opened it. Overwrite their changes?')
+					!(await confirmDialog({
+						title: 'Overwrite changes?',
+						description: 'This page was modified by someone else since you opened it. Overwrite their changes?',
+						confirmLabel: 'Overwrite',
+						destructive: true,
+					}))
 				) {
 					return;
 				}
@@ -989,7 +995,7 @@ export function BuilderMenu({ tree }: { tree: MenuNode[] }) {
 		<MenuPreview
 			tree={tree}
 			selectedId={selectedId}
-			onSelect={(id) => {
+			onSelect={async (id) => {
 				setSelectedId(id);
 				const walk = (list: MenuNode[]): MenuNode | null => {
 					for (const n of list) {
@@ -1008,7 +1014,16 @@ export function BuilderMenu({ tree }: { tree: MenuNode[] }) {
 					const wsTarget = node.target;
 					const alreadyOpen = pages.find((p) => p.path === wsTarget.replace(/^\//, ''))?.id === pageId;
 					if (alreadyOpen) return;
-					if (dirty && !window.confirm('You have unsaved changes on this page. Discard them and open the selected item?')) return;
+					if (
+						dirty &&
+						!(await confirmDialog({
+							title: 'Discard changes?',
+							description: 'You have unsaved changes on this page. Discard them and open the selected item?',
+							confirmLabel: 'Discard',
+							destructive: true,
+						}))
+					)
+						return;
 					// Workspaces are block pages — the menu template doesn't apply; drop the focus.
 					setActiveMenuId(null);
 					openTarget(node.label, wsTarget, workspaceSeed(node));
@@ -1051,7 +1066,16 @@ export function BuilderMenu({ tree }: { tree: MenuNode[] }) {
 					return;
 				}
 				// Unsaved-changes guard: switching to another menu item discards the draft — confirm first.
-				if (dirty && !window.confirm('You have unsaved changes on this page. Discard them and open the selected item?')) return;
+				if (
+					dirty &&
+					!(await confirmDialog({
+						title: 'Discard changes?',
+						description: 'You have unsaved changes on this page. Discard them and open the selected item?',
+						confirmLabel: 'Discard',
+						destructive: true,
+					}))
+				)
+					return;
 				focusMenu(targetNode.type === 'link' ? targetNode.id : null, applied);
 				openTarget(targetNode.label, targetNode.target);
 				// Apply the menu item's own template — its views define what the canvas shows.

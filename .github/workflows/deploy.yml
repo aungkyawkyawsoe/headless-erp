@@ -45,10 +45,19 @@ jobs:
       - run: pnpm turbo run lint
       - name: Security scan (debug/test-helper artifacts + config secrets)
         run: pnpm security
+      - name: Dependency audit — production deps (blocking at high)
+        run: pnpm check:security:deps
+      - name: Dependency audit — all deps (informational, non-blocking)
+        run: pnpm check:security:deps:all
+        continue-on-error: true
+      - name: Migration-set dry-run (numbered + unique + single-statement ledger)
+        run: pnpm check:migrations
       - run: pnpm format:check
       - run: pnpm turbo run build
       - name: Studio bundle budget (heavy pages stay code-split)
         run: node scripts/check-bundle-size.mjs
+      - name: API Worker bundle budget (wrangler dry-run output)
+        run: pnpm check:bundle:api
 
   studio-quality:
     runs-on: ubuntu-latest
@@ -95,7 +104,7 @@ jobs:
         run: pnpm run test:e2e
 
   deploy-api:
-    needs: quality
+    needs: [quality, studio-e2e]
     # PRs run the quality gates only — never deploy PR code to production.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -131,7 +140,7 @@ jobs:
           curl --fail --silent --show-error --max-time 30 -o /dev/null -w 'health: %{http_code}\n' "$URL/api/health"
 
   deploy-studio:
-    needs: [quality, studio-quality]
+    needs: [quality, studio-quality, studio-e2e]
     # PRs run the quality gates only — never deploy PR code to production.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -151,10 +160,20 @@ jobs:
         run: pnpm build
       - name: Build + Deploy Studio Worker
         working-directory: apps/studio
-        run: pnpm run deploy
+        run: |
+          set -o pipefail
+          pnpm run deploy | tee /tmp/studio-deploy.log
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       - name: Smoke test deployed studio
         run: |
-          curl --fail --silent --show-error --max-time 30 -o /dev/null -w 'studio root: %{http_code}\n' https://erp-studio.mfflogistics.com/
+          # Derive the deployed URL from wrangler output — never a hardcoded
+          # domain (STUDIO_DOMAIN is optional; the workers.dev host is canonical).
+          URL=$(grep -oE 'https://[^[:space:]]*workers\.dev[^[:space:]]*' /tmp/studio-deploy.log | head -1)
+          if [ -z "$URL" ]; then
+            echo "::error::Could not find the deployed workers.dev URL in the Studio wrangler output"
+            exit 1
+          fi
+          echo "Smoke-testing $URL/"
+          curl --fail --silent --show-error --max-time 30 -o /dev/null -w 'studio root: %{http_code}\n' "$URL/"

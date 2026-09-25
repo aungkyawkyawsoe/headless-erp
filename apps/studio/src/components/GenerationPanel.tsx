@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FIELD_TYPE_NAMES } from '@mmbix/utils';
-import { Badge, Button, Input } from '@mmbix/design-system';
+import { Button, Input } from '@mmbix/design-system';
 import {
 	listGenerationProposals,
 	proposeGeneration,
@@ -10,6 +10,7 @@ import {
 	type GenerationProposalRecord,
 } from '../lib/api';
 import { blockTypeSummary, confidenceTone, nextGenerationActions, summarizeProposal, type GenerationAction } from '../lib/generation';
+import StatusBadge from './StatusBadge';
 
 /**
  * GenerationPanel — the human gate in the Studio.
@@ -25,14 +26,6 @@ const ACTION_LABEL: Record<GenerationAction, string> = {
 	approve: 'Approve',
 	reject: 'Reject',
 	apply: 'Apply (create app)',
-};
-
-const STATUS_TONE: Record<string, string> = {
-	draft: '#64748b',
-	review: '#b45309',
-	promoted: '#1d4ed8',
-	live: '#0f766e',
-	rejected: '#b91c1c',
 };
 
 export default function GenerationPanel({
@@ -135,7 +128,7 @@ export default function GenerationPanel({
 				</Button>
 				<span style={{ fontSize: 12, opacity: 0.7 }}>Proposals never write a schema — only Apply does.</span>
 			</div>
-			{error && <div style={{ color: '#b91c1c', fontSize: 13 }}>{error}</div>}
+			{error && <div style={{ color: 'var(--mmbix-tone-danger-fg, #b91c1c)', fontSize: 13 }}>{error}</div>}
 
 			<div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 				{proposals.map((p) => {
@@ -145,9 +138,7 @@ export default function GenerationPanel({
 						<div key={p.id} style={{ border: '1px solid var(--mmbix-border, #e2e8f0)', borderRadius: 8, padding: 10 }}>
 							<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 								<strong style={{ fontSize: 13 }}>{p.proposal.collection.name}</strong>
-								<Badge variant="outline" style={{ color: STATUS_TONE[p.status] }}>
-									{p.status}
-								</Badge>
+								<StatusBadge status={p.status} />
 								<span style={{ fontSize: 12, opacity: 0.7, marginLeft: 'auto' }}>
 									{summary.fields} fields · {summary.declared} declared / {summary.rules} rules / {summary.heuristic} heuristic
 									{summary.relations > 0 ? ` · ${summary.relations} relations` : ''}

@@ -39,6 +39,18 @@ export function listRegisteredFunctions(): string[] {
 	return [...functionRegistry.keys()].sort();
 }
 
+/**
+ * Call a registered function with NO arguments — the entry point the $-named
+ * variable pre-processors (`$NOW`/`$TODAY`/`$UUID`/`$TIMESTAMP`) use, so their
+ * implementation is the SAME one the evaluator invokes for `NOW()`/`TODAY()`.
+ * Throws for an unknown name (the $-built-ins always exist).
+ */
+export function callBuiltin(name: string): unknown {
+	const fn = functionRegistry.get(name);
+	if (!fn) throw new Error(`Unknown function "${name}"`);
+	return fn([]);
+}
+
 // ─── Built-ins (single source of truth — same registry as extensions) ──
 
 registerFunction('NOW', () => new Date().toISOString());

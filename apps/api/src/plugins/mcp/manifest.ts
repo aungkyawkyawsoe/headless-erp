@@ -76,6 +76,17 @@ function declaredId(prefix: string, name: string): string {
 /** The report table's `cron` is NOT NULL but nothing dispatches it — see the spec. */
 const REPORT_CRON_SENTINEL = 'on-demand';
 
+/**
+ * Durable ownership marker written onto every row `applyManifest` creates. A row
+ * with any OTHER `source` (or `NULL` = hand/Studio/CLI-created) is INVISIBLE to
+ * reconciliation — the safety property that a manifest can only ever remove the
+ * rows it itself created. Mirrors `_role_permissions.source` (migration 036).
+ */
+const MANIFEST_SOURCE = 'manifest';
+
+/** Upper bound on rows examined per reconciled domain (reads are LIMIT-bounded). */
+const RECONCILE_SCAN_LIMIT = 500;
+
 export interface ManifestValidation {
 	manifest: FactoryManifest | null;
 	warnings: string[];
@@ -421,7 +432,25 @@ export function validateManifest(input: unknown): ManifestValidation {
 	}
 
 	return {
-		manifest: { version: 1, collections, pages, roles, permissions, workflows, menus, kpis, serverFunctions, apiKeys, schedules, reports },
+		manifest: {
+			version: 1,
+			collections,
+			pages,
+			roles,
+			permissions,
+			workflows,
+			menus,
+			kpis,
+			// Presence-preserving for the RECONCILED domains (`serverFunctions` /
+			// `apiKeys` / `schedules` / `reports`): an ABSENT key means "this manifest
+			// does not manage that domain", so reconciliation skips it entirely. A
+			// PRESENT key (even `[]`) is a full declaration of that domain's
+			// manifest-owned set. See `findManifestRemovals`.
+			...(o.serverFunctions !== undefined ? { serverFunctions } : {}),
+			...(o.apiKeys !== undefined ? { apiKeys } : {}),
+			...(o.schedules !== undefined ? { schedules } : {}),
+			...(o.reports !== undefined ? { reports } : {}),
+		},
 		warnings,
 	};
 }
@@ -464,6 +493,74 @@ async function existingPages(db: D1Client): Promise<Map<string, string>> {
 	const out = new Map<string, string>();
 	for (const r of rows) out.set(`${r.module_id ?? ''}${r.path}`, r.blocks_json);
 	return out;
+}
+
+/**
+ * A manifest-owned row the CURRENT declaration no longer names.
+ * `id` is the row's primary key (the unit reconciliation acts on).
+ */
+interface ManifestRemoval {
+	domain: 'schedule' | 'apiKey' | 'serverFunction' | 'report';
+	id: string;
+	target: string;
+}
+
+/**
+ * Rows the manifest itself created (`source = 'manifest'`) that its current
+ * declaration no longer names — the work item for reconciliation.
+ *
+ * Three invariants make this safe by construction:
+ *   1. Only `source = 'manifest'` rows are ever returned — a `NULL` source
+ *      (hand/Studio/CLI-created) is invisible, so a manifest can never nuke an
+ *      unrelated job/key/hook/report. (The negative-control property.)
+ *   2. Only DOMAINS THIS MANIFEST DECLARES are examined. An absent key means "not
+ *      managed here", so a partial manifest (e.g. three `schedules` added to an
+ *      existing app) can never touch another domain's rows.
+ *   3. Each read is LIMIT-bounded (`RECONCILE_SCAN_LIMIT`) and swallows a missing
+ *      table/column (a not-yet-migrated database) as "nothing owned" — it fails
+ *      CLOSED (no deletion) rather than throwing.
+ */
+async function findManifestRemovals(db: D1Client, manifest: FactoryManifest): Promise<ManifestRemoval[]> {
+	const removals: ManifestRemoval[] = [];
+	const ownedWhere = `source = '${MANIFEST_SOURCE}' LIMIT ${RECONCILE_SCAN_LIMIT}`;
+
+	if (manifest.schedules !== undefined) {
+		const declared = new Set(manifest.schedules.map((s) => declaredId('mf_', s.name)));
+		const owned = await safeAll<{ id: string; name: string | null }>(db, `SELECT id, name FROM _scheduler_tasks WHERE ${ownedWhere}`);
+		for (const row of owned) {
+			if (declared.has(row.id)) continue;
+			removals.push({ domain: 'schedule', id: row.id, target: `schedule:${row.name ?? row.id}` });
+		}
+	}
+
+	if (manifest.apiKeys !== undefined) {
+		const declared = new Set(manifest.apiKeys.map((k) => k.name));
+		const owned = await safeAll<{ id: string; name: string }>(db, `SELECT id, name FROM _api_keys WHERE ${ownedWhere}`);
+		for (const row of owned) {
+			if (declared.has(row.name)) continue;
+			removals.push({ domain: 'apiKey', id: row.id, target: `apiKey:${row.name}` });
+		}
+	}
+
+	if (manifest.serverFunctions !== undefined) {
+		const declared = new Set(manifest.serverFunctions.map((s) => s.name));
+		const owned = await safeAll<{ id: string; name: string }>(db, `SELECT id, name FROM _server_functions WHERE ${ownedWhere}`);
+		for (const row of owned) {
+			if (declared.has(row.name)) continue;
+			removals.push({ domain: 'serverFunction', id: row.id, target: `serverFunction:${row.name}` });
+		}
+	}
+
+	if (manifest.reports !== undefined) {
+		const declared = new Set(manifest.reports.map((r) => declaredId('mfr_', r.name)));
+		const owned = await safeAll<{ id: string; name: string }>(db, `SELECT id, name FROM _report_schedules WHERE ${ownedWhere}`);
+		for (const row of owned) {
+			if (declared.has(row.id)) continue;
+			removals.push({ domain: 'report', id: row.id, target: `report:${row.name}` });
+		}
+	}
+
+	return removals;
 }
 
 /** Diff a manifest against the live factory. READ-ONLY — never writes. */
@@ -635,7 +732,17 @@ export async function planManifest(db: D1Client, manifest: FactoryManifest): Pro
 		);
 	}
 
-	const summary = { create: 0, update: 0, skip: 0 };
+	// Reconcile preview — rows THIS manifest created that it no longer declares.
+	// `plan_manifest` NEVER writes; it only reports what an `apply` would remove.
+	for (const removal of await findManifestRemovals(db, manifest)) {
+		actions.push({
+			kind: 'remove',
+			target: removal.target,
+			detail: 'manifest no longer declares this — removed on apply',
+		});
+	}
+
+	const summary = { create: 0, update: 0, skip: 0, remove: 0 };
 	for (const a of actions) summary[a.kind]++;
 	return { actions, summary, warnings };
 }
@@ -848,6 +955,7 @@ export async function applyManifest(
 				trigger_event: s.trigger_event as ServerFunctionInput['trigger_event'],
 				...(s.rules ? { rules: s.rules as unknown as ServerFunctionInput['rules'] } : {}),
 				...(s.enabled === false ? { enabled: false } : {}),
+				source: MANIFEST_SOURCE,
 			});
 			results.push({ target, ok: true });
 		} catch (err) {
@@ -869,6 +977,7 @@ export async function applyManifest(
 				user_id: k.user_id,
 				...(k.role_id ? { role_id: k.role_id } : {}),
 				scope: (k.scope ?? 'read') as ApiKeyScope,
+				source: MANIFEST_SOURCE,
 			});
 			results.push({ target, ok: true, secret: created.key });
 		} catch (err) {
@@ -905,6 +1014,7 @@ export async function applyManifest(
 					...(s.max_attempts ? { maxAttempts: s.max_attempts } : {}),
 				},
 				schedulerEnv,
+				{ source: MANIFEST_SOURCE },
 			);
 			results.push({ target, ok: true });
 		} catch (err) {
@@ -919,14 +1029,40 @@ export async function applyManifest(
 		const target = `report:${r.name}`;
 		try {
 			await db.run({
-				sql: `INSERT INTO _report_schedules (id, name, collection_slug, format, cron, group_by, aggregate, filter_json, enabled)
-					VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 1)
-					ON CONFLICT(id) DO UPDATE SET name = excluded.name, collection_slug = excluded.collection_slug, format = excluded.format, cron = excluded.cron`,
+				sql: `INSERT INTO _report_schedules (id, name, collection_slug, format, cron, group_by, aggregate, filter_json, enabled, source)
+					VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 1, '${MANIFEST_SOURCE}')
+					ON CONFLICT(id) DO UPDATE SET name = excluded.name, collection_slug = excluded.collection_slug, format = excluded.format, cron = excluded.cron, source = COALESCE(_report_schedules.source, excluded.source)`,
 				bindings: [declaredId('mfr_', r.name), r.name, r.collection, r.format ?? 'json', REPORT_CRON_SENTINEL],
 			});
 			results.push({ target, ok: true });
 		} catch (err) {
 			results.push({ target, ok: false, error: err instanceof Error ? err.message : 'report upsert failed' });
+		}
+	}
+
+	// ── Reconcile: remove manifest-owned rows this declaration dropped ───────
+	// Runs LAST, after every upsert, so a declared row is never mistaken for an
+	// orphan. Only `source = 'manifest'` rows are candidates (hand/Studio rows are
+	// invisible), and only for domains THIS manifest declares.
+	for (const removal of await findManifestRemovals(db, manifest)) {
+		try {
+			if (removal.domain === 'schedule') {
+				// Deletes the row AND disarms its DO alarm (see SchedulerService.remove).
+				await scheduler.remove(removal.id, schedulerEnv);
+			} else if (removal.domain === 'apiKey') {
+				await keys.delete(removal.id);
+			} else if (removal.domain === 'serverFunction') {
+				await hooks.delete(removal.id);
+			} else {
+				// The `source` guard is belt-and-suspenders on top of the selection.
+				await db.run({
+					sql: `DELETE FROM _report_schedules WHERE id = ? AND source = '${MANIFEST_SOURCE}'`,
+					bindings: [removal.id],
+				});
+			}
+			results.push({ target: removal.target, ok: true });
+		} catch (err) {
+			results.push({ target: removal.target, ok: false, error: err instanceof Error ? err.message : 'reconcile failed' });
 		}
 	}
 

@@ -12,7 +12,7 @@
  * supported (IN(doc.status, ['new', 'approved'])).
  */
 
-export { registerFunction, getFunction, listRegisteredFunctions, type EvalFunction } from './registry';
+export { registerFunction, getFunction, listRegisteredFunctions, callBuiltin, type EvalFunction } from './registry';
 export { evaluateWith, validateExpressionComplexity, assertComplexity, MAX_EXPRESSION_LENGTH, MAX_EXPRESSION_TOKENS } from './parser';
 export { isCallableFunction } from './callable';
 export { Parser } from './parser';

@@ -38,6 +38,13 @@ export interface ScheduledTask {
 	/** JSON-encoded result of the last run. */
 	last_result: string | null;
 	last_run_at: string | null;
+	/**
+	 * When the task was DISARMED after exhausting its retry budget — the durable
+	 * marker that this job has STOPPED (not merely failed once and is backing off).
+	 * `null` while the task is armed/pending/recurring or mid-backoff. Cleared when
+	 * the task is re-scheduled, retried, or a recurring occurrence succeeds.
+	 */
+	disarmed_at: string | null;
 	completed_at: string | null;
 	created_at: string;
 	updated_at: string;
@@ -91,6 +98,11 @@ export interface RunOutcome {
 	next_run_at: string | null;
 	result?: unknown;
 	error?: string;
+	/**
+	 * True when this run exhausted the retry budget and the task was disarmed
+	 * (terminally failed). False while a failure is still backing off for a retry.
+	 */
+	disarmed?: boolean;
 	/** Why the task did not run (guards in the execution path). */
 	skipped?: 'not_found' | 'not_due' | 'cancelled' | 'done' | 'no_handler';
 }

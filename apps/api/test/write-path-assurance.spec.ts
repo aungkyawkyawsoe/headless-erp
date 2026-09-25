@@ -18,6 +18,10 @@ import type { AuthContext } from '@/lib/services/auth.service';
  *    bypassed the engine's invalidation seam, so a submit/approve/reject served
  *    the pre-decision `doc_status` from the response cache and reported no
  *    `meta.changed`. It now calls `invalidateCollectionReads`.
+ * 3. `row_filters` with more than one condition honoured the operator, but a
+ *    SINGLE-condition filter collapsed every operator except null/nnull/in to
+ *    `=` (DataFilterService._applySingleCondition) — a `neq`/`gte` scope silently
+ *    matched equality. Both paths now share one operator table.
  */
 
 const BASE_URL = 'http://localhost';
@@ -428,5 +432,59 @@ describe('row_filters gate reads AND writes', () => {
 	it('allows updating the caller’s own row', async () => {
 		const res = await call(`/api/entities/${COLLECTION}/${rowA}`, { method: 'PUT', body: JSON.stringify({ label: 'mine-2' }) }, tokenA);
 		expect(res.status).toBe(200);
+	});
+});
+
+describe('a SINGLE-condition row_filter honours its operator (regression)', () => {
+	// Before the fix a one-condition filter passed only the VALUE to the query
+	// builder, collapsing `neq/gt/gte/lt/lte/like/nin` into `=`. A `gte` scope then
+	// matched nothing (or, for `neq`, the wrong rows) — silently wrong, not noisy.
+	const COLLECTION = 'rowop_probe';
+	const ROLE = crypto.randomUUID();
+	const USER = crypto.randomUUID();
+	let token = '';
+
+	beforeAll(async () => {
+		const created = await call('/api/collections', {
+			method: 'POST',
+			body: JSON.stringify({
+				name: COLLECTION,
+				slug: COLLECTION,
+				fields: [
+					{ name: 'label', type: 'text', required: false },
+					{ name: 'bucket', type: 'number', required: false },
+				],
+			}),
+		});
+		expect([201, 409]).toContain(created.status);
+
+		await env.DB.prepare('INSERT INTO _roles (id, name, description, is_system) VALUES (?, ?, ?, 0)')
+			.bind(ROLE, `RowOp-${ROLE.slice(0, 8)}`, 'test')
+			.run();
+		// ONE condition with a comparison operator — the exact shape that regressed.
+		await env.DB.prepare(
+			'INSERT INTO _role_permissions (id, role_id, collection_slug, can_read, can_write, can_create, can_delete, can_approve, can_submit, row_filters) VALUES (?, ?, ?, 1, 0, 0, 0, 0, 0, ?)',
+		)
+			.bind(
+				crypto.randomUUID(),
+				ROLE,
+				COLLECTION,
+				JSON.stringify({ combiner: 'and', conditions: [{ field: 'bucket', op: 'gte', value: 10 }] }),
+			)
+			.run();
+		await env.DB.prepare("INSERT INTO _users (id, email, full_name, password_hash, role_id, status) VALUES (?, ?, ?, 'x', ?, 'active')")
+			.bind(USER, `rowop-${USER.slice(0, 8)}@test.local`, 'Row Op', ROLE)
+			.run();
+		token = await new AuthService(new D1Client(env.DB)).generateToken(USER, (env as unknown as Record<string, string>).JWT_SECRET);
+
+		await call(`/api/entities/${COLLECTION}`, { method: 'POST', body: JSON.stringify({ label: 'low', bucket: 5 }) });
+		await call(`/api/entities/${COLLECTION}`, { method: 'POST', body: JSON.stringify({ label: 'high', bucket: 20 }) });
+	});
+
+	it('returns only the rows satisfying the comparison (gte), not equality', async () => {
+		const res = await json(await call(`/api/entities/${COLLECTION}?limit=50&fields=id,bucket`, {}, token));
+		const rows = res.data as unknown as Array<{ bucket: number }>;
+		expect(rows.length).toBe(1);
+		expect(rows[0].bucket).toBe(20);
 	});
 });

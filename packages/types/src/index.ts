@@ -2,6 +2,7 @@ export { decodeApp, parseField } from './dsl/app.ts';
 export type { AppDoc, AppDecode } from './dsl/app.ts';
 export type {
 	FieldType,
+	FormulaResultType,
 	DocStatus,
 	ApprovalLevel,
 	ApprovalWorkflow,
@@ -33,7 +34,7 @@ export type {
 	// Standard API envelope
 	ApiResponse,
 } from './entity';
-export { DEFAULT_SYSTEM_FIELDS, SYSTEM_FIELDS } from './entity';
+export { DEFAULT_SYSTEM_FIELDS, SYSTEM_FIELDS, FORMULA_RESULT_TYPES } from './entity';
 export type { AuthContext } from './auth';
 // Frontend ↔ API contract types (client apps import these).
 export type {

@@ -22,6 +22,16 @@ export interface CapabilityDescriptor {
 	summary: string;
 	/** Short, human/agent-readable param hint — deliberately brief (token-cheap). */
 	params?: string;
+	/**
+	 * The MCP tool(s) in the plugin's `TOOLS` catalog that implement this
+	 * capability (a capability can be served by more than one verb, e.g. the
+	 * proposal gate spans `submit_for_review` + `promote`). Every name MUST exist
+	 * in `TOOLS`, and every `TOOLS` name must be referenced by ≥1 capability —
+	 * pinned by `mcp-capability-tools.spec.ts`, so a new tool cannot drift from
+	 * the catalog. Omitted for discovery-only capabilities (e.g. the
+	 * `factory://blocks` resource, which is a resource, not a tool).
+	 */
+	tools?: string[];
 	/** True when a shipped verb/route implements it today. */
 	available: boolean;
 }

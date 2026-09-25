@@ -51,13 +51,24 @@ export class ServerFunctionService {
 
 	private async _setupTable(): Promise<void> {
 		await this.db.run({
-			sql: `CREATE TABLE IF NOT EXISTS ${TABLE} (id TEXT PRIMARY KEY, name TEXT NOT NULL, collection_slug TEXT NOT NULL, trigger_event TEXT NOT NULL CHECK(trigger_event IN (${DECLARATIVE_TRIGGER_SQL_LIST})), function_code TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+			sql: `CREATE TABLE IF NOT EXISTS ${TABLE} (id TEXT PRIMARY KEY, name TEXT NOT NULL, collection_slug TEXT NOT NULL, trigger_event TEXT NOT NULL CHECK(trigger_event IN (${DECLARATIVE_TRIGGER_SQL_LIST})), function_code TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, source TEXT DEFAULT NULL)`,
 			bindings: [],
 		});
 		// v0.7: add rules column if missing (idempotent migration)
 		await this.db
 			.run({
 				sql: `ALTER TABLE ${TABLE} ADD COLUMN rules TEXT`,
+				bindings: [],
+			})
+			.catch(() => {
+				/* column already exists */
+			});
+		// Ownership marker (`'manifest'`) — hand/Studio hooks stay NULL and are
+		// therefore INVISIBLE to reconciliation. Idempotent (plugin migration 043
+		// adds the same column; whichever runs first wins).
+		await this.db
+			.run({
+				sql: `ALTER TABLE ${TABLE} ADD COLUMN source TEXT DEFAULT NULL`,
 				bindings: [],
 			})
 			.catch(() => {
@@ -117,7 +128,7 @@ export class ServerFunctionService {
 		const rulesText = input.rules ? JSON.stringify(input.rules) : null;
 		await this._queryWithSelfHeal(() =>
 			this.db.run({
-				sql: `INSERT INTO ${TABLE} (id, name, collection_slug, trigger_event, function_code, rules, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				sql: `INSERT INTO ${TABLE} (id, name, collection_slug, trigger_event, function_code, rules, enabled, created_at, updated_at, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				bindings: [
 					id,
 					input.name,
@@ -128,6 +139,7 @@ export class ServerFunctionService {
 					input.enabled !== false ? 1 : 0,
 					now,
 					now,
+					input.source ?? null,
 				],
 			}),
 		);

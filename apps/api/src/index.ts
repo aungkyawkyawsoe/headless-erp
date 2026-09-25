@@ -73,6 +73,8 @@ import { pageRoutes } from './routes/pages';
 import { translationRoutes } from './routes/translations';
 // v0.9: AI generation (prompt → block JSON metadata)
 import { aiRoutes } from './routes/ai';
+// v0.9: OCR (image → text) — honest 501 until a vision provider is configured
+import { ocrRoutes } from './routes/ocr';
 // v0.9: Design tokens (theme swap layer)
 import { designTokenRoutes } from './routes/design-tokens';
 // v1.1: Machine API keys (headless/integration access)
@@ -324,7 +326,7 @@ app.use(
 		},
 		credentials: false,
 		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-		allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Tenant-Id'],
+		allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Write-Ack'],
 		maxAge: 86400,
 	}),
 );
@@ -695,6 +697,8 @@ app.route('/api/pages', pageRoutes);
 app.route('/api/translations', translationRoutes);
 // v0.9: AI generation
 app.route('/api/ai', aiRoutes);
+// v0.9: OCR (image → text) — sibling of /api/ai, served by the same provider seam
+app.route('/api/ocr', ocrRoutes);
 // v0.9: Design tokens
 app.route('/api/design-tokens', designTokenRoutes);
 // v1.1: Machine API keys

@@ -1,9 +1,11 @@
-import { Alert, AlertDescription, Badge, Progress } from '@mmbix/design-system';
+import { Alert, AlertDescription, Progress } from '@mmbix/design-system';
 import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
 import { useQuery } from '@tanstack/react-query';
 import { idpPoliciesQuery } from '../lib/queries';
 import { messageOf } from '../lib/errors';
+import { toneVars } from '../lib/status';
 import IdpShell, { IdpStat } from '../components/IdpShell';
+import StatusBadge from '../components/StatusBadge';
 
 const WRAPPER: React.CSSProperties = {
 	padding: '1rem',
@@ -43,18 +45,7 @@ export default function IdpPoliciesPage({ token, user }: { token: string; user: 
 			header: 'Policy',
 			cell: ({ row }) => {
 				const ok = row.original.status === 'pass';
-				return (
-					<Badge
-						variant="outline"
-						style={
-							ok
-								? { color: '#15803d', background: '#ecfdf5', borderColor: '#86efac', fontWeight: 600 }
-								: { color: '#b91c1c', background: '#fef2f2', borderColor: '#fca5a5', fontWeight: 600 }
-						}
-					>
-						{ok ? 'Pass' : 'Fail'}
-					</Badge>
-				);
+				return <StatusBadge tone={ok ? 'positive' : 'danger'} label={ok ? 'Pass' : 'Fail'} />;
 			},
 		},
 		{
@@ -67,9 +58,7 @@ export default function IdpPoliciesPage({ token, user }: { token: string; user: 
 				) : (
 					<span style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
 						{row.original.violations.map((v) => (
-							<Badge key={v} variant="outline" style={{ color: '#b45309', background: '#fffbeb', borderColor: '#fcd34d' }}>
-								{labelOf.get(v) ?? v}
-							</Badge>
+							<StatusBadge key={v} tone="warning" label={labelOf.get(v) ?? v} />
 						))}
 					</span>
 				),
@@ -91,8 +80,8 @@ export default function IdpPoliciesPage({ token, user }: { token: string; user: 
 					<>
 						<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem', minWidth: 0 }}>
 							<IdpStat label="Modules" value={data.summary.total} />
-							<IdpStat label="Passing" value={data.summary.passing} color="#15803d" />
-							<IdpStat label="Failing" value={data.summary.failing} color="#b91c1c" />
+							<IdpStat label="Passing" value={data.summary.passing} color={toneVars('positive').color} />
+							<IdpStat label="Failing" value={data.summary.failing} color={toneVars('danger').color} />
 						</div>
 
 						{/* Per-rule coverage — each rule's pass % across the catalog. */}

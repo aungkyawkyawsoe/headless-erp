@@ -8,7 +8,15 @@
  *   throw new NotFoundError('Collection', slug)
  *   throw new ValidationError('Invalid field name')
  *   throw new AppError(409, 'CONFLICT', 'Duplicate entry')
+ *
+ * The `code` each class reports is derived from the canonical catalog
+ * (`./codes`, re-exported as `@mmbix/types/contract`) via `errorCodeForStatus`,
+ * so a class and the wire catalog can never drift apart.
  */
+
+import { errorCodeForStatus } from './codes';
+
+export * from './codes';
 
 // ─── Base Error ────────────────────────────────────────
 
@@ -49,7 +57,7 @@ export class AppError extends Error {
 /** 400 Bad Request — Invalid input */
 export class ValidationError extends AppError {
 	constructor(message: string, details?: unknown, field?: string) {
-		super(400, 'VALIDATION_ERROR', message, details, field);
+		super(400, errorCodeForStatus(400), message, details, field);
 		this.name = 'ValidationError';
 		Object.setPrototypeOf(this, ValidationError.prototype);
 	}
@@ -58,7 +66,7 @@ export class ValidationError extends AppError {
 /** 401 Unauthorized — Missing or invalid credentials */
 export class UnauthorizedError extends AppError {
 	constructor(message = 'Authentication required') {
-		super(401, 'UNAUTHORIZED', message);
+		super(401, errorCodeForStatus(401), message);
 		this.name = 'UnauthorizedError';
 		Object.setPrototypeOf(this, UnauthorizedError.prototype);
 	}
@@ -67,7 +75,7 @@ export class UnauthorizedError extends AppError {
 /** 403 Forbidden — Authenticated but not allowed */
 export class ForbiddenError extends AppError {
 	constructor(message = 'Access denied') {
-		super(403, 'FORBIDDEN', message);
+		super(403, errorCodeForStatus(403), message);
 		this.name = 'ForbiddenError';
 		Object.setPrototypeOf(this, ForbiddenError.prototype);
 	}
@@ -77,7 +85,7 @@ export class ForbiddenError extends AppError {
 export class NotFoundError extends AppError {
 	constructor(resource: string, identifier?: string) {
 		const msg = identifier ? `${resource} "${identifier}" not found` : `${resource} not found`;
-		super(404, 'NOT_FOUND', msg);
+		super(404, errorCodeForStatus(404), msg);
 		this.name = 'NotFoundError';
 		Object.setPrototypeOf(this, NotFoundError.prototype);
 	}
@@ -86,7 +94,7 @@ export class NotFoundError extends AppError {
 /** 409 Conflict — Duplicate or state conflict */
 export class ConflictError extends AppError {
 	constructor(message: string) {
-		super(409, 'CONFLICT', message);
+		super(409, errorCodeForStatus(409), message);
 		this.name = 'ConflictError';
 		Object.setPrototypeOf(this, ConflictError.prototype);
 	}
@@ -95,7 +103,7 @@ export class ConflictError extends AppError {
 /** 413 Payload Too Large — File/request too big */
 export class PayloadTooLargeError extends AppError {
 	constructor(message: string) {
-		super(413, 'PAYLOAD_TOO_LARGE', message);
+		super(413, errorCodeForStatus(413), message);
 		this.name = 'PayloadTooLargeError';
 		Object.setPrototypeOf(this, PayloadTooLargeError.prototype);
 	}
@@ -104,7 +112,7 @@ export class PayloadTooLargeError extends AppError {
 /** 415 Unsupported Media Type — Bad content type */
 export class UnsupportedMediaError extends AppError {
 	constructor(message: string) {
-		super(415, 'UNSUPPORTED_MEDIA_TYPE', message);
+		super(415, errorCodeForStatus(415), message);
 		this.name = 'UnsupportedMediaError';
 		Object.setPrototypeOf(this, UnsupportedMediaError.prototype);
 	}
@@ -113,7 +121,7 @@ export class UnsupportedMediaError extends AppError {
 /** 429 Too Many Requests — Rate limited */
 export class RateLimitError extends AppError {
 	constructor(message = 'Too many requests, please try again later') {
-		super(429, 'RATE_LIMIT_EXCEEDED', message);
+		super(429, errorCodeForStatus(429), message);
 		this.name = 'RateLimitError';
 		Object.setPrototypeOf(this, RateLimitError.prototype);
 	}
@@ -124,7 +132,7 @@ export class RateLimitError extends AppError {
 /** 500 Internal Server Error */
 export class InternalError extends AppError {
 	constructor(message = 'Internal server error', details?: unknown) {
-		super(500, 'INTERNAL_ERROR', message, details);
+		super(500, errorCodeForStatus(500), message, details);
 		this.name = 'InternalError';
 		Object.setPrototypeOf(this, InternalError.prototype);
 	}

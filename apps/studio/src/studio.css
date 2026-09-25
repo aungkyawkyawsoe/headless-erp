@@ -41,6 +41,25 @@
 	--mmbix-border: #e2e8f0;
 	--mmbix-ring: #14b8a6;
 	--mmbix-input: #cbd5e1;
+
+	/* Status tones — the ONE palette `components/StatusBadge.tsx` paints with.
+	 * A tenant can override any of these via its effective design tokens, so a
+	 * status reads consistently everywhere AND stays re-themable. */
+	--mmbix-tone-neutral-fg: #4b5563;
+	--mmbix-tone-neutral-bg: #f9fafb;
+	--mmbix-tone-neutral-border: #d1d5db;
+	--mmbix-tone-info-fg: #1d4ed8;
+	--mmbix-tone-info-bg: #eff6ff;
+	--mmbix-tone-info-border: #93c5fd;
+	--mmbix-tone-positive-fg: #15803d;
+	--mmbix-tone-positive-bg: #ecfdf5;
+	--mmbix-tone-positive-border: #86efac;
+	--mmbix-tone-warning-fg: #b45309;
+	--mmbix-tone-warning-bg: #fffbeb;
+	--mmbix-tone-warning-border: #fcd34d;
+	--mmbix-tone-danger-fg: #b91c1c;
+	--mmbix-tone-danger-bg: #fef2f2;
+	--mmbix-tone-danger-border: #fca5a5;
 }
 
 /* ── Dark theme — the same token set with a slate + teal palette, activated by the
@@ -90,6 +109,23 @@
 	--mmbix-border: #263449;
 	--mmbix-ring: #2dd4bf;
 	--mmbix-input: #334155;
+
+	/* Status tones — dark variants (see the light block for the contract). */
+	--mmbix-tone-neutral-fg: #cbd5e1;
+	--mmbix-tone-neutral-bg: #1e293b;
+	--mmbix-tone-neutral-border: #334155;
+	--mmbix-tone-info-fg: #93c5fd;
+	--mmbix-tone-info-bg: #172554;
+	--mmbix-tone-info-border: #1e3a8a;
+	--mmbix-tone-positive-fg: #6ee7b7;
+	--mmbix-tone-positive-bg: #052e2b;
+	--mmbix-tone-positive-border: #065f46;
+	--mmbix-tone-warning-fg: #fcd34d;
+	--mmbix-tone-warning-bg: #3b2606;
+	--mmbix-tone-warning-border: #92400e;
+	--mmbix-tone-danger-fg: #fca5a5;
+	--mmbix-tone-danger-bg: #3f1415;
+	--mmbix-tone-danger-border: #7f1d1d;
 }
 
 /* Tabs: the design-system ships prebuilt `variant="line"` underline styles

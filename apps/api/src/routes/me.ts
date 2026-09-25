@@ -9,8 +9,16 @@
  * DELETE /api/me         → erase the account (GDPR right-to-be-forgotten):
  *                          soft-deletes the rows the user owns across collections
  *                          (deleted_at/deleted_by — safe, relations stay intact),
- *                          then hard-deletes their audit entries and the `_users`
- *                          row. Returns { deleted: true, collections: n }.
+ *                          ANONYMISES the audit entries they authored (the identity
+ *                          link is severed; the tamper-evident action record is
+ *                          retained), then hard-deletes the `_users` row.
+ *                          Returns { deleted: true, collections: n }.
+ *
+ *                          The audit trail is RETAINED, never deleted: the audited
+ *                          subject must not be able to destroy the evidence of their
+ *                          own actions (that would be a Repudiation hole). Erasure
+ *                          removes the identity link (`user_id → NULL`), not the
+ *                          record.
  *
  *                          The erase honours the collection write locks: a
  *                          `writes.mode: 'service'` / `append_only` collection is
@@ -28,6 +36,7 @@
 import { Hono } from 'hono';
 import { D1Client, QueryBuilder, cache } from '@mmbix/core';
 import { requireAuth } from './auth';
+import { invalidateAuthzVersion } from '@/lib/services/authz-version';
 import { success } from '@/lib/api/response';
 
 const app = new Hono<{
@@ -167,14 +176,18 @@ app.delete('/', async (c) => {
 		}
 	}
 
-	// 2. Hard-delete their audit trail + the user row (owned rows stay as
-	//    soft-deleted so relations/references are not orphaned).
-	await db.run(QueryBuilder.raw('DELETE FROM _audit_log WHERE user_id = ?1', [userId]));
+	// 2. Anonymise the audit trail (NEVER delete it — the subject must not be able
+	//    to erase the evidence of their own actions) then hard-delete the user row.
+	//    Owned rows stay soft-deleted so relations/references are not orphaned.
+	await db.run(QueryBuilder.raw('UPDATE _audit_log SET user_id = NULL WHERE user_id = ?1', [userId]));
 	await db.run(QueryBuilder.raw('DELETE FROM _users WHERE id = ?1', [userId]));
-	// 🔒 Token revocation: drop the auth snapshot cache so a JWT minted for this
-	// account stops verifying IMMEDIATELY instead of riding out the 60s TTL (and
-	// never verifies again — the fresh read finds no row).
-	cache.delete(`user:${userId}`);
+	// 🔒 Token revocation: the auth snapshot is cached under a VERSIONED key
+	// (`user:<id>:v<stamp>` — see AuthService._getCachedUser), so a plain
+	// `delete('user:'+id)` is a no-op. Drop the whole versioned prefix AND retire
+	// the stamp, so a JWT minted for this account stops verifying IMMEDIATELY on
+	// this isolate and every other one re-reads and finds no row.
+	cache.invalidatePattern(`user:${userId}:*`);
+	invalidateAuthzVersion();
 
 	return success(c, { deleted: true, collections });
 });

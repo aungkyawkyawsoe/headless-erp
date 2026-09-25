@@ -7,6 +7,7 @@ import {
 	ComboboxInput,
 	ComboboxItem,
 	ComboboxList,
+	confirmDialog,
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -64,7 +65,7 @@ export function StylesTab({ meta, api }: { meta: StudioMeta | null; api: AdminAp
 						{String(value)}
 					</Badge>
 				) : (
-					<span style={{ fontSize: '0.65rem', color: '#9ca3af' }}>—</span>
+					<span style={{ fontSize: '0.65rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>—</span>
 				),
 		},
 		{
@@ -91,13 +92,21 @@ export function StylesTab({ meta, api }: { meta: StudioMeta | null; api: AdminAp
 						variant="ghost"
 						size="icon-xs"
 						title="Delete"
-						style={{ color: '#dc2626' }}
-						onClick={() => {
-							if (confirm(`Delete preset "${row.original.label}"?`))
-								void api(
-									`/api/studio/style-preset?group_key=${encodeURIComponent(row.original.group_key)}&value_key=${encodeURIComponent(row.original.value_key)}`,
-									{ method: 'DELETE' },
-								);
+						style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
+						onClick={async () => {
+							if (
+								!(await confirmDialog({
+									title: 'Delete preset',
+									description: `Delete preset "${row.original.label}"?`,
+									destructive: true,
+									confirmLabel: 'Delete',
+								}))
+							)
+								return;
+							await api(
+								`/api/studio/style-preset?group_key=${encodeURIComponent(row.original.group_key)}&value_key=${encodeURIComponent(row.original.value_key)}`,
+								{ method: 'DELETE' },
+							);
 						}}
 					>
 						<Trash2 size={13} />

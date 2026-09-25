@@ -7,35 +7,78 @@
  *   - `schemas.records.parse(...)` runtime purification of API responses
  */
 import type { RawCollection, RawField } from './schema';
+import type { FieldType, FormulaResultType } from '@mmbix/types';
 
 // ── Field → TS type mapping ────────────────────────────────
+// ONE table, exhaustive by TYPE over the field-type SSOT (`FieldType`, derived
+// from `@mmbix/utils`'s `FIELD_TYPE_NAMES`): adding a member to the SSOT breaks
+// this build until it is classified here, instead of silently coercing to
+// `string`. The previous copy listed types the engine CANNOT produce
+// (`rich_text`, `decimal`, `float`) and used a bare fallthrough — both drift bugs.
+//
+// The kind mirrors the PHYSICAL storage in `core/entity/field-utils.ts`
+// (`currency`/`percent`/`rating` → REAL, `bigint`/`duration`/`progress` → INTEGER,
+// `json`/`csv`/`location`/`tags` → TEXT) and, critically, `m2a` is VIRTUAL: it owns
+// no single column (`{name}_type` + `{name}_id` are the real columns, and
+// `syncUniqueIndexes` already treats it as virtual), so it must not be emitted as
+// a bogus `z.string()` row member that every real row fails to satisfy.
+type TsKind = 'string' | 'number' | 'boolean' | 'virtual';
+const TS_KIND: Record<FieldType, TsKind> = {
+	text: 'string',
+	longtext: 'string',
+	slug: 'string',
+	password: 'string',
+	integer: 'number',
+	number: 'number',
+	bigint: 'number',
+	currency: 'number',
+	percent: 'number',
+	rating: 'number',
+	boolean: 'boolean',
+	json: 'string',
+	csv: 'string',
+	location: 'string',
+	tags: 'string',
+	timestamp: 'string',
+	date: 'string',
+	datetime: 'string',
+	time: 'string',
+	duration: 'number',
+	progress: 'number',
+	color: 'string',
+	m2o: 'string',
+	m2a: 'virtual',
+	file: 'string',
+	image: 'string',
+	select: 'string', // special-cased to an enum when options are declared
+	uuid: 'string',
+	text_editor: 'string',
+	code: 'string',
+	markdown: 'string',
+	signature: 'string',
+	barcode: 'string',
+	phone: 'string',
+	email: 'string',
+	url: 'string',
+	icon: 'string',
+	o2m: 'virtual',
+	m2m: 'virtual',
+	table: 'virtual',
+	formula: 'virtual', // special-cased by store/result_type
+};
 
-const STRING_TYPES = new Set([
-	'text',
-	'longtext',
-	'text_editor',
-	'markdown',
-	'code',
-	'slug',
-	'phone',
-	'email',
-	'url',
-	'icon',
-	'barcode',
-	'csv',
-	'tags',
-	'uuid',
-	'color',
-	'time',
-	'password',
-	'rich_text',
-	'm2o',
-]);
-
-const NUMBER_TYPES = new Set(['integer', 'number', 'decimal', 'float']);
-
-/** Field types that exist on the wire as plain values. */
-const VIRTUAL_TYPES = new Set(['o2m', 'm2m', 'table']);
+/**
+ * Formula `result_type` → generated TS type — derived from the canonical
+ * `FormulaResultType` union in `@mmbix/types` (an exhaustive Record, mirroring
+ * `TS_KIND`): adding a member to that union breaks this build until it is
+ * classified here, instead of silently falling through to `number`.
+ */
+const FORMULA_TS_TYPE: Record<FormulaResultType, string> = {
+	number: 'number',
+	boolean: 'boolean | number', // D1 stores booleans as INTEGER 0/1
+	string: 'string',
+	json: 'string', // D1 stores JSON columns as text
+};
 
 /**
  * Formula fields: STORED (store:true) are real columns — typed by result_type.
@@ -44,16 +87,10 @@ const VIRTUAL_TYPES = new Set(['o2m', 'm2m', 'table']);
  */
 function formulaType(field: RawField): string | 'never' {
 	if (field.store !== true) return 'never';
-	switch (field.result_type ?? 'number') {
-		case 'boolean':
-			return 'boolean | number'; // D1 stores booleans as INTEGER 0/1
-		case 'string':
-			return 'string';
-		case 'json':
-			return 'string'; // D1 stores JSON columns as text
-		default:
-			return 'number';
-	}
+	// `result_type` is untyped on the wire; an out-of-union value falls back to the
+	// same default the engine uses (`'number'`).
+	const rt = (field.result_type ?? 'number') as FormulaResultType;
+	return FORMULA_TS_TYPE[rt] ?? 'number';
 }
 
 function selectOptions(field: RawField): string[] | null {
@@ -162,14 +199,16 @@ function tsTypeFor(field: RawField): string {
 		if (options && options.length > 0) return options.map((o) => stringLiteral(o)).join(' | ');
 		return 'string';
 	}
-	if (field.type === 'boolean') return 'boolean | number'; // D1 stores booleans as INTEGER 0/1 — the wire value is a number
-	if (NUMBER_TYPES.has(field.type)) return 'number';
-	if (field.type === 'json') return 'string'; // D1 stores JSON columns as text
-	if (STRING_TYPES.has(field.type) || field.type === 'datetime' || field.type === 'timestamp' || field.type === 'date') {
-		return 'string';
+	switch (TS_KIND[field.type as FieldType]) {
+		case 'number':
+			return 'number';
+		case 'boolean':
+			return 'boolean | number'; // D1 stores booleans as INTEGER 0/1 — the wire value is a number
+		case 'virtual':
+			return 'never'; // only present when expanded / not a plain column
+		default:
+			return 'string'; // every TEXT/JSON-backed type, and any unknown type
 	}
-	if (VIRTUAL_TYPES.has(field.type)) return 'never'; // only present when expanded
-	return 'string';
 }
 
 /** Collection "records" → "HrAttendance" (collision-safe suffix). */
@@ -258,11 +297,14 @@ function zodTypeFor(field: RawField, optional: boolean, indent: string): string 
 
 /** The scalar (non-select) Zod call for a field — the chain suffix is added by the caller. */
 function zodScalarTypeFor(field: RawField): string {
-	if (field.type === 'boolean') return 'z.union([z.boolean(), z.number()])'; // D1 returns raw 0/1 integers for boolean columns
-	if (NUMBER_TYPES.has(field.type)) return 'z.number()';
-	if (field.type === 'json') return 'z.string()';
-	if (field.type === 'datetime' || field.type === 'timestamp' || field.type === 'date') return 'z.string()';
-	return 'z.string()';
+	switch (TS_KIND[field.type as FieldType]) {
+		case 'number':
+			return 'z.number()';
+		case 'boolean':
+			return 'z.union([z.boolean(), z.number()])'; // D1 returns raw 0/1 integers for boolean columns
+		default:
+			return 'z.string()';
+	}
 }
 
 // ── Generation ─────────────────────────────────────────────
@@ -317,7 +359,12 @@ export function generateTypes(collections: RawCollection[], meta?: TypegenSource
 	const schemas: string[] = [];
 	const mapEntries: string[] = [];
 
-	for (const collection of collections) {
+	// Determinism: the API/file order of collections is NOT part of the contract,
+	// so pin it by slug. Without this a reordering API produced a reordered file
+	// and broke the byte-for-byte `typegen:check` gate non-deterministically.
+	const ordered = [...collections].sort((a, b) => a.slug.localeCompare(b.slug));
+
+	for (const collection of ordered) {
 		assertSafeSlug(collection.slug);
 		const name = pascalName(collection.slug);
 		assertSafeTypeName(name, collection.slug);
@@ -363,7 +410,7 @@ export function generateTypes(collections: RawCollection[], meta?: TypegenSource
 	const schemaType = `export type Schema = {\n${mapEntries.join('\n')}\n};`;
 	// Unquoted keys throughout — Prettier strips redundant quotes from object keys,
 	// and `assertSafeSlug` already proved every slug is a bare identifier.
-	const schemasMap = `export const Schemas = {\n${collections.map((c) => `\t${c.slug}: ${pascalName(c.slug)}Schema,`).join('\n')}\n};`;
+	const schemasMap = `export const Schemas = {\n${ordered.map((c) => `\t${c.slug}: ${pascalName(c.slug)}Schema,`).join('\n')}\n};`;
 
 	const content = [
 		headerFor(meta),

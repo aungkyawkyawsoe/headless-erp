@@ -16,59 +16,26 @@ import {
 	Button,
 	Card,
 	CardContent,
+	confirmDialog,
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-	Drawer,
-	DrawerContent,
-	DrawerDescription,
-	DrawerFooter,
-	DrawerHeader,
-	DrawerTitle,
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-	Empty,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyMedia,
-	EmptyTitle,
 	Input,
 	Label,
 	SearchBox,
 } from '@mmbix/design-system';
 import { DataTable, type ColumnDef, type DataTableInstance, type FetchParams, type FetchResult } from '@mmbix/design-system/datatable';
-import {
-	ArchiveRestore,
-	Braces,
-	ChevronLeft,
-	Database,
-	Download,
-	Eye,
-	EyeOff,
-	Gauge,
-	Hash,
-	MoreVertical,
-	Plus,
-	Settings2,
-	Table2,
-	Trash2,
-	X,
-	Zap,
-} from 'lucide-react';
+import { ArchiveRestore, Braces, ChevronLeft, Database, Download, Eye, EyeOff, Gauge, Hash, Plus, Table2, Trash2, Zap } from 'lucide-react';
 import AddFieldDialog from '../components/AddFieldDialog';
 import FieldTypesPanel from '../components/FieldTypesPanel';
 import PolicyPanel from '../components/PolicyPanel';
 import RecordDetailView from '../components/RecordDetailView';
 import RecordFormDialog from '../components/RecordFormDialog';
 import StudioLayout, { SideSection } from '../components/StudioLayout';
-import { FieldInspector, FieldTypeIcon } from '../components/formlayout';
-import { DataCell } from '../components/DataCell';
+import { InlineCellEditor } from '../components/InlineCellEditor';
 import {
 	bulkDelete,
 	bulkErrorMessage,
@@ -108,7 +75,13 @@ import {
 	type ExportColumnsScope,
 	type ExportRowsScope,
 } from '../lib/csv-export';
-import { CodeHookCard, CollectionsPaneToggle, parseHookRules } from '../components/collections/workbench-parts';
+import { CollectionsPaneToggle } from '../components/collections/workbench-parts';
+import { HooksDialog, hooksForCollection } from '../components/collections/HooksDialog';
+import { DocNoDialog } from '../components/collections/DocNoDialog';
+import { PanelDialog } from '../components/collections/PanelDialog';
+import { FieldPropertiesDrawer } from '../components/collections/FieldPropertiesDrawer';
+import { SchemaFieldGrid } from '../components/collections/SchemaFieldGrid';
+import { CollectionsRegistryList } from '../components/collections/RegistryList';
 
 /**
  * CollectionsWorkbench — the schema registry as a full app-workbench, reusing
@@ -284,13 +257,9 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	// Code hooks grouped for the focused collection — those that FIRE on it, and
 	// those that REWRITE it when they fire on ANOTHER collection (e.g. veh-relink
 	// keeps fleet pointers fresh from permit/policy writes — so vehicles shows
-	// them under "rewrites this collection").
-	const codeOnCollection = useMemo(() => codeHooks.filter((h) => h.collection === selected), [codeHooks, selected]);
-	const codeAffectingCollection = useMemo(
-		() => codeHooks.filter((h) => h.collection !== selected && selected != null && h.writes_to.includes(selected)),
-		[codeHooks, selected],
-	);
-	const hookTotal = hooks.length + codeOnCollection.length + codeAffectingCollection.length;
+	// them under "rewrites this collection"). The dialog groups the same way; the
+	// button label only needs the total.
+	const hookTotal = useMemo(() => hooksForCollection(hooks, codeHooks, selected).hookTotal, [hooks, codeHooks, selected]);
 
 	// Collection pending deletion — confirmed via AlertDialog before DELETE /api/collections/:slug.
 	const [deleteTarget, setDeleteTarget] = useState<CollectionSummary | null>(null);
@@ -330,9 +299,35 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 		() =>
 			buildTableColumns(fields, m2oSchemas, {
 				systemFieldNames: SYSTEM_FIELD_NAMES,
-				renderCell: (field, value) => <DataCell field={field} value={value} />,
+				renderCell: (field, value, row) => {
+					const id = row?.id;
+					return (
+						<InlineCellEditor
+							field={field}
+							value={value}
+							recordId={String(id ?? '')}
+							token={token}
+							collectionSlug={selected ?? ''}
+							// The SAME write gate the record view uses — a service / append-only
+							// collection, a frozen row, a frozen column, or a row without an id
+							// keeps every cell read-only (least privilege).
+							readOnly={
+								id == null ||
+								!selected ||
+								!writeLock.canMutate ||
+								isRowFrozen(writeLock, row) ||
+								writeLock.frozenFields.includes(field.name)
+							}
+							onSaved={() => {
+								// Drop this collection's cached pages, then refetch the visible page —
+								// the same path every other row write takes.
+								if (selected) void invalidateRows(queryClient, selected).then(() => setReloadTick((t) => t + 1));
+							}}
+						/>
+					);
+				},
 			}),
-		[fields, m2oSchemas],
+		[fields, m2oSchemas, token, selected, writeLock, queryClient],
 	);
 
 	// Server-side fetch — cursor pagination, sorting, search, filters. The read
@@ -497,7 +492,15 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			clearTimeout(editSaveTimer.current);
 			editSaveTimer.current = null;
 		}
-		if (!confirm(`Delete field "${fieldName}" from "${collectionName}"? The column is removed from the table.`)) return;
+		if (
+			!(await confirmDialog({
+				title: 'Delete field',
+				description: `Delete field "${fieldName}" from "${collectionName}"? The column is removed from the table.`,
+				destructive: true,
+				confirmLabel: 'Delete field',
+			}))
+		)
+			return;
 		try {
 			const updated = await updateCollectionFields(
 				token,
@@ -612,9 +615,12 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			return;
 		}
 		if (
-			!confirm(
-				`Delete ${writable.length} record${writable.length === 1 ? '' : 's'}${frozen.length ? ` (${frozen.length} frozen skipped)` : ''}?`,
-			)
+			!(await confirmDialog({
+				title: 'Delete records',
+				description: `Delete ${writable.length} record${writable.length === 1 ? '' : 's'}${frozen.length ? ` (${frozen.length} frozen skipped)` : ''}?`,
+				destructive: true,
+				confirmLabel: 'Delete',
+			}))
 		)
 			return;
 		try {
@@ -750,137 +756,15 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 						style={{ marginBottom: 8, width: '100%' }}
 					/>
 				</SideSection>
-				{visibleCollections.length === 0 ? (
-					<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-						<Empty>
-							<EmptyHeader>
-								{collections.length > 0 ? (
-									<>
-										<EmptyMedia variant="icon">
-											<EyeOff size={32} />
-										</EmptyMedia>
-										<EmptyTitle>All collections hidden</EmptyTitle>
-										<EmptyDescription>Hidden collections exist — use the eye toggle to reveal them.</EmptyDescription>
-									</>
-								) : (
-									<>
-										<EmptyMedia variant="icon">
-											<Database size={32} />
-										</EmptyMedia>
-										<EmptyTitle>No collections yet</EmptyTitle>
-										<EmptyDescription>Press the + button to create the first backend table.</EmptyDescription>
-									</>
-								)}
-							</EmptyHeader>
-						</Empty>
-					</div>
-				) : (
-					<div style={{ flex: 1, padding: '0.5rem', overflowY: 'auto', minHeight: 0 }}>
-						<div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-							{visibleCollections
-								.filter((c) => {
-									const q = modelQuery.trim().toLowerCase();
-									return !q || c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q);
-								})
-								.map((c) => {
-									const active = selected === c.slug;
-									return (
-										<div
-											key={c.slug}
-											style={{
-												display: 'flex',
-												alignItems: 'center',
-												width: '100%',
-												borderRadius: 6,
-												background: active ? 'var(--mmbix-primary, #2563eb)' : 'transparent',
-												color: active ? 'var(--mmbix-primary-foreground, #ffffff)' : 'inherit',
-											}}
-										>
-											<button
-												onClick={() => selectCollection(c.slug)}
-												title={c.hidden ? `${c.name} (hidden from this list)` : c.name}
-												style={{
-													display: 'flex',
-													alignItems: 'center',
-													gap: 8,
-													padding: '0.45rem 0.5rem',
-													cursor: 'pointer',
-													textAlign: 'left',
-													flex: 1,
-													minWidth: 0,
-													background: 'transparent',
-													color: 'inherit',
-													border: 'none',
-													opacity: c.hidden && !active ? 0.6 : 1,
-												}}
-											>
-												{c.hidden ? (
-													<EyeOff
-														size={13}
-														style={{ color: active ? 'var(--mmbix-primary-foreground, #ffffff)' : '#9ca3af', flexShrink: 0 }}
-													/>
-												) : (
-													<Database
-														size={13}
-														style={{ color: active ? 'var(--mmbix-primary-foreground, #ffffff)' : '#9ca3af', flexShrink: 0 }}
-													/>
-												)}
-												<span
-													style={{
-														flex: 1,
-														minWidth: 0,
-														fontSize: '0.82rem',
-														fontWeight: active ? 700 : 500,
-														overflow: 'hidden',
-														textOverflow: 'ellipsis',
-														whiteSpace: 'nowrap',
-													}}
-												>
-													{c.name}
-												</span>
-											</button>
-											<DropdownMenu>
-												<DropdownMenuTrigger
-													title="Collection options"
-													aria-label={`Options for ${c.name}`}
-													style={{
-														display: 'inline-flex',
-														alignItems: 'center',
-														justifyContent: 'center',
-														width: 24,
-														height: 24,
-														borderRadius: 5,
-														border: 'none',
-														background: 'transparent',
-														color: active ? 'var(--mmbix-primary-foreground, #ffffff)' : '#9ca3af',
-														cursor: 'pointer',
-														flexShrink: 0,
-													}}
-												>
-													<MoreVertical size={13} />
-												</DropdownMenuTrigger>
-												<DropdownMenuContent align="end" sideOffset={4} style={{ minWidth: 190 }}>
-													{c.hidden ? (
-														<DropdownMenuItem onClick={() => void updateCollectionVisibility(c, false)}>
-															<Eye size={13} /> Show in collections list
-														</DropdownMenuItem>
-													) : (
-														<DropdownMenuItem onClick={() => void updateCollectionVisibility(c, true)}>
-															<EyeOff size={13} /> Hide from collections list
-														</DropdownMenuItem>
-													)}
-													<DropdownMenuSeparator />
-													<DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(c)}>
-														<Trash2 size={13} /> Delete collection
-													</DropdownMenuItem>
-												</DropdownMenuContent>
-											</DropdownMenu>
-										</div>
-									);
-								})}
-						</div>
-					</div>
-				)}
+				<CollectionsRegistryList
+					collections={collections}
+					visibleCollections={visibleCollections}
+					selected={selected}
+					modelQuery={modelQuery}
+					onSelect={selectCollection}
+					onToggleVisibility={(c, hidden) => void updateCollectionVisibility(c, hidden)}
+					onRequestDelete={(c) => setDeleteTarget(c)}
+				/>
 			</div>
 		);
 
@@ -933,7 +817,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 													height: 32,
 													borderRadius: 8,
 													background: 'var(--mmbix-muted, #f3f4f6)',
-													color: '#6b7280',
+													color: 'var(--mmbix-muted-foreground, #6b7280)',
 													display: 'inline-flex',
 													alignItems: 'center',
 													justifyContent: 'center',
@@ -954,7 +838,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 												>
 													{c.name}
 												</div>
-												<div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{c.slug}</div>
+												<div style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #94a3b8)' }}>{c.slug}</div>
 											</div>
 										</CardContent>
 									</Card>
@@ -1165,7 +1049,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 											variant="outline"
 											title="Delete selected records"
 											onClick={() => void deleteRows(selectedRows)}
-											style={{ color: '#dc2626' }}
+											style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
 										>
 											<Trash2 size={13} /> Delete ({selectedPartition.writable.length})
 										</Button>
@@ -1178,7 +1062,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 									{selectedPartition.frozen.length > 0 && (
 										<span
 											title={frozenRowsReason(writeLock, selectedPartition.frozen.length)}
-											style={{ fontSize: '0.72rem', color: '#9ca3af' }}
+											style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}
 										>
 											{selectedPartition.frozen.length} frozen
 										</span>
@@ -1270,87 +1154,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 						</Button>
 					</div>
 				</div>
-				{visibleFields.length === 0 ? (
-					<div
-						style={{
-							border: '1px dashed var(--mmbix-border, #e5e7eb)',
-							borderRadius: 10,
-							padding: '2rem 1rem',
-							display: 'flex',
-							flexDirection: 'column',
-							alignItems: 'center',
-							gap: '0.35rem',
-							textAlign: 'center',
-						}}
-					>
-						<p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>No fields yet</p>
-						<p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-							Pick a field type from the right panel to design the collection’s columns.
-						</p>
-					</div>
-				) : (
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
-						{visibleFields.map((f) => (
-							<Card key={f.name} style={{ padding: 0, ...(f.required ? { borderColor: 'var(--mmbix-primary, #0f766e)' } : {}) }}>
-								<CardContent style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.38rem 0.6rem' }}>
-									<FieldTypeIcon type={f.type} />
-									<span
-										style={{
-											flex: 1,
-											minWidth: 0,
-											display: 'inline-flex',
-											alignItems: 'baseline',
-											gap: 2,
-											fontSize: '0.82rem',
-											fontWeight: 500,
-											overflow: 'hidden',
-										}}
-									>
-										<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1 }}>
-											{f.label || f.name}
-										</span>
-										{f.required && (
-											<span title="Required" style={{ color: '#dc2626', flexShrink: 0, lineHeight: 1, fontSize: '0.85rem' }}>
-												*
-											</span>
-										)}
-									</span>
-									<Badge variant="outline" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'capitalize' }}>
-										{f.type}
-									</Badge>
-									<DropdownMenu>
-										<DropdownMenuTrigger
-											title="Field options"
-											style={{
-												display: 'inline-flex',
-												alignItems: 'center',
-												justifyContent: 'center',
-												width: 24,
-												height: 24,
-												borderRadius: 5,
-												border: 'none',
-												background: 'transparent',
-												color: '#9ca3af',
-												cursor: 'pointer',
-											}}
-										>
-											<MoreVertical size={13} />
-										</DropdownMenuTrigger>
-										<DropdownMenuContent align="end" style={{ minWidth: 180 }}>
-											<DropdownMenuItem onClick={() => setEditField(f)}>
-												<Settings2 size={13} /> Edit properties
-											</DropdownMenuItem>
-											<DropdownMenuSeparator />
-											<DropdownMenuItem onClick={() => void removeField(f.name)} style={{ color: '#dc2626' }}>
-												<Trash2 size={13} /> Delete field
-											</DropdownMenuItem>
-										</DropdownMenuContent>
-									</DropdownMenu>
-								</CardContent>
-							</Card>
-						))}
-					</div>
-				)}
+				<SchemaFieldGrid fields={visibleFields} onEditField={(f) => setEditField(f)} onRemoveField={(name) => void removeField(name)} />
 			</div>
 		);
 
@@ -1381,7 +1185,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 									height: 28,
 									borderRadius: 8,
 									background: 'var(--mmbix-muted, #f3f4f6)',
-									color: '#6b7280',
+									color: 'var(--mmbix-muted-foreground, #6b7280)',
 									display: 'inline-flex',
 									alignItems: 'center',
 									justifyContent: 'center',
@@ -1453,48 +1257,18 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			{/* Auto-numbering Doc No. — the collection's naming-series pattern (prefix +
 			 * optional `#` counter width). The engine assigns display_number at create;
 			 * empty pattern turns numbering off. */}
-			<Dialog open={docNoOpen} onOpenChange={setDocNoOpen}>
-				<DialogContent style={{ width: 480 }}>
-					<DialogHeader>
-						<DialogTitle>Doc No. — auto numbering</DialogTitle>
-						<DialogDescription>
-							New records of “{collectionName}” are numbered from this pattern. Leave it empty to turn Doc No. off.
-						</DialogDescription>
-					</DialogHeader>
-					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '0.25rem 0' }}>
-						<Label htmlFor="cw-docno-pattern">Pattern</Label>
-						<Input
-							id="cw-docno-pattern"
-							autoFocus
-							value={docNoValue}
-							onChange={(e) => setDocNoValue(e.target.value)}
-							placeholder="e.g. OUT- or OUT-####"
-						/>
-						<div style={{ fontSize: '0.78rem' }}>
-							{docNoExample === null ? (
-								<span style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Off — new records get no Doc No.</span>
-							) : docNoExample === false ? (
-								<span style={{ color: '#dc2626' }}>Invalid — end with “-”, then up to 10 “#” placeholders (e.g. OUT-#### → OUT-0001).</span>
-							) : (
-								<span>
-									First new record → <b>{docNoExample}</b>
-								</span>
-							)}
-						</div>
-						<div style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
-							Only new records get numbered from this pattern — existing rows keep their current Doc No.
-						</div>
-					</div>
-					<DialogFooter>
-						<Button type="button" variant="ghost" onClick={() => setDocNoOpen(false)}>
-							Cancel
-						</Button>
-						<Button onClick={() => void saveDocNo()} disabled={docNoBusy || docNoExample === false}>
-							{docNoBusy ? 'Saving…' : 'Save'}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			<DocNoDialog
+				open={docNoOpen}
+				onOpenChange={setDocNoOpen}
+				id="cw-docno-pattern"
+				name={collectionName}
+				value={docNoValue}
+				onValueChange={setDocNoValue}
+				example={docNoExample}
+				busy={docNoBusy}
+				onCancel={() => setDocNoOpen(false)}
+				onSave={() => void saveDocNo()}
+			/>
 
 			{/* Lifecycle hooks — read-only viewer. TWO kinds of hooks can fire on a
 			 * collection: COMPILED code hooks (TS registered in the worker at boot —
@@ -1503,191 +1277,31 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			 * that REWRITE the focused collection while firing elsewhere (fleet
 			 * relink → vehicles pointers) appear under their own group so the
 			 * viewer never answers "Hooks (0)" for a table another hook keeps fresh. */}
-			<Dialog open={hooksOpen} onOpenChange={setHooksOpen}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Lifecycle hooks — {collectionName}</DialogTitle>
-						<DialogDescription>
-							Lifecycle hooks that run as this collection's records are created / updated / deleted — compiled code hooks registered in the
-							worker (e.g. the veh-relink fleet pointer hooks), plus declarative JSON rules stored via{' '}
-							<code>POST /api/server-functions</code>.
-						</DialogDescription>
-					</DialogHeader>
-					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '55vh', overflowY: 'auto' }}>
-						{hooksLoading || codeHooksLoading ? (
-							<p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Loading hooks…</p>
-						) : hooksError || codeHooksError ? (
-							<p style={{ margin: 0, fontSize: '0.82rem', color: '#dc2626' }}>{hooksError ?? codeHooksError}</p>
-						) : hookTotal === 0 ? (
-							<div
-								style={{
-									border: '1px dashed var(--mmbix-border, #e5e7eb)',
-									borderRadius: 10,
-									padding: '1.5rem 1rem',
-									display: 'flex',
-									flexDirection: 'column',
-									alignItems: 'center',
-									gap: '0.3rem',
-									textAlign: 'center',
-								}}
-							>
-								<p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600 }}>No lifecycle hooks touch this collection</p>
-								<p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-									Declarative rules are created via <code>POST /api/server-functions</code> with <code>collection_slug: {selected}</code>;
-									compiled code hooks live in the domain modules / plugins and are registered on the collections they fire on.
-								</p>
-							</div>
-						) : (
-							<>
-								{/* Code hooks registered ON this collection. */}
-								{codeOnCollection.length > 0 && (
-									<div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-										<div>
-											<p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 700 }}>Code hooks ({codeOnCollection.length})</p>
-											<p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-												Compiled TypeScript hooks registered in the worker — they fire on this collection's lifecycle events.
-											</p>
-										</div>
-										{codeOnCollection.map((h, i) => (
-											<CodeHookCard key={`${h.plugin_id}-${h.event}-${i}`} hook={h} firingCollection={h.collection} />
-										))}
-									</div>
-								)}
-								{/* Code hooks that REWRITE this collection while firing elsewhere. */}
-								{codeAffectingCollection.length > 0 && (
-									<div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-										<div>
-											<p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 700 }}>
-												Keep this collection fresh ({codeAffectingCollection.length})
-											</p>
-											<p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-												Code hooks registered on another collection that rewrite rows of this one when they fire — e.g. the fleet relink
-												keeping <code>{selected}</code> pointers current.
-											</p>
-										</div>
-										{codeAffectingCollection.map((h, i) => (
-											<CodeHookCard key={`aff-${h.plugin_id}-${h.event}-${i}`} hook={h} firingCollection={h.collection} />
-										))}
-									</div>
-								)}
-								{/* Declarative server-function rules. */}
-								{hooks.length > 0 && (
-									<div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-										<div>
-											<p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 700 }}>Declarative rules ({hooks.length})</p>
-											<p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-												JSON rules stored in <code>_server_functions</code>, managed through the API.
-											</p>
-										</div>
-										{hooks.map((h) => {
-											const rules = parseHookRules(h.rules_text);
-											return (
-												<div
-													key={h.id}
-													style={{
-														border: '1px solid var(--mmbix-border, #e5e7eb)',
-														borderRadius: 8,
-														padding: '0.6rem 0.75rem',
-														display: 'flex',
-														flexDirection: 'column',
-														gap: '0.4rem',
-													}}
-												>
-													<div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-														<span style={{ fontSize: '0.82rem', fontWeight: 600 }}>{h.name}</span>
-														<span
-															style={{
-																fontSize: '0.62rem',
-																fontWeight: 700,
-																textTransform: 'uppercase',
-																letterSpacing: '0.04em',
-																padding: '2px 8px',
-																borderRadius: 999,
-																background: 'var(--mmbix-primary, #2563eb)',
-																color: 'var(--mmbix-primary-foreground, #ffffff)',
-															}}
-														>
-															{h.trigger_event}
-														</span>
-														{h.enabled ? (
-															<Badge
-																variant="outline"
-																style={{ color: '#15803d', background: '#f0fdf4', borderColor: '#bbf7d0', fontWeight: 600 }}
-															>
-																Enabled
-															</Badge>
-														) : (
-															<Badge
-																variant="outline"
-																style={{ color: '#6b7280', background: '#f3f4f6', borderColor: '#e5e7eb', fontWeight: 600 }}
-															>
-																Disabled
-															</Badge>
-														)}
-														<span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-															Updated {new Date(h.updated_at).toLocaleString()}
-														</span>
-													</div>
-													{rules.length === 0 && h.function_code ? (
-														<span style={{ fontSize: '0.72rem', fontStyle: 'italic', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-															Legacy function_code (JS) — kept for reference; never executed on the Workers runtime.
-														</span>
-													) : rules.length === 0 ? null : (
-														<div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-															<span style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-																{rules.length} rule{rules.length === 1 ? '' : 's'}
-															</span>
-															{rules.map((rule, i) => (
-																<span
-																	key={i}
-																	title={rule.message ?? rule.target ?? rule.action}
-																	style={{
-																		fontSize: '0.62rem',
-																		fontWeight: 700,
-																		textTransform: 'uppercase',
-																		letterSpacing: '0.04em',
-																		padding: '2px 8px',
-																		borderRadius: 999,
-																		background: 'var(--mmbix-muted, #f1f5f9)',
-																		color: 'var(--mmbix-muted-foreground, #64748b)',
-																	}}
-																>
-																	{rule.action}
-																	{rule.target ? ` → ${rule.target}` : ''}
-																</span>
-															))}
-														</div>
-													)}
-												</div>
-											);
-										})}
-									</div>
-								)}
-							</>
-						)}
-					</div>
-					<DialogFooter>
-						<Button type="button" variant="ghost" onClick={() => setHooksOpen(false)}>
-							Close
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			<HooksDialog
+				open={hooksOpen}
+				onOpenChange={setHooksOpen}
+				collectionName={collectionName}
+				selected={selected}
+				hooks={hooks}
+				codeHooks={codeHooks}
+				hooksLoading={hooksLoading}
+				codeHooksLoading={codeHooksLoading}
+				hooksError={hooksError}
+				codeHooksError={codeHooksError}
+			/>
 
 			{/* Runtime feature policies — the headless control plane. Surfaced here
 			 * because this is where collections are curated; the app-module detail page
 			 * hosts the same panel. Writes PUT /api/collections/:slug/policies. */}
-			<Dialog open={policyOpen} onOpenChange={setPolicyOpen}>
-				<DialogContent style={{ width: 480 }}>
-					<DialogHeader>
-						<DialogTitle>Runtime Policies</DialogTitle>
-						<DialogDescription>
-							Enable / configure engine behaviors for “{collectionName}” at runtime — no code, no redeploy.
-						</DialogDescription>
-					</DialogHeader>
-					{selected && <PolicyPanel token={token} slug={selected} schema={selectedSchema ?? null} />}
-				</DialogContent>
-			</Dialog>
+			<PanelDialog
+				open={policyOpen}
+				onOpenChange={setPolicyOpen}
+				title="Runtime Policies"
+				description={<>Enable / configure engine behaviors for “{collectionName}” at runtime — no code, no redeploy.</>}
+				contentStyle={{ width: 480 }}
+			>
+				{selected && <PolicyPanel token={token} slug={selected} schema={selectedSchema ?? null} />}
+			</PanelDialog>
 
 			{/* New Collection — module-free: a fresh real table, no app binding. */}
 			<Dialog open={newOpen} onOpenChange={setNewOpen}>
@@ -1740,108 +1354,24 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 
 			{/* Edit-field properties — the field “⋯” menu. Directus-style right drawer.
 				 Changes auto-save (debounced) to the backend. */}
-			<Drawer
-				open={editField !== null}
-				onOpenChange={(o) => {
-					if (!o) {
-						flushPendingEdits();
-						setEditField(null);
+			<FieldPropertiesDrawer
+				field={editField}
+				fields={fields}
+				fieldTypes={fieldTypes}
+				token={token}
+				onUpdate={(name, patch) => updateField(name, patch)}
+				onRemove={(name) => {
+					if (editSaveTimer.current) {
+						clearTimeout(editSaveTimer.current);
+						editSaveTimer.current = null;
 					}
+					void removeField(name);
 				}}
-				swipeDirection="right"
-			>
-				<DrawerContent
-					style={
-						{
-							// Full-height panel, flush to the screen edge — wider than the default sheet.
-							'--drawer-content-width': 'min(680px, 100vw)',
-							'--drawer-inset': '0px',
-							borderRadius: 0,
-						} as React.CSSProperties
-					}
-				>
-					<DrawerHeader
-						style={{
-							display: 'flex',
-							flexDirection: 'row',
-							alignItems: 'flex-start',
-							justifyContent: 'space-between',
-							gap: 12,
-							padding: '1rem 1.25rem',
-							borderBottom: '1px solid var(--mmbix-border, #e5e7eb)',
-						}}
-					>
-						<div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-							<DrawerTitle>Edit field — {editField?.label || editField?.name}</DrawerTitle>
-							<DrawerDescription>Property changes are saved to the collection schema automatically.</DrawerDescription>
-						</div>
-						<button
-							type="button"
-							title="Close"
-							aria-label="Close field properties"
-							onClick={() => {
-								flushPendingEdits();
-								setEditField(null);
-							}}
-							style={{
-								display: 'inline-flex',
-								alignItems: 'center',
-								justifyContent: 'center',
-								width: 28,
-								height: 28,
-								borderRadius: 6,
-								border: 'none',
-								background: 'transparent',
-								color: '#9ca3af',
-								cursor: 'pointer',
-								flexShrink: 0,
-							}}
-						>
-							<X size={16} />
-						</button>
-					</DrawerHeader>
-					<div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-						{editField && (
-							<FieldInspector
-								field={editField}
-								fields={fields}
-								fieldTypes={fieldTypes}
-								token={token}
-								update={(patch) => updateField(editField.name, patch)}
-								remove={() => {
-									if (editSaveTimer.current) {
-										clearTimeout(editSaveTimer.current);
-										editSaveTimer.current = null;
-									}
-									void removeField(editField.name);
-								}}
-							/>
-						)}
-					</div>
-					<DrawerFooter
-						style={{
-							display: 'flex',
-							flexDirection: 'row',
-							alignItems: 'center',
-							justifyContent: 'flex-end',
-							gap: 8,
-							padding: '0.9rem 1.25rem',
-							borderTop: '1px solid var(--mmbix-border, #e5e7eb)',
-						}}
-					>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() => {
-								flushPendingEdits();
-								setEditField(null);
-							}}
-						>
-							Done
-						</Button>
-					</DrawerFooter>
-				</DrawerContent>
-			</Drawer>
+				onClose={() => {
+					flushPendingEdits();
+					setEditField(null);
+				}}
+			/>
 
 			{/* Error banner fallback when no center pane is open */}
 			{!selected && error && (

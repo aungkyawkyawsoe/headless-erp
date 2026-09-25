@@ -11,47 +11,21 @@
  * the SDK's typed errors are built FROM this catalog — so a backend code can
  * never silently drift away from what SDK clients are prepared to match.
  *
- * Values here are compile-time constants + a runtime array. The API imports
- * the array to validate/serialize, the SDK imports the array to build typed
- * errors, and both typecheck against the same catalog.
+ * Values here are compile-time constants + a runtime array. The values now
+ * live in `@mmbix/utils/errors/codes` (the leaf package) because the error
+ * CLASSES in that package must reference the same catalog, and `types` already
+ * depends on `utils` — this module re-exports them so every existing importer
+ * (`apps/api`, `@mmbix/sdk`, …) is unchanged. The API imports the array to
+ * validate/serialize, the SDK imports the array to build typed errors, and both
+ * typecheck against the same catalog — there is exactly ONE copy.
  */
+
+import type { ApiErrorCode } from '@mmbix/utils';
 
 // ─── Error envelope ─────────────────────────────────────
 
-/**
- * Error codes the API emits on its `{ success: false, error, code, … }`
- * envelope. The union is the *complete* supported surface — if a route throws
- * with a code not listed here it is an intentional extension (schemas are open
- * for forward-compat), but the canonical set is what SDK/UI tooling keys on.
- */
-export const ERROR_CODES = [
-	// ── 4xx — client / resource ──────────────────────────
-	'VALIDATION_ERROR', // 400 — invalid input / failed declarative validation
-	'INVALID_JSON', // 400 — malformed request body
-	'UNAUTHORIZED', // 401 — missing/invalid credentials
-	'FORBIDDEN', // 403 — authenticated but denied (role / row / field)
-	'NOT_FOUND', // 404 — collection or item missing
-	'CONFLICT', // 409 — duplicate / state conflict / optimistic-concurrency
-	'PAYLOAD_TOO_LARGE', // 413 — body exceeds the upload/body limit
-	'UNSUPPORTED_MEDIA_TYPE', // 415 — bad Content-Type
-	'RATE_LIMIT_EXCEEDED', // 429 — per-role quota exhausted
-	// ── 5xx — server ─────────────────────────────────────
-	'DATABASE_ERROR', // 502 — D1 failed (never leaks raw internals)
-	'INTERNAL_ERROR', // 500 — unexpected failure
-	// ── SDK-side (never emitted by the API) ──────────────
-	'NETWORK_ERROR', // the request never reached the server
-	'SDK_ERROR', // generic client-side failure
-	'API_ERROR', // unclassified API failure
-	'BAD_ENVELOPE', // the server responded but with an unrecognized envelope
-] as const;
-
-/** Distinct error codes the API worker can emit (no SDK-only codes here). */
-export const API_ERROR_CODES = ERROR_CODES.filter(
-	(c) => c !== 'NETWORK_ERROR' && c !== 'SDK_ERROR' && c !== 'API_ERROR' && c !== 'BAD_ENVELOPE',
-) as readonly string[];
-
-export type ErrorCode = (typeof ERROR_CODES)[number];
-export type ApiErrorCode = Exclude<ErrorCode, 'NETWORK_ERROR' | 'SDK_ERROR' | 'API_ERROR' | 'BAD_ENVELOPE'>;
+export { ERROR_CODES, API_ERROR_CODES, STATUS_TO_ERROR_CODE, errorCodeForStatus, isErrorCode } from '@mmbix/utils';
+export type { ErrorCode, ApiErrorCode } from '@mmbix/utils';
 
 /** The API's error envelope — the canonical wire shape thrown by fail()/error-handler. */
 export interface ApiErrorEnvelope {
@@ -68,30 +42,8 @@ export interface ApiErrorEnvelope {
 	request_id?: string;
 }
 
-/** Canonical HTTP status → default error-code mapping (replaces `inferErrorCode`). */
-export const STATUS_TO_ERROR_CODE: Record<number, ApiErrorCode> = {
-	400: 'VALIDATION_ERROR',
-	401: 'UNAUTHORIZED',
-	403: 'FORBIDDEN',
-	404: 'NOT_FOUND',
-	409: 'CONFLICT',
-	413: 'PAYLOAD_TOO_LARGE',
-	415: 'UNSUPPORTED_MEDIA_TYPE',
-	422: 'VALIDATION_ERROR',
-	429: 'RATE_LIMIT_EXCEEDED',
-	500: 'INTERNAL_ERROR',
-	502: 'DATABASE_ERROR',
-};
-
-/** Narrow an arbitrary status to its canonical code, defaulting to `VALIDATION_ERROR`. */
-export function errorCodeForStatus(status: number): ApiErrorCode {
-	return STATUS_TO_ERROR_CODE[status] ?? 'VALIDATION_ERROR';
-}
-
-/** Validate that a code is in the canonical catalog (runtime guard for dynamic throws). */
-export function isErrorCode(candidate: unknown): candidate is ApiErrorCode {
-	return typeof candidate === 'string' && (API_ERROR_CODES as readonly string[]).includes(candidate);
-}
+/** Canonical HTTP status → default error-code mapping (moved to @mmbix/utils). */
+// (re-exported above)
 
 // ─── Query limits (shared by the engine and its clients) ─
 

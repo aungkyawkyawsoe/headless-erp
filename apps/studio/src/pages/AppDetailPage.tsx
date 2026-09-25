@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
 	Alert,
 	AlertDescription,
@@ -12,54 +12,19 @@ import {
 	AlertDialogHeader,
 	AlertDialogMedia,
 	AlertDialogTitle,
-	Avatar,
-	AvatarFallback,
 	Badge,
 	Button,
-	Card,
-	CardContent,
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
+	confirmDialog,
 	Empty,
 	EmptyDescription,
 	EmptyHeader,
 	EmptyMedia,
 	EmptyTitle,
-	Input,
-	Label,
 	SearchBox,
 } from '@mmbix/design-system';
 import { DataTable, type ColumnDef, type DataTableInstance, type FetchParams, type FetchResult } from '@mmbix/design-system/datatable';
+import { Database, Download, Gauge, Hash, History, Plus, ShieldCheck, Sparkles, Trash2, Upload, Workflow } from 'lucide-react';
 import {
-	Braces,
-	ChevronLeft,
-	Database,
-	Download,
-	Gauge,
-	Hash,
-	History,
-	MoreVertical,
-	Plus,
-	Settings,
-	ShieldCheck,
-	Sparkles,
-	Table2,
-	Trash2,
-	Upload,
-	Workflow,
-} from 'lucide-react';
-import {
-	attachCollectionToModule,
-	createCollection,
 	updateCollectionMeta,
 	deleteCollection,
 	updateCollectionFields,
@@ -76,13 +41,12 @@ import {
 	type EntityListParams,
 } from '../lib/api';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { collectionQuery, collectionsQuery, itemsQuery, menusQuery, moduleQuery, modulesQuery, pagesQuery } from '../lib/queries';
+import { collectionQuery, itemsQuery, menusQuery, moduleQuery, modulesQuery, pagesQuery } from '../lib/queries';
 import { invalidateCollection, invalidateCollectionList, invalidateModule, invalidateRows } from '../lib/query-client';
 import { qk } from '../lib/query-keys';
 import { messageOf } from '../lib/errors';
-import { isIdpManagedModule } from '../lib/idp';
 import { writeLockOf, isRowFrozen, partitionFrozenRows, frozenRowsReason } from '../lib/write-lock';
-import { popBack, useViewState } from '../lib/view-state';
+import { useViewState } from '../lib/view-state';
 import { buildTableColumns, serializeTableFilters, useM2oSchemas } from '../lib/collection-table-filters';
 import StudioLayout, { SideSection } from '../components/StudioLayout';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -97,13 +61,10 @@ import PolicyPanel from '../components/PolicyPanel';
 import GenerationPanel from '../components/GenerationPanel';
 import AddFieldDialog from '../components/AddFieldDialog';
 import { PageBuilderProvider, PageCanvas } from '../components/PageBuilder';
-import { FieldTypeIcon } from '../components/formlayout';
 import ManageAppDialog from '../components/ManageAppDialog';
 import RecordFormDialog from '../components/RecordFormDialog';
 import RecordDetailView from '../components/RecordDetailView';
 import BatchEditDialog from '../components/BatchEditDialog';
-import AppIcon from '../components/AppIcon';
-import { appColor } from '@mmbix/ui-views';
 import { renderCell } from '../lib/cell-render';
 import { buildListFields } from '../lib/list-projection';
 import ExportDialog from '../components/ExportDialog';
@@ -115,15 +76,17 @@ import {
 	type ExportColumnsScope,
 	type ExportRowsScope,
 } from '../lib/csv-export';
-import { DataCell } from '../components/DataCell';
-import { BuilderFormLayout, BuilderLeftPane, BuilderRightPane, BuilderSaveButton, toMenuTree } from '../components/builder/builder-parts';
-
-/** Valid Studio sections — the AppDetailPage left/center/right panes. */
-type AppSection = 'collection' | 'menu' | 'builder';
+import { InlineCellEditor } from '../components/InlineCellEditor';
+import { BuilderFormLayout, BuilderLeftPane, BuilderRightPane, toMenuTree } from '../components/builder/builder-parts';
+import { AppWorkbenchHeader, type AppSection } from '../components/builder/AppWorkbenchHeader';
+import { AppCollectionList } from '../components/builder/AppCollectionList';
+import { AppSchemaFields } from '../components/builder/AppSchemaFields';
+import { DocNoDialog } from '../components/collections/DocNoDialog';
+import { PanelDialog } from '../components/collections/PanelDialog';
+import { NewCollectionDialog } from '../components/builder/NewCollectionDialog';
 
 export default function AppDetailPage({ token }: { token: string }) {
 	const { slug } = useParams<{ slug: string }>();
-	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	// Write-action errors only — read errors come from the queries below.
 	const [actionError, setActionError] = useState<string | null>(null);
@@ -137,16 +100,6 @@ export default function AppDetailPage({ token }: { token: string }) {
 	const [importMsg, setImportMsg] = useState<string | null>(null);
 	const importRef = useRef<HTMLInputElement>(null);
 	const [newOpen, setNewOpen] = useState(false);
-	const [newName, setNewName] = useState('');
-	const [newDescription, setNewDescription] = useState('');
-	const [newNaming, setNewNaming] = useState('');
-	const [newBusy, setNewBusy] = useState(false);
-	// New Collection dialog mode: 'create' a fresh model, or 'bind' an existing one.
-	const [newMode, setNewMode] = useState<'create' | 'bind'>('create');
-	// All system collections (fetched when the dialog opens) — used to pick one to bind.
-	const [allCollections, setAllCollections] = useState<CollectionSummary[]>([]);
-	const [bindSlug, setBindSlug] = useState('');
-	const [bindBusy, setBindBusy] = useState(false);
 	// Doc No. (naming series) editor — per-collection auto-numbering pattern.
 	const [docNoOpen, setDocNoOpen] = useState(false);
 	const [docNoValue, setDocNoValue] = useState('');
@@ -426,9 +379,34 @@ export default function AppDetailPage({ token }: { token: string }) {
 		() =>
 			buildTableColumns(fields, m2oSchemas, {
 				systemFieldNames: SYSTEM_FIELD_NAMES,
-				renderCell: (field, value) => <DataCell field={field} value={value} />,
+				renderCell: (field, value, row) => {
+					const id = row?.id;
+					return (
+						<InlineCellEditor
+							field={field}
+							value={value}
+							recordId={String(id ?? '')}
+							token={token}
+							collectionSlug={selectedModel?.slug ?? selected ?? ''}
+							// The SAME write gate the record view uses — a service / append-only
+							// collection, a frozen row, a frozen column, or a row without an id
+							// keeps every cell read-only (least privilege).
+							readOnly={
+								id == null ||
+								!selectedModel ||
+								!writeLock.canMutate ||
+								isRowFrozen(writeLock, row) ||
+								writeLock.frozenFields.includes(field.name)
+							}
+							onSaved={() => {
+								// Reuse the page's row-write refresh so the edited row re-reads from the API.
+								if (selectedModel) refreshRows(selectedModel.slug);
+							}}
+						/>
+					);
+				},
 			}),
-		[fields, m2oSchemas],
+		[fields, m2oSchemas, token, selected, selectedModel, writeLock, refreshRows],
 	);
 
 	// Soft-delete one or more records (bulk delete from row selection).
@@ -449,7 +427,15 @@ export default function AppDetailPage({ token }: { token: string }) {
 			writable.length === 1
 				? `“${renderCell(fields.find((f) => f.name === 'name_en') ?? fields[0], writable[0].name_en ?? writable[0].name ?? writable[0].id)}”`
 				: `${writable.length} records`;
-		if (!confirm(`Delete ${label}?${frozen.length ? ` (${frozen.length} frozen skipped)` : ''}`)) return;
+		if (
+			!(await confirmDialog({
+				title: 'Delete records',
+				description: `Delete ${label}?${frozen.length ? ` (${frozen.length} frozen skipped)` : ''}`,
+				destructive: true,
+				confirmLabel: 'Delete',
+			}))
+		)
+			return;
 		try {
 			// ONE bulk request for N rows instead of N sequential DELETE round trips.
 			const results = await bulkDelete(
@@ -569,70 +555,7 @@ export default function AppDetailPage({ token }: { token: string }) {
 		[queryClient],
 	);
 
-	async function createModel(e: React.FormEvent) {
-		e.preventDefault();
-		if (!slug || !newName.trim() || newBusy || namingSeriesExample(newNaming) === false) return;
-		setNewBusy(true);
-		try {
-			const created = await createCollection(token, newName.trim(), {
-				description: newDescription.trim() || undefined,
-				naming_series: newNaming.trim() || undefined,
-			});
-			await attachCollectionToModule(token, slug, created.slug);
-			setNewName('');
-			setNewDescription('');
-			setNewNaming('');
-			setNewOpen(false);
-			// Seed the new schema so focusing it renders instantly, then revalidate the
-			// only things this write touched: the app wiring + the registry list.
-			queryClient.setQueryData(qk.collection(created.slug), created);
-			await invalidateModule(queryClient, slug);
-			await invalidateCollectionList(queryClient);
-			selectCollection(created.slug);
-		} catch (err) {
-			setActionError(err instanceof Error ? err.message : 'Create failed');
-		} finally {
-			setNewBusy(false);
-		}
-	}
-
-	// Open the New Collection dialog. In 'bind' mode we need the full list of system
-	// collections so the user can pick one that isn't already attached to this module.
-	async function openNewDialog() {
-		setNewName('');
-		setNewDescription('');
-		setNewNaming('');
-		setNewMode('create');
-		setBindSlug('');
-		setAllCollections([]);
-		setNewOpen(true);
-		try {
-			setAllCollections(await queryClient.fetchQuery(collectionsQuery(token)));
-		} catch {
-			/* the bind list is best-effort — create mode still works */
-		}
-	}
-
-	// Attach an existing system collection to this module without creating a new one.
-	async function bindCollection(e: React.FormEvent) {
-		e.preventDefault();
-		if (!slug || !bindSlug || bindBusy) return;
-		setBindBusy(true);
-		try {
-			await attachCollectionToModule(token, slug, bindSlug);
-			setBindSlug('');
-			setNewOpen(false);
-			await invalidateModule(queryClient, slug);
-			selectCollection(bindSlug);
-		} catch (err) {
-			setActionError(err instanceof Error ? err.message : 'Bind failed');
-		} finally {
-			setBindBusy(false);
-		}
-	}
-
-	// Doc No. (naming series) — live previews for the create + existing-model dialogs.
-	const newNamingExample = namingSeriesExample(newNaming);
+	// Doc No. (naming series) — live preview for the existing-model dialog.
 	const docNoExample = namingSeriesExample(docNoValue);
 
 	// Open the Doc No. editor seeded with the collection's CURRENT pattern.
@@ -667,7 +590,15 @@ export default function AppDetailPage({ token }: { token: string }) {
 
 	async function removeField(fieldName: string) {
 		if (!selectedModel || !selectedSchema) return;
-		if (!confirm(`Delete field "${fieldName}" from "${selectedModel.name}"? The column is removed from the table.`)) return;
+		if (
+			!(await confirmDialog({
+				title: 'Delete field',
+				description: `Delete field "${fieldName}" from "${selectedModel.name}"? The column is removed from the table.`,
+				destructive: true,
+				confirmLabel: 'Delete field',
+			}))
+		)
+			return;
 		try {
 			const next = selectedSchema.schema_json.fields.filter((f) => f.name !== fieldName);
 			// Single-field save — patch just this collection's cache entry instead of
@@ -753,9 +684,6 @@ export default function AppDetailPage({ token }: { token: string }) {
 		);
 	if (!mod) return <div style={{ padding: '2rem' }}>{error ?? 'App not found'}</div>;
 
-	const bg = mod.bg_color ?? appColor(mod.slug);
-	const fg = mod.icon_color ?? '#ffffff';
-
 	return (
 		<>
 			<PageBuilderProvider
@@ -786,94 +714,15 @@ export default function AppDetailPage({ token }: { token: string }) {
 						<StudioLayout
 							storageKey={mod ? `app:${mod.slug}` : undefined}
 							header={
-								<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem' }}>
-									{/* Top-left back control — clicking the module identity (or the chevron)
-									 * leaves the workbench for the Apps ModuleGrid (or the IDP catalog for
-									 * IDP-managed modules). popBack pops the entry we were pushed from when
-									 * one exists (grid/catalog), else replaces to the destination — it never
-									 * stacks a second copy of the destination under this screen. */}
-									<Button
-										variant="ghost"
-										style={{ padding: '0.25rem 0.5rem', marginLeft: '-0.5rem', height: 'auto' }}
-										title={isIdpManagedModule(mod.slug) ? 'Back to IDP catalog' : 'Back to apps'}
-										aria-label={isIdpManagedModule(mod.slug) ? 'Back to IDP catalog' : 'Back to apps'}
-										onClick={() => popBack(navigate, isIdpManagedModule(mod.slug) ? '/idp/catalog' : '/')}
-									>
-										<ChevronLeft size={16} style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }} />
-										<Avatar size="default" variant="square">
-											<AvatarFallback style={{ background: bg, color: fg, fontWeight: 700 }}>
-												<AppIcon name={mod.icon} size={18} />
-											</AvatarFallback>
-										</Avatar>
-										<span style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>{mod.name}</span>
-									</Button>
-									{/* App section switcher — same segmented style as the form builder view selector */}
-									<div
-										style={{
-											display: 'flex',
-											gap: 2,
-											marginLeft: '1rem',
-											padding: '0.2rem',
-											borderRadius: 8,
-											background: 'var(--mmbix-muted, #f3f4f6)',
-											flexWrap: 'wrap',
-										}}
-									>
-										{(['collection', 'menu', 'builder'] as const).map((v) => (
-											<Button
-												key={v}
-												variant={section === v ? 'default' : 'ghost'}
-												size="sm"
-												onClick={() => setSection(v)}
-												style={{ textTransform: 'capitalize' }}
-											>
-												{v}
-											</Button>
-										))}
-									</div>
-									{/* Right-aligned controls — view toggle, builder save, and manage app stay
-									 * grouped flush against the right edge (single margin-left:auto). */}
-									<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
-										{/* Table / Schema view toggle — icon-only, appears when a collection is focused */}
-										{section === 'collection' && selectedModel && (
-											<div
-												style={{
-													display: 'flex',
-													gap: 2,
-													padding: '0.2rem',
-													borderRadius: 8,
-													background: 'var(--mmbix-muted, #f3f4f6)',
-												}}
-											>
-												<Button
-													variant={view === 'table' ? 'default' : 'ghost'}
-													size="sm"
-													title="Table view"
-													onClick={() => setView('table')}
-													style={{ width: 28, padding: 0 }}
-												>
-													<Table2 size={14} />
-												</Button>
-												<Button
-													variant={view === 'schema' ? 'default' : 'ghost'}
-													size="sm"
-													title="Schema view"
-													onClick={() => setView('schema')}
-													style={{ width: 28, padding: 0 }}
-												>
-													<Braces size={14} />
-												</Button>
-											</div>
-										)}
-										{/* Builder save — page drafts persist from the app bar */}
-										{section === 'builder' && <BuilderSaveButton />}
-										{/* Manage app — rename / icon / colours for THIS module (same dialog the
-										 * Apps grid uses, preloaded with the current module). */}
-										<Button variant="ghost" size="sm" title="Manage app" onClick={() => setManageOpen(true)} style={{ gap: 6 }}>
-											<Settings size={14} /> Manage
-										</Button>
-									</div>
-								</div>
+								<AppWorkbenchHeader
+									mod={mod}
+									section={section}
+									hasSelectedModel={!!selectedModel}
+									view={view}
+									onSectionChange={setSection}
+									onViewChange={setView}
+									onManage={() => setManageOpen(true)}
+								/>
 							}
 							left={
 								section === 'collection' ? (
@@ -881,7 +730,7 @@ export default function AppDetailPage({ token }: { token: string }) {
 										<SideSection
 											title="Collections"
 											action={
-												<Button variant="ghost" size="icon-xs" title="New collection" onClick={() => void openNewDialog()}>
+												<Button variant="ghost" size="icon-xs" title="New collection" onClick={() => setNewOpen(true)}>
 													<Plus size={14} />
 												</Button>
 											}
@@ -893,106 +742,13 @@ export default function AppDetailPage({ token }: { token: string }) {
 												style={{ marginBottom: 8, width: '100%' }}
 											/>
 										</SideSection>
-										{(mod.collections?.length ?? 0) === 0 ? (
-											<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-												<Empty>
-													<EmptyHeader>
-														<EmptyMedia variant="icon">
-															<Database size={32} />
-														</EmptyMedia>
-														<EmptyTitle>No collections yet</EmptyTitle>
-														<EmptyDescription>Press the + button to create one.</EmptyDescription>
-													</EmptyHeader>
-												</Empty>
-											</div>
-										) : (
-											<div style={{ flex: 1, padding: '0.5rem', overflowY: 'auto', minHeight: 0 }}>
-												<div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-													{(mod.collections ?? [])
-														.filter((c) => {
-															const q = modelQuery.trim().toLowerCase();
-															return !q || c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q);
-														})
-														.map((c) => {
-															const active = selected === c.slug;
-															return (
-																<div
-																	key={c.slug}
-																	style={{
-																		display: 'flex',
-																		alignItems: 'center',
-																		width: '100%',
-																		borderRadius: 6,
-																		background: active ? 'var(--mmbix-primary, #2563eb)' : 'transparent',
-																		color: active ? 'var(--mmbix-primary-foreground, #ffffff)' : 'inherit',
-																	}}
-																>
-																	<button
-																		onClick={() => selectCollection(c.slug)}
-																		style={{
-																			display: 'flex',
-																			alignItems: 'center',
-																			gap: 8,
-																			padding: '0.45rem 0.5rem',
-																			cursor: 'pointer',
-																			textAlign: 'left',
-																			flex: 1,
-																			minWidth: 0,
-																			background: 'transparent',
-																			color: 'inherit',
-																			border: 'none',
-																		}}
-																	>
-																		<Database
-																			size={13}
-																			style={{ color: active ? 'var(--mmbix-primary-foreground, #ffffff)' : '#9ca3af', flexShrink: 0 }}
-																		/>
-																		<span
-																			style={{
-																				flex: 1,
-																				minWidth: 0,
-																				fontSize: '0.82rem',
-																				fontWeight: active ? 700 : 500,
-																				overflow: 'hidden',
-																				textOverflow: 'ellipsis',
-																				whiteSpace: 'nowrap',
-																			}}
-																		>
-																			{c.name}
-																		</span>
-																	</button>
-																	<DropdownMenu>
-																		<DropdownMenuTrigger
-																			title="Collection options"
-																			aria-label={`Options for ${c.name}`}
-																			style={{
-																				display: 'inline-flex',
-																				alignItems: 'center',
-																				justifyContent: 'center',
-																				width: 24,
-																				height: 24,
-																				borderRadius: 5,
-																				border: 'none',
-																				background: 'transparent',
-																				color: active ? 'var(--mmbix-primary-foreground, #ffffff)' : '#9ca3af',
-																				cursor: 'pointer',
-																				flexShrink: 0,
-																			}}
-																		>
-																			<MoreVertical size={13} />
-																		</DropdownMenuTrigger>
-																		<DropdownMenuContent align="end" sideOffset={4} style={{ minWidth: 190 }}>
-																			<DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(c)}>
-																				<Trash2 size={13} /> Delete collection
-																			</DropdownMenuItem>
-																		</DropdownMenuContent>
-																	</DropdownMenu>
-																</div>
-															);
-														})}
-												</div>
-											</div>
-										)}
+										<AppCollectionList
+											collections={mod.collections ?? []}
+											selected={selected}
+											modelQuery={modelQuery}
+											onSelect={selectCollection}
+											onRequestDelete={(c) => setDeleteTarget(c)}
+										/>
 									</div>
 								) : section === 'menu' ? (
 									<MenuPreview
@@ -1138,7 +894,9 @@ export default function AppDetailPage({ token }: { token: string }) {
 												<>
 													<div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem', paddingLeft: '0.75rem' }}>
 														<h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>{selectedModel.name}</h2>
-														{importMsg && <span style={{ fontSize: '0.7rem', color: '#16a34a' }}>{importMsg}</span>}
+														{importMsg && (
+															<span style={{ fontSize: '0.7rem', color: 'var(--mmbix-tone-positive-fg, #16a34a)' }}>{importMsg}</span>
+														)}
 														{writeLock.canCreate && (
 															<Button
 																size="sm"
@@ -1223,7 +981,7 @@ export default function AppDetailPage({ token }: { token: string }) {
 																			setSelectedRows([]);
 																		}}
 																	>
-																		<Trash2 size={13} /> {trashMode ? 'Trash' : 'Trash'}
+																		<Trash2 size={13} /> Trash
 																	</Button>
 																	{writeLock.canMutate && selectedPartition.writable.length > 0 && !trashMode && (
 																		<Button size="sm" variant="outline" title="Edit selected records" onClick={() => setBatchOpen(true)}>
@@ -1246,7 +1004,7 @@ export default function AppDetailPage({ token }: { token: string }) {
 																			variant="outline"
 																			title={trashMode ? 'Permanently delete selected records' : 'Delete selected records'}
 																			onClick={() => void handleDelete(selectedRows)}
-																			style={{ color: '#dc2626' }}
+																			style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
 																		>
 																			<Trash2 size={13} /> Delete ({selectedPartition.writable.length})
 																		</Button>
@@ -1254,7 +1012,7 @@ export default function AppDetailPage({ token }: { token: string }) {
 																	{selectedPartition.frozen.length > 0 && (
 																		<span
 																			title={frozenRowsReason(writeLock, selectedPartition.frozen.length)}
-																			style={{ fontSize: '0.72rem', color: '#9ca3af', alignSelf: 'center' }}
+																			style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', alignSelf: 'center' }}
 																		>
 																			{selectedPartition.frozen.length} frozen
 																		</span>
@@ -1319,62 +1077,7 @@ export default function AppDetailPage({ token }: { token: string }) {
 													</div>
 												</div>
 
-												<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
-													{visibleFields.map((f) => (
-														<Card
-															key={f.name}
-															style={{
-																...(f.required ? { borderColor: 'var(--mmbix-primary, #0f766e)' } : {}),
-															}}
-														>
-															<CardContent style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.5rem 0.65rem' }}>
-																<FieldTypeIcon type={f.type} />
-																<span
-																	style={{
-																		flex: 1,
-																		minWidth: 0,
-																		fontSize: '0.82rem',
-																		fontWeight: 500,
-																		overflow: 'hidden',
-																		textOverflow: 'ellipsis',
-																		whiteSpace: 'nowrap',
-																	}}
-																>
-																	{f.label || f.name}
-																</span>
-																<Badge variant="outline" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'capitalize' }}>
-																	{f.type}
-																</Badge>
-																<DropdownMenu>
-																	<DropdownMenuTrigger
-																		title="Field options"
-																		style={{
-																			display: 'inline-flex',
-																			alignItems: 'center',
-																			justifyContent: 'center',
-																			width: 24,
-																			height: 24,
-																			borderRadius: 5,
-																			border: 'none',
-																			background: 'transparent',
-																			color: '#9ca3af',
-																			cursor: 'pointer',
-																		}}
-																	>
-																		<MoreVertical size={13} />
-																	</DropdownMenuTrigger>
-																	<DropdownMenuContent align="end">
-																		<DropdownMenuSeparator />
-																		<DropdownMenuItem onClick={() => removeField(f.name)} style={{ color: '#dc2626' }}>
-																			<span style={{ width: 13, display: 'inline-flex' }} />
-																			Delete field
-																		</DropdownMenuItem>
-																	</DropdownMenuContent>
-																</DropdownMenu>
-															</CardContent>
-														</Card>
-													))}
-												</div>
+												<AppSchemaFields fields={visibleFields} onRemoveField={(name) => void removeField(name)} />
 											</>
 										)
 									) : (
@@ -1444,136 +1147,24 @@ export default function AppDetailPage({ token }: { token: string }) {
 				/>
 			)}
 
-			<Dialog open={newOpen} onOpenChange={setNewOpen}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>New Collection</DialogTitle>
-						<DialogDescription>Create a model and attach it to this app, or bind an existing one from the system.</DialogDescription>
-					</DialogHeader>
-					{/* Mode toggle — create a fresh model vs. bind an existing system collection. */}
-					<div style={{ display: 'flex', gap: 6, marginBottom: '0.75rem' }}>
-						<Button
-							size="sm"
-							variant={newMode === 'create' ? 'default' : 'outline'}
-							onClick={() => setNewMode('create')}
-							style={{ flex: 1 }}
-						>
-							Create new
-						</Button>
-						<Button size="sm" variant={newMode === 'bind' ? 'default' : 'outline'} onClick={() => setNewMode('bind')} style={{ flex: 1 }}>
-							Bind existing
-						</Button>
-					</div>
-					{newMode === 'create' ? (
-						<form onSubmit={createModel}>
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.25rem 0' }}>
-								<Label htmlFor="nc-name">Name</Label>
-								<Input id="nc-name" autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Customers" />
-								<Label htmlFor="nc-desc">Description</Label>
-								<Input id="nc-desc" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Optional" />
-								<Label htmlFor="nc-naming">Doc No. format (optional)</Label>
-								<Input
-									id="nc-naming"
-									value={newNaming}
-									onChange={(e) => setNewNaming(e.target.value)}
-									placeholder="e.g. OUT- or OUT-####"
-								/>
-								<div style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #64748b)', lineHeight: 1.4 }}>
-									{newNamingExample === null
-										? 'Off — new records get no Doc No.'
-										: newNamingExample === false
-											? 'Invalid — end with “-”, then up to 10 “#” (e.g. OUT-#### → OUT-0001).'
-											: `First new record → ${newNamingExample}`}
-								</div>
-							</div>
-							<DialogFooter>
-								<Button type="button" variant="ghost" onClick={() => setNewOpen(false)}>
-									Cancel
-								</Button>
-								<Button type="submit" disabled={!newName.trim() || newBusy || newNamingExample === false}>
-									{newBusy ? 'Creating…' : 'Create & attach'}
-								</Button>
-							</DialogFooter>
-						</form>
-					) : (
-						<form onSubmit={bindCollection}>
-							{(() => {
-								const attached = new Set((mod?.collections ?? []).map((c) => c.slug));
-								const available = allCollections.filter((c) => !attached.has(c.slug));
-								if (available.length === 0) {
-									return (
-										<div style={{ padding: '0.75rem 0', color: 'var(--mmbix-muted-foreground, #64748b)', fontSize: '0.85rem' }}>
-											No other collections available — every system collection is already attached to this app.
-										</div>
-									);
-								}
-								return (
-									<div
-										style={{
-											display: 'flex',
-											flexDirection: 'column',
-											gap: 4,
-											maxHeight: 260,
-											overflowY: 'auto',
-											padding: '0.25rem 0',
-										}}
-									>
-										{available.map((c) => {
-											const active = bindSlug === c.slug;
-											return (
-												<button
-													key={c.slug}
-													type="button"
-													onClick={() => setBindSlug(c.slug)}
-													style={{
-														display: 'flex',
-														alignItems: 'center',
-														gap: 8,
-														width: '100%',
-														padding: '0.5rem 0.6rem',
-														borderRadius: 8,
-														border: active ? '1px solid var(--mmbix-primary, #2563eb)' : '1px solid transparent',
-														background: active ? 'var(--mmbix-primary-soft, rgba(37,99,235,0.08))' : 'transparent',
-														cursor: 'pointer',
-														textAlign: 'left',
-														font: 'inherit',
-													}}
-												>
-													<span style={{ flex: 1, minWidth: 0 }}>
-														<span
-															style={{
-																display: 'block',
-																fontSize: '0.9rem',
-																fontWeight: 600,
-																overflow: 'hidden',
-																textOverflow: 'ellipsis',
-																whiteSpace: 'nowrap',
-															}}
-														>
-															{c.name}
-														</span>
-														<span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--mmbix-muted-foreground, #64748b)' }}>
-															{c.slug}
-														</span>
-													</span>
-												</button>
-											);
-										})}
-									</div>
-								);
-							})()}
-							<DialogFooter>
-								<Button type="button" variant="ghost" onClick={() => setNewOpen(false)}>
-									Cancel
-								</Button>
-								<Button type="submit" disabled={!bindSlug || bindBusy}>
-									{bindBusy ? 'Attaching…' : 'Attach to app'}
-								</Button>
-							</DialogFooter>
-						</form>
-					)}
-				</DialogContent>
-			</Dialog>
+			<NewCollectionDialog
+				open={newOpen}
+				onOpenChange={setNewOpen}
+				token={token}
+				moduleSlug={slug ?? ''}
+				attachedSlugs={attachedSlugs}
+				onCreated={async (created) => {
+					queryClient.setQueryData(qk.collection(created.slug), created);
+					if (slug) await invalidateModule(queryClient, slug);
+					await invalidateCollectionList(queryClient);
+					selectCollection(created.slug);
+				}}
+				onBound={async (bound) => {
+					if (slug) await invalidateModule(queryClient, slug);
+					selectCollection(bound);
+				}}
+				onError={(message) => setActionError(message)}
+			/>
 
 			<AddFieldDialog
 				def={draftDef}
@@ -1610,132 +1201,101 @@ export default function AppDetailPage({ token }: { token: string }) {
 			</AlertDialog>
 
 			{/* Role-based field visibility — the RBAC panel (was part of the standalone Form Builder page). */}
-			<Dialog open={permOpen} onOpenChange={setPermOpen}>
-				<DialogContent style={{ width: 460, maxHeight: '82vh', overflowY: 'auto' }}>
-					<DialogHeader>
-						<DialogTitle>Field Permissions</DialogTitle>
-						<DialogDescription>
-							Control which fields each role can see for “{selectedModel?.name ?? selected ?? 'this collection'}”.
-						</DialogDescription>
-					</DialogHeader>
-					{selected && <PermissionsPanel token={token} slug={selected} fields={fields} />}
-				</DialogContent>
-			</Dialog>
+			<PanelDialog
+				open={permOpen}
+				onOpenChange={setPermOpen}
+				title="Field Permissions"
+				description={<>Control which fields each role can see for “{selectedModel?.name ?? selected ?? 'this collection'}”.</>}
+				contentStyle={{ width: 460, maxHeight: '82vh', overflowY: 'auto' }}
+			>
+				{selected && <PermissionsPanel token={token} slug={selected} fields={fields} />}
+			</PanelDialog>
 
 			{/* Multi-level approval workflow designer — engine-enforced on submit/approve/reject. */}
-			<Dialog open={wfOpen} onOpenChange={setWfOpen}>
-				<DialogContent style={{ width: 560, maxHeight: '82vh', overflowY: 'auto' }}>
-					<DialogHeader>
-						<DialogTitle>Approval Workflow</DialogTitle>
-						<DialogDescription>
-							Submit routes documents through role-gated approval levels for “{selectedModel?.name ?? selected ?? 'this collection'}”.
-						</DialogDescription>
-					</DialogHeader>
-					{selected && <WorkflowPanel token={token} slug={selected} fields={fields} schema={selectedSchema} />}
-				</DialogContent>
-			</Dialog>
+			<PanelDialog
+				open={wfOpen}
+				onOpenChange={setWfOpen}
+				title="Approval Workflow"
+				description={
+					<>Submit routes documents through role-gated approval levels for “{selectedModel?.name ?? selected ?? 'this collection'}”.</>
+				}
+				contentStyle={{ width: 560, maxHeight: '82vh', overflowY: 'auto' }}
+			>
+				{selected && <WorkflowPanel token={token} slug={selected} fields={fields} schema={selectedSchema} />}
+			</PanelDialog>
 
 			{/* Per-collection audit toggle (Directus-style) — schema_json.audit_enabled. */}
-			<Dialog open={auditOpen} onOpenChange={setAuditOpen}>
-				<DialogContent style={{ width: 480 }}>
-					<DialogHeader>
-						<DialogTitle>Audit Log</DialogTitle>
-						<DialogDescription>
-							Control whether changes to “{selectedModel?.name ?? selected ?? 'this collection'}” are recorded in the audit trail.
-						</DialogDescription>
-					</DialogHeader>
-					{selected && (
-						<AuditPanel
-							token={token}
-							slug={selected}
-							schema={selectedSchema}
-							onSaved={() => {
-								void invalidateCollection(queryClient, selected);
-							}}
-						/>
-					)}
-				</DialogContent>
-			</Dialog>
+			<PanelDialog
+				open={auditOpen}
+				onOpenChange={setAuditOpen}
+				title="Audit Log"
+				description={
+					<>Control whether changes to “{selectedModel?.name ?? selected ?? 'this collection'}” are recorded in the audit trail.</>
+				}
+				contentStyle={{ width: 480 }}
+			>
+				{selected && (
+					<AuditPanel
+						token={token}
+						slug={selected}
+						schema={selectedSchema}
+						onSaved={() => {
+							void invalidateCollection(queryClient, selected);
+						}}
+					/>
+				)}
+			</PanelDialog>
 
 			{/* Runtime feature policies — headless control plane (schema_json.policies). */}
-			<Dialog open={policyOpen} onOpenChange={setPolicyOpen}>
-				<DialogContent style={{ width: 480 }}>
-					<DialogHeader>
-						<DialogTitle>Runtime Policies</DialogTitle>
-						<DialogDescription>
-							Enable / configure engine behaviors for “{selectedModel?.name ?? selected ?? 'this collection'}” at runtime — no code, no
-							redeploy.
-						</DialogDescription>
-					</DialogHeader>
-					{selected && <PolicyPanel token={token} slug={selected} schema={selectedSchema} />}
-				</DialogContent>
-			</Dialog>
+			<PanelDialog
+				open={policyOpen}
+				onOpenChange={setPolicyOpen}
+				title="Runtime Policies"
+				description={
+					<>
+						Enable / configure engine behaviors for “{selectedModel?.name ?? selected ?? 'this collection'}” at runtime — no code, no
+						redeploy.
+					</>
+				}
+				contentStyle={{ width: 480 }}
+			>
+				{selected && <PolicyPanel token={token} slug={selected} schema={selectedSchema} />}
+			</PanelDialog>
 
 			{/* Governed generation — propose fields from a design, review the visible
 			 * inference, then apply. Nothing is written until Apply. */}
-			<Dialog open={generationOpen} onOpenChange={setGenerationOpen}>
-				<DialogContent style={{ width: 720 }}>
-					<DialogHeader>
-						<DialogTitle>Generate Schema</DialogTitle>
-						<DialogDescription>
-							Propose a collection’s fields from a DesignDNA, review the inference, then apply. Proposals never write until you apply.
-						</DialogDescription>
-					</DialogHeader>
-					<GenerationPanel
-						token={token}
-						defaultName={selectedModel?.name}
-						defaultSlug={selected ?? ''}
-						onApplied={() => queryClient.invalidateQueries()}
-					/>
-				</DialogContent>
-			</Dialog>
+			<PanelDialog
+				open={generationOpen}
+				onOpenChange={setGenerationOpen}
+				title="Generate Schema"
+				description={
+					<>Propose a collection’s fields from a DesignDNA, review the inference, then apply. Proposals never write until you apply.</>
+				}
+				contentStyle={{ width: 720 }}
+			>
+				<GenerationPanel
+					token={token}
+					defaultName={selectedModel?.name}
+					defaultSlug={selected ?? ''}
+					onApplied={() => queryClient.invalidateQueries()}
+				/>
+			</PanelDialog>
 
 			{/* Auto-numbering Doc No. — the collection's naming-series pattern (prefix +
 			 * optional `#` counter width). The engine assigns display_number at create;
 			 * empty pattern turns numbering off. */}
-			<Dialog open={docNoOpen} onOpenChange={setDocNoOpen}>
-				<DialogContent style={{ width: 480 }}>
-					<DialogHeader>
-						<DialogTitle>Doc No. — auto numbering</DialogTitle>
-						<DialogDescription>
-							New records of “{selectedModel?.name ?? selected ?? 'this collection'}” are numbered from this pattern. Leave it empty to turn
-							Doc No. off.
-						</DialogDescription>
-					</DialogHeader>
-					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', padding: '0.25rem 0' }}>
-						<Label htmlFor="docno-pattern">Pattern</Label>
-						<Input
-							id="docno-pattern"
-							autoFocus
-							value={docNoValue}
-							onChange={(e) => setDocNoValue(e.target.value)}
-							placeholder="e.g. OUT- or OUT-####"
-						/>
-						<div style={{ fontSize: '0.78rem' }}>
-							{docNoExample === null ? (
-								<span style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Off — new records get no Doc No.</span>
-							) : docNoExample === false ? (
-								<span style={{ color: '#dc2626' }}>Invalid — end with “-”, then up to 10 “#” placeholders (e.g. OUT-#### → OUT-0001).</span>
-							) : (
-								<span>
-									First new record → <b>{docNoExample}</b>
-								</span>
-							)}
-						</div>
-						<div style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
-							Only new records get numbered from this pattern — existing rows keep their current Doc No.
-						</div>
-					</div>
-					<DialogFooter>
-						<Button type="button" variant="ghost" onClick={() => setDocNoOpen(false)}>
-							Cancel
-						</Button>
-						<Button onClick={() => void saveDocNo()} disabled={docNoBusy || docNoExample === false}>
-							{docNoBusy ? 'Saving…' : 'Save'}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			<DocNoDialog
+				open={docNoOpen}
+				onOpenChange={setDocNoOpen}
+				id="docno-pattern"
+				name={selectedModel?.name ?? selected ?? 'this collection'}
+				value={docNoValue}
+				onValueChange={setDocNoValue}
+				example={docNoExample}
+				busy={docNoBusy}
+				onCancel={() => setDocNoOpen(false)}
+				onSave={() => void saveDocNo()}
+			/>
 		</>
 	);
 }

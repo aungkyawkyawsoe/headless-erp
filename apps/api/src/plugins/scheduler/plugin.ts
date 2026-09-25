@@ -88,6 +88,26 @@ export function schedulerPlugin(): Plugin {
 					},
 				],
 			},
+			{
+				// Terminal-failure marker. `disarmed_at` is set when a task EXHAUSTS its
+				// retry budget and is disarmed (its DO alarm deleted). It is what tells a
+				// job that has STOPPED apart from one that merely failed once and is
+				// backing off — both carry status `failed`, and without this the health
+				// read could not surface a died job. The runner probes the column, so a
+				// re-run on a partially-migrated database is safe (ALTER has no IF NOT
+				// EXISTS).
+				name: '028_scheduler_disarmed',
+				up: [{ sql: `ALTER TABLE _scheduler_tasks ADD COLUMN disarmed_at TEXT`, bindings: [] }],
+			},
+			{
+				// Ownership marker. `'manifest'` = the control plane's `apply_manifest`
+				// created this job, so an apply that no longer declares it may reconcile
+				// (delete + disarm) it. Studio/CLI/hand-created jobs stay NULL and are
+				// INVISIBLE to reconciliation. Nullable + additive; the plugin runner
+				// probes the column, so a re-run on a partially-migrated DB is safe.
+				name: '042_scheduler_source',
+				up: [{ sql: `ALTER TABLE _scheduler_tasks ADD COLUMN source TEXT DEFAULT NULL`, bindings: [] }],
+			},
 		],
 		register(_ctx: PluginContext): PluginRegistration {
 			const app = new Hono<{

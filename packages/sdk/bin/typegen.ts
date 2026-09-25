@@ -53,15 +53,16 @@ if (values.token) {
 try {
 	const collections = await fetchCollections({ url: values.url, token, schemaFile: values.schema });
 
-	// Offline runs record provenance (source path + SHA-256 of the source bytes)
-	// in the generated header so staleness is machine-detectable.
-	let meta: TypegenSourceMeta | undefined;
+	// Provenance is ALWAYS recorded so staleness is machine-detectable — not
+	// just in offline mode. Offline runs hash the source file bytes; live runs
+	// hash the fetched schema payload (the exact revision consumed), so the
+	// generated header pins which schema it came from either way.
+	let meta: TypegenSourceMeta;
 	if (values.schema) {
 		const resolved = path.resolve(values.schema);
-		meta = {
-			source: values.schema,
-			sourceHash: createHash('sha256').update(readFileSync(resolved)).digest('hex'),
-		};
+		meta = { source: values.schema, sourceHash: createHash('sha256').update(readFileSync(resolved)).digest('hex') };
+	} else {
+		meta = { source: values.url ?? 'live API', sourceHash: createHash('sha256').update(JSON.stringify(collections)).digest('hex') };
 	}
 	if (collections.length === 0) {
 		console.error(pc.red('No collections found — is the API reachable / schema file valid?'));
@@ -71,9 +72,21 @@ try {
 	const outDir = values.out!;
 	const outFile = path.join(outDir, values.name!);
 	mkdirSync(outDir, { recursive: true });
-	writeFileSync(outFile, content, 'utf-8');
-	console.log(pc.green(`✓ ${summary}`));
-	console.log(pc.dim(`  wrote ${outFile}`));
+	// Idempotent: an unchanged schema must not churn the file (which would
+	// dirty git, retrigger format gates, and defeat `--check`-style use).
+	let unchanged = false;
+	try {
+		unchanged = readFileSync(outFile, 'utf-8') === content;
+	} catch {
+		/* file does not exist yet */
+	}
+	if (unchanged) {
+		console.log(pc.dim(`= ${summary} (unchanged, ${outFile})`));
+	} else {
+		writeFileSync(outFile, content, 'utf-8');
+		console.log(pc.green(`✓ ${summary}`));
+		console.log(pc.dim(`  wrote ${outFile}`));
+	}
 } catch (err) {
 	console.error(pc.red(`Typegen failed: ${err instanceof Error ? err.message : String(err)}`));
 	process.exit(1);

@@ -1,6 +1,6 @@
 export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from './constants';
 export { MMT_OFFSET_MS, DAY_MS, toMmtDate, todayMmtDate, mmtWindowStartIso, mmtDayStartIso, addDays, dayOf } from './time';
-export { FIELD_TYPE_NAMES, VALID_FIELD_TYPES } from './field-types';
+export { FIELD_TYPE_NAMES, VALID_FIELD_TYPES, SEARCHABLE_FIELD_TYPES } from './field-types';
 export { sanitizeIdentifier, SanitizeError } from './sanitize';
 export { sanitizeHtml } from './html';
 export { systemTable, collectionTable } from './table-name';

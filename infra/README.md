@@ -43,36 +43,49 @@ fails closed in production until the secrets exist. Never add a credential to
 `infra/env.prod`: `pnpm check:infra` guards the generated config, and the config
 is the deploy artifact.
 
-## Naming: one prefix, `mff-sys`
+## Naming: `infra/env.prod` is authoritative
 
-The client prefix is **`mff-sys`** (hyphens). R2 bucket + queue names forbid
-underscores (`^[a-z0-9-]+$`), so the prefix is hyphenated **everywhere** for one
-consistent identity. The Workers Analytics Engine dataset is the exception — it
-**requires** underscores → `mff_sys_api_requests`.
+**If this file and `infra/env.prod` disagree, `env.prod` wins** — it is the file
+that generates the deployed configs (`pnpm gen:infra`). The names below are the
+CURRENT provisioning (a previous client deployment used an `mff-sys-*` prefix;
+those names appear only in the historical runbook at the bottom of this file and
+must not be provisioned again).
 
-## Resource map (account `4893d057…`, prod)
+Hyphenated names for workers/R2/queues (`^[a-z0-9-]+$`); the Workers Analytics
+Engine dataset is the exception — it **requires** underscores →
+`headless_erp_api_requests`.
 
-Everything below is **created and live** on the account, and the generated
-configs point at it:
+## Resource map (from `infra/env.prod`)
 
-| Kind                                        | Name                                                                                              | Status                                               |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| API worker                                  | `mff-sys-api`                                                                                     | ✅ deployed (2026-09-20, v`6b74e697`)                |
-| Mini App worker                             | `mff-sys-miniapp`                                                                                 | ✅ deployed (2026-09-20, v`ed2845d5`)                |
-| Studio worker                               | `mff-sys-studio`                                                                                  | ⏳ not yet deployed (config generated)               |
-| Custom domain `app.mfflogistics.com`        | → `mff-sys-miniapp`                                                                               | ✅ moved (old `mff-erp-bot-app` detached)            |
-| Custom domain `erp-studio.mfflogistics.com` | → `mff-sys-studio`                                                                                | ⏳ not yet attached                                  |
-| D1                                          | `mff-sys-db` (`8d19c262-…`)                                                                       | ✅ created — schema self-bootstraps on first request |
-| D1                                          | `mff-sys-studio-db`                                                                               | ⏳ not yet created — see Studio runbook below        |
-| R2                                          | `mff-sys-media`                                                                                   | ✅ created (apac)                                    |
-| Queue                                       | `mff-sys-webhook-delivery` (+ `-dlq`)                                                             | ✅ created, consumer on `mff-sys-api`                |
-| Queue                                       | `mff-sys-events` (+ `-dlq`)                                                                       | ✅ created, consumer on `mff-sys-api`                |
-| Analytics dataset                           | `mff_sys_api_requests`                                                                            | auto-creates on first write                          |
-| Secrets on `mff-sys-api`                    | `ADMIN_PASSWORD` · `JWT_SECRET` · `BACKUP_ENCRYPTION_KEY` · `R2_SQL_TOKEN` · `TELEGRAM_BOT_TOKEN` | ✅ set via `wrangler secret put`                     |
+The names the generated configs point at:
 
-Vars (feature flags) on `mff-sys-api`: `DOMAIN_MODULES=hr,idp,mro` ·
-`RATE_LIMIT_DO/BACKUP_ENABLED/ANALYTICS_ENABLED/ENABLE_R2_LAKE=true` ·
-`ADMIN_USERNAME=dev@mmbics.com`.
+| Kind                      | Name (`infra/env.prod` key)                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API worker                | `headless-erp-api` (`WORKER_API`)                                                                                                                    |
+| Studio worker             | `headless-erp-studio` (`WORKER_STUDIO`)                                                                                                              |
+| D1 (engine)               | `headless-erp-db` (`D1_NAME` / `D1_ID` — paste the real id before deploy)                                                                            |
+| D1 (studio metadata)      | `headless-erp-studio-db` (`STUDIO_D1_NAME` / `STUDIO_D1_ID`)                                                                                         |
+| R2                        | `headless-erp-media` (`R2_BUCKET`)                                                                                                                   |
+| Queue                     | `headless-erp-webhook-delivery` (+ `-dlq`) (`QUEUE_WEBHOOK*`)                                                                                        |
+| Queue                     | `headless-erp-events` (+ `-dlq`) (`QUEUE_EVENTS*`)                                                                                                   |
+| Analytics dataset         | `headless_erp_api_requests` (`ANALYTICS_DATASET`)                                                                                                    |
+| Secrets on the API worker | `ADMIN_PASSWORD` · `JWT_SECRET` · `BACKUP_ENCRYPTION_KEY` · `ENCRYPTION_KEY` · `TELEGRAM_BOT_TOKEN` · `R2_SQL_TOKEN` (set via `wrangler secret put`) |
+
+Vars on the API worker: `DOMAIN_MODULES=idp` · `TABLE_PREFIX=cms_` ·
+`ADMIN_USERNAME=akm@mmbix.com` · `RATE_LIMIT_DO`/`BACKUP_ENABLED`/`ANALYTICS_ENABLED`
+toggles. Account id: `CF_ACCOUNT_ID` in `infra/env.prod`.
+
+> **⚠️ Placeholder ids.** `D1_ID` / `STUDIO_D1_ID` are committed as `0000…`
+> on purpose — a real id must never be inherited from a template. Create the DB,
+> paste its id into `infra/env.prod`, then `pnpm gen:infra` before deploying.
+
+---
+
+## Historical runbook (previous client deployment — DO NOT provision)
+
+The sections below describe an earlier `mff-sys-*` / `mfflogistics.com`
+deployment. They are retained for cutover history only; the resource names in
+them are NOT current (see `infra/env.prod` above).
 
 ### D1 read replication (read latency on remote D1)
 

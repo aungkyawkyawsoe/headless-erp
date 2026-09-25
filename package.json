@@ -24,8 +24,12 @@
 		"deploy:studio": "turbo run deploy --filter=@mmbix/studio",
 		"format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
 		"format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
-		"check": "pnpm check:infra && pnpm typecheck && pnpm lint && pnpm format:check",
+		"check": "pnpm check:infra && pnpm typecheck && pnpm lint && pnpm format:check && pnpm check:migrations",
 		"check:bundle": "node scripts/check-bundle-size.mjs",
+		"check:bundle:api": "node scripts/check-api-bundle-size.mjs",
+		"check:migrations": "node scripts/check-migrations.mjs",
+		"check:security:deps": "pnpm audit --audit-level high --prod --ignore-registry-errors",
+		"check:security:deps:all": "pnpm audit --audit-level high --ignore-registry-errors",
 		"prepare": "husky",
 		"security": "node scripts/security-scan.mjs"
 	},

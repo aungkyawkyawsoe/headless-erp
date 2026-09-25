@@ -52,6 +52,12 @@ export interface ServerFunctionInput {
 	/** Legacy JS (kept for display of pre-v0.7 rows; never executed) */
 	function_code?: string;
 	enabled?: boolean;
+	/**
+	 * Durable ownership marker (`'manifest'`): a control-plane write stamps the row
+	 * so a later reconcile may delete it. Omitted/`NULL` = hand/Studio-created and
+	 * therefore INVISIBLE to reconciliation.
+	 */
+	source?: string;
 }
 
 // ─── v0.7: Declarative Hook Rules ───────────────────────

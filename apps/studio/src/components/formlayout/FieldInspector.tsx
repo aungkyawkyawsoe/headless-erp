@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Input, Label, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from '@mmbix/design-system';
+import { Button, confirmDialog, Input, Label, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from '@mmbix/design-system';
 import { ArrowDownRight, Copy, Plus, Trash2, X } from 'lucide-react';
 import { type FieldCondition, type FieldDefinition, type FieldTypeDef, type ValidationRule } from '../../lib/api';
 import { useRelatedSchema } from '../../lib/collection-table-filters';
@@ -52,7 +52,7 @@ function ValidationRulesEditor({
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
 			{rules.length === 0 && (
-				<span style={{ fontSize: '0.72rem', color: '#9ca3af' }}>
+				<span style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
 					No validation rules — values are only checked for required/type constraints.
 				</span>
 			)}
@@ -81,7 +81,14 @@ function ValidationRulesEditor({
 							type="button"
 							onClick={() => onChange(rules.filter((_, j) => j !== i))}
 							title="Remove rule"
-							style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', padding: 4, display: 'inline-flex' }}
+							style={{
+								border: 'none',
+								background: 'none',
+								color: 'var(--mmbix-muted-foreground, #9ca3af)',
+								cursor: 'pointer',
+								padding: 4,
+								display: 'inline-flex',
+							}}
 						>
 							<X size={13} />
 						</button>
@@ -152,7 +159,7 @@ function ValidationRulesEditor({
 				</div>
 			))}
 			<div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-				<Plus size={12} style={{ color: '#9ca3af', flexShrink: 0 }} />
+				<Plus size={12} style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)', flexShrink: 0 }} />
 				<div style={{ flex: 1, minWidth: 0 }}>
 					<PropCombobox
 						value=""
@@ -194,10 +201,19 @@ export function FieldInspector({
 	token?: string;
 }) {
 	// Changing type may drop type-specific config — confirm before applying.
-	const changeType = (t: string) => {
+	const changeType = async (t: string) => {
 		if (!t || t === field.type) return;
 		const drops = field.options?.length ? 'its options' : field.related_collection ? 'its relation settings' : null;
-		if (drops && !window.confirm(`Changing the type will drop ${drops}. Continue?`)) return;
+		if (
+			drops &&
+			!(await confirmDialog({
+				title: 'Change field type',
+				description: `Changing the type will drop ${drops}. Continue?`,
+				confirmLabel: 'Continue',
+				destructive: true,
+			}))
+		)
+			return;
 		update({ type: t });
 	};
 	// Related collection's own fields — powers the "Display field" dropdown.
@@ -689,8 +705,10 @@ export function FieldInspector({
 												color: 'var(--mmbix-foreground, #374151)',
 											}}
 										>
-											<ArrowDownRight size={12} style={{ color: '#9ca3af' }} /> {g.title || 'Untitled'}
-											<span style={{ marginLeft: 'auto', fontSize: '0.62rem', color: '#9ca3af' }}>{g.tab}</span>
+											<ArrowDownRight size={12} style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)' }} /> {g.title || 'Untitled'}
+											<span style={{ marginLeft: 'auto', fontSize: '0.62rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
+												{g.tab}
+											</span>
 										</button>
 									))}
 								</div>

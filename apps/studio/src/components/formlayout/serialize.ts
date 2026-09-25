@@ -1,4 +1,4 @@
-import type { FormGroup, SerializedFormGroup } from './types';
+import type { FormGroup, FormTab, SerializedFormGroup, SerializedFormLayout } from './types';
 
 /* ── Group-tree helpers (nested groups: a group may contain sub-groups) ── */
 
@@ -64,4 +64,93 @@ export function parseGroups(gs: SerializedFormGroup[], prefix: string): FormGrou
 		...(g.visible_when ? { visible_when: g.visible_when } : {}),
 		...(g.groups?.length ? { groups: parseGroups(g.groups, `${prefix}-${gi}`) } : {}),
 	}));
+}
+
+/* ── Layout (de)serialization — tabs ↔ the persisted form_layout ── */
+
+/** The persisted `form_layout` as it appears inside `schema_json`: the current
+ *  `tabs` shape, or the legacy flat `groups`, plus the form-level default tab. */
+export interface StoredFormLayout {
+	tabs?: Array<{ key?: string; label?: string; groups?: SerializedFormGroup[] }>;
+	groups?: SerializedFormGroup[];
+	default_tab?: string;
+}
+
+/** Uncurated forms (no saved form_layout) seed this many user fields into the
+ *  General group — mirroring the table (DEFAULT_LIST_COLUMNS) and card
+ *  (DEFAULT_CARD_FIELDS) defaults so a fresh form doesn't dump every collection
+ *  field. The rest stay one click away in the palette. */
+export const DEFAULT_FORM_FIELDS = 8;
+
+/** Serialize the whole layout (tabs → serialized groups) for storage. */
+export function serializeLayout(tabs: FormTab[], defaultTabId: string | null): SerializedFormLayout {
+	return {
+		tabs: tabs.map((t) => ({ key: t.id, label: t.label, groups: serGroups(t.groups) })),
+		...(defaultTabId ? { default_tab: defaultTabId } : {}),
+	};
+}
+
+/** Turn persisted tabs into runtime tabs — ids are runtime-only, generated from
+ *  `idPrefix` unless the stored tab carries its own key. */
+export function tabsFromSerialized(
+	serialized: Array<{ key?: string; label?: string; groups?: SerializedFormGroup[] }>,
+	idPrefix: (ti: number) => string,
+): FormTab[] {
+	return serialized.map((t, ti) => {
+		const prefix = idPrefix(ti);
+		return { id: t.key || prefix, label: t.label || `Tab ${ti + 1}`, groups: parseGroups(t.groups ?? [], prefix) };
+	});
+}
+
+/** Materialize the tabs (+ default tab) from a persisted form_layout, falling back
+ *  to the legacy flat `groups` or a seeded single General tab so old collections
+ *  keep working. Pure — the caller owns the I/O and state writes. */
+export function tabsFromLayout(
+	layout: StoredFormLayout | undefined,
+	userNames: string[],
+): { tabs: FormTab[]; defaultTabId: string | null } {
+	const fromTabs = layout?.tabs;
+	const legacyGroups = layout?.groups ?? [];
+	let next: FormTab[] = [];
+	if (fromTabs && fromTabs.length > 0) {
+		next = tabsFromSerialized(fromTabs, (ti) => `t${ti}`);
+	} else if (legacyGroups.length > 0) {
+		next = [{ id: 't1', label: 'General', groups: parseGroups(legacyGroups, 'g') }];
+	} else {
+		const seeded = userNames.slice(0, DEFAULT_FORM_FIELDS);
+		next = [
+			{
+				id: 't1',
+				label: 'General',
+				groups: [
+					{
+						id: 'g1',
+						title: 'General',
+						columns: 6,
+						fieldNames: seeded,
+						// Half-width default on the 6-grid (2 per row) — the width shortcuts
+						// (Shift+1 → 2/6, Shift+2 → 4/6, Shift+3 → full) fine-tune it.
+						fieldSpans: Object.fromEntries(seeded.map((n) => [n, 3])),
+						fieldWidths: {},
+					},
+				],
+			},
+		];
+	}
+	// Form-level default tab: honor form_layout.default_tab when it still exists.
+	const storedDefault = layout?.default_tab ?? null;
+	const validDefault = storedDefault && next.some((t) => t.id === storedDefault) ? storedDefault : null;
+	return { tabs: next, defaultTabId: validDefault };
+}
+
+/** Drop field names the collection no longer has (and groups left empty) — used
+ *  when a layout arrives from the clipboard or an imported model file. Recursive. */
+export function trimGroupsToFields(groups: SerializedFormGroup[], known: Set<string>): SerializedFormGroup[] {
+	return groups
+		.map((g) => ({
+			...g,
+			fieldNames: (g.fieldNames ?? []).filter((n) => known.has(n)),
+			groups: g.groups?.length ? trimGroupsToFields(g.groups, known) : undefined,
+		}))
+		.filter((g) => g.fieldNames.length > 0 || (g.groups?.length ?? 0) > 0);
 }

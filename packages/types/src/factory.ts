@@ -176,7 +176,7 @@ export interface FactoryManifest {
 	reports?: FactoryReportSpec[];
 }
 
-export type ManifestActionKind = 'create' | 'update' | 'skip';
+export type ManifestActionKind = 'create' | 'update' | 'skip' | 'remove';
 
 export interface ManifestAction {
 	kind: ManifestActionKind;
@@ -187,6 +187,6 @@ export interface ManifestAction {
 
 export interface ManifestPlan {
 	actions: ManifestAction[];
-	summary: { create: number; update: number; skip: number };
+	summary: { create: number; update: number; skip: number; remove: number };
 	warnings: string[];
 }

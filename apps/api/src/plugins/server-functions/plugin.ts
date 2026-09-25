@@ -52,6 +52,15 @@ export function serverFunctionsPlugin(): Plugin {
 					},
 				],
 			},
+			{
+				// Ownership marker. `'manifest'` = the control plane's `apply_manifest`
+				// created this hook, so an apply that no longer declares it may reconcile
+				// (delete) it. Studio/CLI/hand-created hooks stay NULL and are INVISIBLE
+				// to reconciliation. Nullable + additive; the plugin runner probes the
+				// column, so a re-run on a partially-migrated DB is safe.
+				name: '043_server_functions_source',
+				up: [{ sql: `ALTER TABLE _server_functions ADD COLUMN source TEXT DEFAULT NULL`, bindings: [] }],
+			},
 		],
 		register(_ctx: PluginContext): PluginRegistration {
 			const app = new Hono();
@@ -106,7 +115,15 @@ export function serverFunctionsPlugin(): Plugin {
 				}
 				const db = new D1Client((c.env as Record<string, unknown>).DB as D1Database);
 				const svc = new ServerFunctionService(db);
-				const created = await svc.create(body);
+				// `source` is written ONLY by the manifest reconciler — never forwarded
+				// from a client, so a REST-created hook is unmarked (source NULL).
+				const created = await svc.create({
+					name: body.name,
+					collection_slug: body.collection_slug,
+					trigger_event: body.trigger_event,
+					...(body.rules ? { rules: body.rules } : {}),
+					...(body.enabled === undefined ? {} : { enabled: body.enabled }),
+				});
 				return success(c, created, 201);
 			});
 

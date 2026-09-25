@@ -23,7 +23,13 @@ export interface AuditEntry {
 	id: string;
 	collection_slug: string;
 	document_id: string;
-	action: 'create' | 'update' | 'delete' | 'submit' | 'approve' | 'reject' | 'restore';
+	// `create`…`restore` are entity (document) writes. The remaining actions are
+	// NON-document security events (sign-ins, machine-key lifecycle, access-control
+	// grants) recorded by `lib/services/security-audit.ts` under a pseudo collection
+	// slug. The column is plain TEXT (no CHECK), so extending this union is additive
+	// at the type level only.
+	action:
+		'create' | 'update' | 'delete' | 'submit' | 'approve' | 'reject' | 'restore' | 'login' | 'login_failed' | 'logout' | 'grant' | 'revoke';
 	user_id: string | null;
 	changes: string | null; // JSON — includes snapshots + changed fields
 	timestamp: string;

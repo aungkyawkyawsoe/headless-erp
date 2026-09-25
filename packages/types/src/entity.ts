@@ -20,6 +20,15 @@ export interface SqlStatement {
 /** Supported field data types for schema-backed collections */
 export type FieldType = (typeof FIELD_TYPE_NAMES)[number];
 
+/**
+ * Formula result types — the ONE definition of what a `formula` field may
+ * produce. Drives the stored SQL column type (number→REAL, boolean→INTEGER,
+ * string/json→TEXT), the read/write evaluation path, and the generated SDK
+ * type. Consumers import THIS; re-declaring the union is a drift bug.
+ */
+export const FORMULA_RESULT_TYPES = ['number', 'string', 'boolean', 'json'] as const;
+export type FormulaResultType = (typeof FORMULA_RESULT_TYPES)[number];
+
 /** Document status values — core workflow + plugin extensions */
 export type DocStatus =
 	| 'draft'
@@ -104,7 +113,7 @@ export interface FieldDefinition {
 	 * formulas (number→REAL, boolean→INTEGER, string/json→TEXT) and the
 	 * generated SDK type. Defaults to 'number'.
 	 */
-	result_type?: 'number' | 'string' | 'boolean' | 'json';
+	result_type?: FormulaResultType;
 	/** Formula fields (numeric result): decimal places to round to. Off by default (no rounding). */
 	precision?: number;
 	/** Formula fields: rounding mode when `precision` is set (default 'half_up'). */

@@ -1,18 +1,24 @@
 /**
- * MCP Plugin — a least-privilege INBOUND MCP server (read-only in v1).
+ * MCP Plugin — the least-privilege INBOUND MCP server.
  *
  * The factory is drivable by an AI agent over the Model Context Protocol. This
  * is a port at the boundary: the agent speaks MCP tools to `/api/mcp`, and the
- * Worker answers by calling the SAME engine services the REST API uses. No tool
- * here writes — write tools are deliberately absent until a scoped key model
- * lands (see the design's §4.6). Transport is Streamable-HTTP-style JSON-RPC
- * over POST; `stdio` is impossible in a Worker, which is exactly why the AGENT
- * is the MCP client (it can also reach external design sources the Worker can't).
+ * Worker answers by calling the SAME engine services the REST API uses. Transport
+ * is Streamable-HTTP-style JSON-RPC over POST; `stdio` is impossible in a Worker,
+ * which is exactly why the AGENT is the MCP client (it can also reach external
+ * design sources the Worker can't).
  *
- * MCP keys are ordinary API keys / the session bearer; new keys should start
- * read-only. The plugin itself is gated by `PLUGINS`.
+ * Authorization is enforced on TWO independent axes, never one:
+ *   1. KEY SCOPE — a read-scoped API key is refused a mutating tool outright
+ *      (`mcpScopeAllows`); an unclassified tool is denied by default.
+ *   2. COLLECTION RBAC — every tool that names a collection calls
+ *      `assertCollectionAccess`, mirroring the REST `businessGuard`, so a tool
+ *      call is refused for a collection the caller cannot read/write. Admin
+ *      tools additionally require `auth.is_admin`.
+ * A tool that reads/writes ROWS without going through `assertCollectionAccess`
+ * is a bug — REST enforces this at the route and MCP has no route layer.
  *
- * Bundle impact: ~3KB.
+ * The plugin itself is gated by `PLUGINS`. Bundle impact: ~3KB.
  */
 
 import type { Plugin, PluginRegistration, PluginContext } from '@mmbix/types/worker';
@@ -25,6 +31,7 @@ import { requireAuth } from '@/routes/auth';
 import { csvToRecords } from '@/lib/csv';
 import { poolMap } from '@/lib/utils/pool';
 import { CollectionService } from '@/lib/services/collection.service';
+import { PermissionEvaluator } from '@/lib/services/permission-evaluator';
 import { IntegrityService } from '@/lib/services/integrity.service';
 import { PageService, type PageBlocks } from '@/lib/services/page.service';
 import { AuditService } from '@/lib/services/audit.service';
@@ -77,8 +84,13 @@ interface JsonRpcRequest {
 	params?: Record<string, unknown>;
 }
 
-/** The read-only tool catalog. Names/descriptions are the agent's whole vocabulary. */
-const TOOLS = [
+/**
+ * The tool catalog — names/descriptions/input schemas are the agent's whole
+ * vocabulary. NOT read-only: mutating verbs ship (`mutate`, `apply_manifest`, …)
+ * and each verb's scope class is pinned in `TOOL_CLASS` below. Exported so the
+ * capability registry's tool coverage is test-pinned against this ONE list.
+ */
+export const TOOLS = [
 	{
 		name: 'list_collections',
 		description: 'List the collections in this deployment (name, slug, description).',
@@ -202,7 +214,7 @@ const TOOLS = [
 	{
 		name: 'mutate',
 		description:
-			'Batched data writes. requests[] = { op: create|update|delete|import, collection, id?, body?, format?, data? }. Admin; write scope.',
+			'Batched data writes. requests[] = { op: create|update|delete|import, collection, id?, body?, format?, data? }. Requires write scope AND per-collection write permission.',
 		inputSchema: {
 			type: 'object',
 			properties: { requests: { type: 'array' } },
@@ -248,8 +260,15 @@ const TOOL_CLASS: Record<string, 'read' | 'write'> = {
 };
 
 export function mcpScopeAllows(scope: string | null | undefined, tool: string): boolean {
-	if (TOOL_CLASS[tool] !== 'write') return true;
-	if (scope === undefined || scope === null || scope === '') return true;
+	const cls = TOOL_CLASS[tool];
+	// Deny by default: a tool absent from the class map is NOT assumed read-only.
+	// (Adding a write tool without classifying it must fail closed, not leak.)
+	if (cls === undefined) return false;
+	if (cls !== 'write') return true;
+	// A session bearer carries no key scope (`undefined`) and is gated by
+	// `assertCollectionAccess` / `is_admin` on the tool itself. A key with a
+	// missing/empty scope is NOT a session — it is denied write (PoLP).
+	if (scope === undefined) return true;
 	return scope === 'write' || scope === 'admin';
 }
 
@@ -257,7 +276,9 @@ export function mcpScopeAllows(scope: string | null | undefined, tool: string): 
  * Declared jobs + their health. Bounded and ordered, and `payload_json` is NOT
  * returned (it can be large and is operator data, not telemetry). `last_error` is
  * included on purpose: a job that silently stopped is the failure mode this exists
- * to make visible.
+ * to make visible. `disarmed` is that failure made unambiguous — `status` alone
+ * cannot tell a STOPPED job (budget exhausted, alarm deleted) from one that is
+ * merely backing off, since both read `failed`.
  */
 async function safeTaskList(db: D1Client): Promise<
 	Array<{
@@ -269,16 +290,40 @@ async function safeTaskList(db: D1Client): Promise<
 		run_at: string;
 		run_count: number;
 		attempts: number;
+		max_attempts: number;
 		last_run_at: string | null;
 		last_error: string | null;
 		last_result: string | null;
+		disarmed_at: string | null;
+		/** The job has STOPPED — disarmed after exhausting its retry budget. */
+		disarmed: boolean;
 	}>
 > {
-	return db.all({
-		sql: `SELECT id, name, type, status, cron, run_at, run_count, attempts, last_run_at, last_error, last_result
+	const rows = await db.all<{
+		id: string;
+		name: string | null;
+		type: string;
+		status: string;
+		cron: string | null;
+		run_at: string;
+		run_count: number;
+		attempts: number;
+		max_attempts: number;
+		last_run_at: string | null;
+		last_error: string | null;
+		last_result: string | null;
+		disarmed_at: string | null;
+	}>({
+		sql: `SELECT id, name, type, status, cron, run_at, run_count, attempts, max_attempts, last_run_at, last_error, last_result, disarmed_at
 			FROM _scheduler_tasks ORDER BY COALESCE(run_at, created_at) ASC LIMIT 100`,
 		bindings: [],
 	});
+	// `disarmed_at` is the durable marker; the fallback (`failed` with the budget
+	// spent) keeps rows written before migration 028 classified correctly.
+	return rows.map((r) => ({
+		...r,
+		disarmed: r.disarmed_at != null || (r.status === 'failed' && Number(r.attempts) >= Number(r.max_attempts)),
+	}));
 }
 
 function rpcResult(id: JsonRpcRequest['id'], result: unknown) {
@@ -286,6 +331,26 @@ function rpcResult(id: JsonRpcRequest['id'], result: unknown) {
 }
 function rpcError(id: JsonRpcRequest['id'], code: number, message: string) {
 	return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
+}
+
+/**
+ * Refuse a tool call unless the caller may perform `action` on `collectionSlug`.
+ *
+ * MCP has no route layer, so the REST `businessGuard` check that normally gates a
+ * collection read/write has no equivalent here — this IS that gate. Admins pass;
+ * a missing auth context is refused; an unreadable collection is refused with the
+ * same shape of message as `businessGuard`.
+ */
+async function assertCollectionAccess(
+	db: D1Client,
+	auth: AuthContext | undefined,
+	collectionSlug: string,
+	action: 'read' | 'write' | 'create' | 'delete' | 'approve' | 'submit',
+): Promise<void> {
+	if (!auth) throw new Error('Authentication required');
+	if (auth.is_admin) return;
+	const allowed = await PermissionEvaluator.checkBusiness(db, auth, collectionSlug, action);
+	if (!allowed) throw new Error(`You do not have "${action}" permission on "${collectionSlug}"`);
 }
 
 async function callTool(c: Context, name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -425,6 +490,7 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 				continue;
 			}
 			try {
+				await assertCollectionAccess(db, auth, collection, 'read');
 				const url = new URL(`http://internal/api/entities/${collection}`);
 				for (const [k, v] of Object.entries(r.params ?? {})) {
 					if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
@@ -439,11 +505,16 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 	if (name === 'get_audit') {
 		const collection = String(args.collection ?? '');
 		if (!collection) throw new Error('collection is required');
+		await assertCollectionAccess(db, auth, collection, 'read');
 		const audit = new AuditService(db);
 		const documentId = typeof args.document_id === 'string' ? args.document_id : '';
-		if (documentId) return { entries: await audit.getDocumentHistory(collection, documentId) };
+		// Row-level scope (mirrors GET /api/audit/:collection/:id): a non-admin must
+		// not learn about — or diff — other users' documents.
+		const scopeEntries = <T extends { user_id?: string | null }>(entries: T[]): T[] =>
+			auth?.is_admin ? entries : entries.filter((e) => e.user_id === auth?.user_id);
+		if (documentId) return { entries: scopeEntries(await audit.getDocumentHistory(collection, documentId)) };
 		const limit = typeof args.limit === 'number' ? Math.min(Math.max(Math.floor(args.limit), 1), 200) : 50;
-		return { entries: await audit.getCollectionHistory(collection, limit) };
+		return { entries: scopeEntries(await audit.getCollectionHistory(collection, limit)) };
 	}
 	if (name === 'mutate') {
 		const requests = Array.isArray(args.requests) ? args.requests.slice(0, 20) : [];
@@ -458,6 +529,11 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 				continue;
 			}
 			try {
+				// The SAME per-collection gate REST enforces via businessGuard — a
+				// non-admin session without write permission on this collection is
+				// refused here, exactly as it would be on POST/PUT/DELETE /api/entities.
+				const action = op === 'create' || op === 'import' ? 'create' : op === 'delete' ? 'delete' : 'write';
+				await assertCollectionAccess(db, auth, collection, action);
 				if (op === 'import') {
 					// CSV/JSON bulk import — reuses the SAME parser + per-row isolation
 					// as POST /api/entities/:collection/import.
@@ -518,6 +594,9 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 		return { results };
 	}
 	if (name === 'get_operations') {
+		// Engine telemetry (index-advisor hot shapes + job health) is an operator
+		// surface — same gate as GET /api/operations/index-advisor (admin-only).
+		if (!auth?.is_admin) throw new Error('Admin access required');
 		// One telemetry verb, selected by domain — the control plane stays small
 		// while an agent can still see what the jobs it declared are doing.
 		if (args.domain === 'jobs') {
@@ -529,6 +608,7 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 	if (name === 'run_integrity') {
 		const slug = String(args.slug ?? '');
 		if (!slug) throw new Error('slug is required');
+		await assertCollectionAccess(db, auth, slug, 'read');
 		const all = await svc.getCollections();
 		const map = new Map<string, { fields: FieldDefinition[]; policies: unknown }>();
 		for (const row of all) {

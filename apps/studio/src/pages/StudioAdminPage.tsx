@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AppShell, Badge, Button, StatusBar, type Module, type NavMainItem } from '@mmbix/design-system';
+import { AppShell, Badge, Button, confirmDialog, StatusBar, type Module, type NavMainItem } from '@mmbix/design-system';
 import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
 import {
 	BookOpen,
@@ -172,7 +172,7 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 							display: 'inline-flex',
 							alignItems: 'center',
 							justifyContent: 'center',
-							color: '#6b7280',
+							color: 'var(--mmbix-muted-foreground, #6b7280)',
 							flexShrink: 0,
 						}}
 					>
@@ -185,7 +185,7 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 								{row.original.group_name}
 							</Badge>
 							{row.original.is_system === 1 && (
-								<Badge variant="outline" style={{ fontSize: '0.55rem', fontWeight: 600, color: '#9ca3af' }}>
+								<Badge variant="outline" style={{ fontSize: '0.55rem', fontWeight: 600, color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
 									core
 								</Badge>
 							)}
@@ -219,11 +219,19 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 						variant="ghost"
 						size="icon-xs"
 						title="Delete"
-						style={{ color: '#dc2626' }}
+						style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
 						disabled={row.original.is_system === 1}
-						onClick={() => {
-							if (confirm(`Delete component "${row.original.name}"?`))
-								void api(`/api/studio/component?name=${encodeURIComponent(row.original.name)}`, { method: 'DELETE' });
+						onClick={async () => {
+							if (
+								!(await confirmDialog({
+									title: 'Delete component',
+									description: `Delete component "${row.original.name}"?`,
+									destructive: true,
+									confirmLabel: 'Delete',
+								}))
+							)
+								return;
+							await api(`/api/studio/component?name=${encodeURIComponent(row.original.name)}`, { method: 'DELETE' });
 						}}
 					>
 						<Trash2 size={13} />

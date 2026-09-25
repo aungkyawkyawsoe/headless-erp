@@ -1,10 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button } from '@mmbix/design-system';
+import { Badge, Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@mmbix/design-system';
 import { Activity, Play } from 'lucide-react';
-import { operationsQuery, schedulerTasksQuery } from '../../lib/queries';
-import { listGenerationProposals, runSchedulerTask, type SchedulerTaskRow } from '../../lib/api';
+import { collectionsQuery, operationsQuery, schedulerTasksQuery } from '../../lib/queries';
+import {
+	listGenerationProposals,
+	runIntegrity,
+	runSchedulerTask,
+	type IntegrityReport,
+	type IntegrityRuleViolation,
+	type SchedulerTaskRow,
+} from '../../lib/api';
 import { qk } from '../../lib/query-keys';
+import StatusBadge from '../StatusBadge';
 
 /* ── Operations tab — the engine's self-tuning telemetry (admin) ──
  *
@@ -12,9 +20,17 @@ import { qk } from '../../lib/query-keys';
  * auto-created/proposed, and the hot filter shapes it is observing. Read-only
  * telemetry — the backend route is admin-gated and never exposes row data. */
 
-const th = { textAlign: 'left' as const, padding: '0.25rem 0.5rem', color: '#9ca3af', fontWeight: 600 };
-const td = { padding: '0.35rem 0.5rem', verticalAlign: 'top' as const };
+const th = { textAlign: 'left' as const, padding: '0.25rem 0.5rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', fontWeight: 600 };
+const td = { padding: '0.35rem 0.5rem', verticalAlign: 'top' as const, whiteSpace: 'normal' as const };
 const mono = { fontFamily: 'ui-monospace, monospace' } as const;
+const field = {
+	fontSize: '0.74rem',
+	padding: '0.2rem 0.35rem',
+	border: '1px solid var(--mmbix-border, #e5e7eb)',
+	borderRadius: 6,
+	background: 'var(--mmbix-card, #ffffff)',
+	color: 'var(--mmbix-foreground, #0f172a)',
+} as const;
 
 export function OperationsTab({ token }: { token: string }) {
 	const opsQ = useQuery(operationsQuery(token));
@@ -35,77 +51,86 @@ export function OperationsTab({ token }: { token: string }) {
 	return (
 		<div style={{ padding: '0.5rem 0.75rem' }}>
 			<SchedulerJobs token={token} />
-			<p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '0 0 0.6rem' }}>
+			<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: '0 0 0.6rem' }}>
 				<Activity size={12} /> Self-tuning index advisor — the composite indexes the engine created (or proposes) and the hot filter shapes
 				it observes. Read-only telemetry.
 			</p>
 
 			{opsQ.isLoading ? (
-				<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Loading telemetry…</p>
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>Loading telemetry…</p>
 			) : opsQ.error ? (
-				<p role="alert" style={{ fontSize: '0.72rem', color: '#dc2626' }}>
+				<p role="alert" style={{ fontSize: '0.72rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
 					{opsQ.error instanceof Error ? opsQ.error.message : 'Failed to load telemetry'}
 				</p>
 			) : (
 				<>
 					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-						<span style={{ fontSize: '0.72rem', color: '#6b7280' }}>Mode</span>
-						<Badge style={{ background: report?.mode === 'auto' ? '#059669' : '#b45309', color: '#fff' }}>
-							{report?.mode === 'auto' ? 'auto (applies DDL)' : 'propose only'}
-						</Badge>
+						<span style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Mode</span>
+						<StatusBadge
+							tone={report?.mode === 'auto' ? 'positive' : 'warning'}
+							label={report?.mode === 'auto' ? 'auto (applies DDL)' : 'propose only'}
+						/>
 					</div>
 
-					<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', margin: '0 0 0.3rem' }}>Created / proposed indexes</h4>
+					<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-muted-foreground, #64748b)', margin: '0 0 0.3rem' }}>
+						Created / proposed indexes
+					</h4>
 					{journal.length === 0 ? (
-						<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>None yet.</p>
+						<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>None yet.</p>
 					) : (
-						<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem', marginBottom: '0.9rem' }}>
-							<thead>
-								<tr>
-									<th style={th}>Table</th>
-									<th style={th}>Columns</th>
-								</tr>
-							</thead>
-							<tbody>
+						<Table style={{ width: '100%', fontSize: '0.74rem', marginBottom: '0.9rem' }}>
+							<TableHeader>
+								<TableRow>
+									<TableHead style={th}>Table</TableHead>
+									<TableHead style={th}>Columns</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
 								{journal.map((e, i) => (
-									<tr key={`${e.table}-${i}`} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
-										<td style={{ ...td, ...mono }}>{e.table}</td>
-										<td style={{ ...td, ...mono }}>{e.columns.join(', ')}</td>
-									</tr>
+									<TableRow key={`${e.table}-${i}`}>
+										<TableCell style={{ ...td, ...mono }}>{e.table}</TableCell>
+										<TableCell style={{ ...td, ...mono }}>{e.columns.join(', ')}</TableCell>
+									</TableRow>
 								))}
-							</tbody>
-						</table>
+							</TableBody>
+						</Table>
 					)}
 
-					<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', margin: '0 0 0.3rem' }}>Hot filter shapes</h4>
+					<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-muted-foreground, #64748b)', margin: '0 0 0.3rem' }}>
+						Hot filter shapes
+					</h4>
 					{candidates.length === 0 ? (
-						<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>None observed.</p>
+						<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>None observed.</p>
 					) : (
-						<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem' }}>
-							<thead>
-								<tr>
-									<th style={th}>Table</th>
-									<th style={th}>Columns</th>
-									<th style={th}>Seen</th>
-								</tr>
-							</thead>
-							<tbody>
+						<Table style={{ width: '100%', fontSize: '0.74rem' }}>
+							<TableHeader>
+								<TableRow>
+									<TableHead style={th}>Table</TableHead>
+									<TableHead style={th}>Columns</TableHead>
+									<TableHead style={th}>Seen</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
 								{candidates.map((c, i) => (
-									<tr key={`${c.table}-${i}`} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
-										<td style={{ ...td, ...mono }}>{c.table}</td>
-										<td style={{ ...td, ...mono }}>{c.columns.join(', ')}</td>
-										<td style={td}>{c.count}</td>
-									</tr>
+									<TableRow key={`${c.table}-${i}`}>
+										<TableCell style={{ ...td, ...mono }}>{c.table}</TableCell>
+										<TableCell style={{ ...td, ...mono }}>{c.columns.join(', ')}</TableCell>
+										<TableCell style={td}>{c.count}</TableCell>
+									</TableRow>
 								))}
-							</tbody>
-						</table>
+							</TableBody>
+						</Table>
 					)}
 
 					{genQ.isSuccess && (
 						<>
-							<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', margin: '0.9rem 0 0.3rem' }}>Generation gate</h4>
+							<h4
+								style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-muted-foreground, #64748b)', margin: '0.9rem 0 0.3rem' }}
+							>
+								Generation gate
+							</h4>
 							{(genQ.data ?? []).length === 0 ? (
-								<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>No proposals yet.</p>
+								<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>No proposals yet.</p>
 							) : (
 								<div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
 									{['draft', 'review', 'promoted', 'live', 'rejected']
@@ -121,7 +146,185 @@ export function OperationsTab({ token }: { token: string }) {
 					)}
 				</>
 			)}
+
+			<Integrity token={token} />
 		</div>
+	);
+}
+
+/* ── Integrity — the generic data-quality engine ──
+ *
+ * Runs a collection's declared `policies.integrity.rules` (orphan / aggregate
+ * mismatch / duplicate / stale) on demand and shows what each rule found. The
+ * engine is deny-by-default: a collection that declares no rules answers
+ * `enabled:false` with 200, so that is a plain empty state, not an error. A
+ * non-zero violation count is the thing that must pop at a glance (the DS
+ * `destructive` tint), while a clean run and an undeclared policy stay neutral. */
+
+/** Human label for a declared rule — the operator should read WHAT was checked. */
+function ruleLabel(rule: IntegrityRuleViolation['rule']): string {
+	switch (rule?.type) {
+		case 'orphan':
+			return `orphan · ${rule.field ?? '?'}`;
+		case 'duplicate':
+			return `duplicate · ${(rule.fields ?? []).join(', ') || '?'}`;
+		case 'stale':
+			return `stale · ${rule.field ?? 'updated_at'} older than ${rule.max_age_days ?? 30}d`;
+		case 'aggregate_mismatch':
+			return `aggregate mismatch · ${rule.field ?? '?'} vs ${rule.child?.collection ?? '?'}.${rule.child?.fk ?? '?'}`;
+		default:
+			return typeof rule?.type === 'string' ? rule.type : 'rule';
+	}
+}
+
+function Integrity({ token }: { token: string }) {
+	const collectionsQ = useQuery(collectionsQuery(token));
+	const collections = useMemo(
+		() => [...(collectionsQ.data ?? [])].sort((a, b) => (a.name ?? a.slug).localeCompare(b.name ?? b.slug)),
+		[collectionsQ.data],
+	);
+	const [picked, setPicked] = useState('');
+	const selected = picked || collections[0]?.slug || '';
+	const [report, setReport] = useState<IntegrityReport | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	async function run() {
+		if (!selected) return;
+		setBusy(true);
+		setError(null);
+		setReport(null);
+		try {
+			// The api helper throws on a non-2xx envelope, so the catch IS the error
+			// path — a failed run must never look like a clean report.
+			setReport(await runIntegrity(token, selected));
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Integrity run failed');
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	const results = report?.results ?? [];
+	const errors = report?.errors ?? [];
+	// The API reports truncation PER RULE (`results[].truncated`); there is no
+	// top-level flag, so the summary surfaces it when any rule hit its bound.
+	const truncated = results.some((r) => r.truncated);
+
+	return (
+		<section style={{ marginTop: '1rem' }}>
+			<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-muted-foreground, #64748b)', margin: '0 0 0.3rem' }}>
+				Integrity
+			</h4>
+			<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: '0 0 0.5rem' }}>
+				Run a collection&apos;s declared data-quality rules (orphan / aggregate mismatch / duplicate / stale). Read-only.
+			</p>
+
+			<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+				<label htmlFor="integrity-collection" style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
+					Collection
+				</label>
+				<select
+					id="integrity-collection"
+					value={selected}
+					disabled={busy || collections.length === 0}
+					onChange={(e) => {
+						setPicked(e.target.value);
+						setReport(null);
+						setError(null);
+					}}
+					style={{ ...field, minWidth: 200 }}
+				>
+					{collections.length === 0 && <option value="">—</option>}
+					{collections.map((c) => (
+						<option key={c.slug} value={c.slug}>
+							{c.name ?? c.slug}
+						</option>
+					))}
+				</select>
+				<Button size="sm" variant="outline" disabled={busy || !selected} onClick={() => void run()}>
+					<Play size={11} /> {busy ? 'Running…' : 'Run'}
+				</Button>
+			</div>
+
+			{collectionsQ.isLoading ? (
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>Loading collections…</p>
+			) : collectionsQ.error ? (
+				<p role="alert" style={{ fontSize: '0.72rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
+					{collectionsQ.error instanceof Error ? collectionsQ.error.message : 'Failed to load collections'}
+				</p>
+			) : collections.length === 0 ? (
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>No collections to check.</p>
+			) : null}
+
+			{error && (
+				<p role="alert" style={{ fontSize: '0.72rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
+					{error}
+				</p>
+			)}
+
+			{report && !report.enabled && (
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
+					No integrity rules declared for this collection.
+				</p>
+			)}
+
+			{report && report.enabled && (
+				<>
+					<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+						<Badge variant={report.violations > 0 ? 'destructive' : 'outline'}>
+							{report.violations > 0 ? `${report.violations} violation${report.violations === 1 ? '' : 's'}` : 'No violations'}
+						</Badge>
+						<span style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
+							{report.checked} rule{report.checked === 1 ? '' : 's'} checked
+						</span>
+						{truncated && <Badge variant="outline">truncated — more rows exist</Badge>}
+					</div>
+
+					{results.length === 0 ? (
+						<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>No rules ran.</p>
+					) : (
+						<Table style={{ width: '100%', fontSize: '0.74rem' }}>
+							<TableHeader>
+								<TableRow>
+									<TableHead style={th}>Rule</TableHead>
+									<TableHead style={th}>Violations</TableHead>
+									<TableHead style={th}>Sample rows</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{results.map((r, i) => (
+									<TableRow key={`${r.rule?.type ?? 'rule'}-${i}`}>
+										<TableCell style={{ ...td, ...mono }}>{ruleLabel(r.rule)}</TableCell>
+										<TableCell style={td}>
+											<Badge variant={r.count > 0 ? 'destructive' : 'outline'}>{r.count}</Badge>
+										</TableCell>
+										<TableCell style={{ ...td, ...mono, color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
+											{r.rows.length === 0
+												? '—'
+												: `${r.rows
+														.slice(0, 3)
+														.map((row) => String(row.id ?? JSON.stringify(row)))
+														.join(', ')}${r.rows.length > 3 ? ` +${r.rows.length - 3}` : ''}`}
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					)}
+
+					{errors.length > 0 && (
+						<ul
+							style={{ margin: '0.5rem 0 0', padding: '0 0 0 1.1rem', fontSize: '0.72rem', color: 'var(--mmbix-tone-warning-fg, #b45309)' }}
+						>
+							{errors.map((e, i) => (
+								<li key={i}>{e.error}</li>
+							))}
+						</ul>
+					)}
+				</>
+			)}
+		</section>
 	);
 }
 
@@ -133,14 +336,6 @@ export function OperationsTab({ token }: { token: string }) {
  * independently of the index advisor above: one failing query must not hide the
  * other. `retry:false` means a deployment with the scheduler plugin off shows
  * nothing rather than an error. */
-
-const STATUS_TINT: Record<string, string> = {
-	pending: '#2563eb',
-	running: '#7c3aed',
-	done: '#059669',
-	failed: '#dc2626',
-	cancelled: '#6b7280',
-};
 
 function when(iso: string | null | undefined): string {
 	if (!iso) return '—';
@@ -173,52 +368,60 @@ function SchedulerJobs({ token }: { token: string }) {
 
 	return (
 		<section style={{ marginBottom: '1rem' }}>
-			<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', margin: '0 0 0.3rem' }}>Declared jobs</h4>
+			<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-muted-foreground, #64748b)', margin: '0 0 0.3rem' }}>
+				Declared jobs
+			</h4>
 			{failure && (
-				<p role="alert" style={{ fontSize: '0.72rem', color: '#dc2626' }}>
+				<p role="alert" style={{ fontSize: '0.72rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
 					{failure}
 				</p>
 			)}
 			{jobsQ.isLoading ? (
-				<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Loading jobs…</p>
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>Loading jobs…</p>
 			) : jobs.length === 0 ? (
-				<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>No jobs declared. A manifest `schedules` entry creates one.</p>
+				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
+					No jobs declared. A manifest `schedules` entry creates one.
+				</p>
 			) : (
-				<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem' }}>
-					<thead>
-						<tr>
-							<th style={th}>Job</th>
-							<th style={th}>Status</th>
-							<th style={th}>Cadence</th>
-							<th style={th}>Next run</th>
-							<th style={th}>Runs</th>
-							<th style={th}>Last result / error</th>
-							<th style={th} />
-						</tr>
-					</thead>
-					<tbody>
+				<Table style={{ width: '100%', fontSize: '0.74rem' }}>
+					<TableHeader>
+						<TableRow>
+							<TableHead style={th}>Job</TableHead>
+							<TableHead style={th}>Status</TableHead>
+							<TableHead style={th}>Cadence</TableHead>
+							<TableHead style={th}>Next run</TableHead>
+							<TableHead style={th}>Runs</TableHead>
+							<TableHead style={th}>Last result / error</TableHead>
+							<TableHead style={th} />
+						</TableRow>
+					</TableHeader>
+					<TableBody>
 						{jobs.map((t) => (
-							<tr key={t.id} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
-								<td style={td}>
+							<TableRow key={t.id}>
+								<TableCell style={td}>
 									<div>{t.name ?? t.id}</div>
-									<div style={{ ...td, ...mono, color: '#9ca3af' }}>{t.type}</div>
-								</td>
-								<td style={td}>
-									<Badge style={{ background: STATUS_TINT[t.status] ?? '#6b7280', color: '#fff' }}>{t.status}</Badge>
-								</td>
-								<td style={{ ...td, ...mono }}>{t.cron ?? (t.repeat_ms ? `${Math.round(t.repeat_ms / 1000)}s` : 'once')}</td>
-								<td style={td}>{when(t.run_at)}</td>
-								<td style={td}>{t.run_count}</td>
-								<td style={{ ...td, color: t.last_error ? '#dc2626' : '#6b7280' }}>{t.last_error ?? (t.last_result ? 'ok' : '—')}</td>
-								<td style={td}>
+									<div style={{ ...td, ...mono, color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{t.type}</div>
+								</TableCell>
+								<TableCell style={td}>
+									<StatusBadge status={t.status} />
+								</TableCell>
+								<TableCell style={{ ...td, ...mono }}>{t.cron ?? (t.repeat_ms ? `${Math.round(t.repeat_ms / 1000)}s` : 'once')}</TableCell>
+								<TableCell style={td}>{when(t.run_at)}</TableCell>
+								<TableCell style={td}>{t.run_count}</TableCell>
+								<TableCell
+									style={{ ...td, color: t.last_error ? 'var(--mmbix-tone-danger-fg, #dc2626)' : 'var(--mmbix-muted-foreground, #6b7280)' }}
+								>
+									{t.last_error ?? (t.last_result ? 'ok' : '—')}
+								</TableCell>
+								<TableCell style={td}>
 									<Button size="sm" variant="outline" disabled={busy === t.id} onClick={() => void runNow(t)}>
 										<Play size={11} /> {busy === t.id ? 'Running…' : 'Run now'}
 									</Button>
-								</td>
-							</tr>
+								</TableCell>
+							</TableRow>
 						))}
-					</tbody>
-				</table>
+					</TableBody>
+				</Table>
 			)}
 		</section>
 	);

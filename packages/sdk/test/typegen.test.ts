@@ -163,6 +163,34 @@ describe('generateTypes', () => {
 		expect(() => generateTypes([{ slug: 'ok', schema_json: { fields: [{ name: 'x; process.exit(99); //', type: 'text' }] } }])).toThrow();
 		expect(() => generateTypes([{ slug: 'backtick`evil', schema_json: { fields: [] } }])).toThrow();
 	});
+
+	it('is order-independent — collections are sorted by slug (deterministic output)', () => {
+		// The API/file order of collections is not part of the contract; without the
+		// sort a reordering API broke the byte-for-byte `typegen:check` gate.
+		const forward = generateTypes(SAMPLE);
+		const reversed = generateTypes([...SAMPLE].reverse());
+		expect(reversed.content).toBe(forward.content);
+	});
+
+	it('classifies the numeric SSOT types as number and treats m2a as virtual', () => {
+		const { content } = generateTypes([
+			{
+				slug: 'x',
+				schema_json: {
+					fields: [
+						{ name: 'total', type: 'currency', required: false },
+						{ name: 'pct', type: 'percent', required: false },
+						{ name: 'qty', type: 'bigint', required: false },
+						{ name: 'link', type: 'm2a', required: false },
+					],
+				},
+			},
+		]);
+		expect(content).toContain('total: z.number().optional().nullable(),');
+		expect(content).toContain('pct: z.number().optional().nullable(),');
+		expect(content).toContain('qty: z.number().optional().nullable(),');
+		expect(content).not.toContain('link'); // m2a owns no single column
+	});
 });
 
 describe('normalizeCollection', () => {

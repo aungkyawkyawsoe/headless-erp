@@ -37,7 +37,7 @@ export function schedulerBackoffMs(attempts: number): number {
 // ─── Row helpers ───────────────────────────────────────
 
 const TASK_COLUMNS =
-	'id, type, name, payload_json, status, run_at, repeat_ms, cron, timezone, max_attempts, attempts, run_count, last_error, last_result, last_run_at, completed_at, created_at, updated_at';
+	'id, type, name, payload_json, status, run_at, repeat_ms, cron, timezone, max_attempts, attempts, run_count, last_error, last_result, last_run_at, disarmed_at, completed_at, created_at, updated_at';
 
 function toTask(row: Record<string, unknown>): ScheduledTask {
 	return {
@@ -56,6 +56,7 @@ function toTask(row: Record<string, unknown>): ScheduledTask {
 		last_error: row.last_error == null ? null : String(row.last_error),
 		last_result: row.last_result == null ? null : String(row.last_result),
 		last_run_at: row.last_run_at == null ? null : String(row.last_run_at),
+		disarmed_at: row.disarmed_at == null ? null : String(row.disarmed_at),
 		completed_at: row.completed_at == null ? null : String(row.completed_at),
 		created_at: String(row.created_at),
 		updated_at: String(row.updated_at),
@@ -78,8 +79,14 @@ export class SchedulerService {
 	/**
 	 * Create (or re-schedule) a task. Re-scheduling an existing id reactivates
 	 * it (status → pending, attempts → 0) while keeping run_count.
+	 *
+	 * `opts.source` is a durable ownership marker (`'manifest'`): a control-plane
+	 * write stamps the row so a later reconcile may remove it. A plain schedule is
+	 * unmarked (`NULL`) and therefore INVISIBLE to reconciliation. On conflict the
+	 * marker is only ADOPTED when the row has none — an explicit non-manifest
+	 * source is never overwritten.
 	 */
-	async schedule(input: ScheduleInput, env: SchedulerEnv): Promise<ScheduledTask> {
+	async schedule(input: ScheduleInput, env: SchedulerEnv, opts?: { source?: string }): Promise<ScheduledTask> {
 		const type = input.type?.trim();
 		if (!type) throw new Error('type is required — the registered handler name');
 		if (input.maxAttempts !== undefined && (input.maxAttempts < 1 || !Number.isInteger(input.maxAttempts))) {
@@ -124,22 +131,24 @@ export class SchedulerService {
 		const maxAttempts = input.maxAttempts ?? SCHEDULER_DEFAULT_MAX_ATTEMPTS;
 
 		await this.db.run({
-			sql: `INSERT INTO _scheduler_tasks (id, type, name, payload_json, status, run_at, repeat_ms, cron, timezone, max_attempts, attempts, run_count, last_error, last_result, last_run_at, completed_at, created_at, updated_at)
-				VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, NULL, ?, ?)
-				ON CONFLICT(id) DO UPDATE SET
-					type = excluded.type,
-					name = excluded.name,
-					payload_json = excluded.payload_json,
-					status = 'pending',
-					run_at = excluded.run_at,
-					repeat_ms = excluded.repeat_ms,
-					cron = excluded.cron,
-					timezone = excluded.timezone,
-					max_attempts = excluded.max_attempts,
-					attempts = 0,
-					last_error = NULL,
-					completed_at = NULL,
-					updated_at = excluded.updated_at`,
+			sql: `INSERT INTO _scheduler_tasks (id, type, name, payload_json, status, run_at, repeat_ms, cron, timezone, max_attempts, attempts, run_count, last_error, last_result, last_run_at, disarmed_at, completed_at, created_at, updated_at, source)
+					VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
+					ON CONFLICT(id) DO UPDATE SET
+						type = excluded.type,
+						name = excluded.name,
+						payload_json = excluded.payload_json,
+						status = 'pending',
+						run_at = excluded.run_at,
+						repeat_ms = excluded.repeat_ms,
+						cron = excluded.cron,
+						timezone = excluded.timezone,
+						max_attempts = excluded.max_attempts,
+						attempts = 0,
+						last_error = NULL,
+						disarmed_at = NULL,
+						completed_at = NULL,
+						source = COALESCE(_scheduler_tasks.source, excluded.source),
+						updated_at = excluded.updated_at`,
 			bindings: [
 				id,
 				type,
@@ -152,6 +161,7 @@ export class SchedulerService {
 				maxAttempts,
 				now,
 				now,
+				opts?.source ?? null,
 			],
 		});
 
@@ -232,6 +242,30 @@ export class SchedulerService {
 		return true;
 	}
 
+	/**
+	 * Remove a task: delete its row, then disarm its DO alarm (best-effort).
+	 *
+	 * Order matters — the row is deleted FIRST so that a lost/failed disarm is
+	 * harmless: if the alarm still fires, `runTask` finds no row and no-ops
+	 * (`skipped: 'not_found'`), and the watchdog only re-arms rows that still
+	 * exist. This is the reconcile path (a manifest that no longer declares a job).
+	 * Returns false when the row was already gone.
+	 */
+	async remove(id: string, env: SchedulerEnv): Promise<boolean> {
+		const row = await this.get(id);
+		if (!row) return false;
+		const result = await this.db.run({
+			sql: 'DELETE FROM _scheduler_tasks WHERE id = ?',
+			bindings: [id],
+		});
+		try {
+			await this.disarm(id, env);
+		} catch (err) {
+			console.error(`[scheduler] disarm after remove failed for ${id}:`, err instanceof Error ? err.message : err);
+		}
+		return result.meta?.changes !== undefined ? (result.meta.changes as number) > 0 : true;
+	}
+
 	/** Execute immediately through the DO (same path as the alarm). */
 	async runNow(id: string, env: SchedulerEnv): Promise<RunOutcome> {
 		const ns = env.SCHEDULER;
@@ -254,7 +288,7 @@ export class SchedulerService {
 		if (!row || row.status !== 'failed') return false;
 		const now = new Date().toISOString();
 		await this.db.run({
-			sql: `UPDATE _scheduler_tasks SET status = 'pending', attempts = 0, last_error = NULL, run_at = ?, updated_at = ? WHERE id = ?`,
+			sql: `UPDATE _scheduler_tasks SET status = 'pending', attempts = 0, last_error = NULL, disarmed_at = NULL, run_at = ?, updated_at = ? WHERE id = ?`,
 			bindings: [now, now, id],
 		});
 		try {
@@ -381,7 +415,7 @@ export async function runTask(env: SchedulerEnv, id: string, via: 'alarm' | 'man
 			// Recurring — reset the attempt budget for the next occurrence.
 			await db.run({
 				sql: `UPDATE _scheduler_tasks
-					SET status = 'pending', run_at = ?, attempts = 0, last_error = NULL, last_result = ?,
+					SET status = 'pending', run_at = ?, attempts = 0, last_error = NULL, disarmed_at = NULL, last_result = ?,
 						last_run_at = ?, run_count = run_count + 1, updated_at = ?
 					WHERE id = ?`,
 				bindings: [new Date(nextMs).toISOString(), resultJson, nowIso, nowIso, id],
@@ -403,24 +437,41 @@ export async function runTask(env: SchedulerEnv, id: string, via: 'alarm' | 'man
 		const error = err instanceof Error ? err.message : String(err);
 
 		if (attempts >= task.max_attempts) {
-			// Budget exhausted → stays failed for manual retry; watchdog never re-arms.
+			// Budget exhausted → the task is DISARMED and terminally failed. Record it
+			// durably (status + last_error + `disarmed_at`) so the health read can tell a
+			// STOPPED job apart from one that is merely backing off, and LOG it — a job
+			// that dies must never be silent. The watchdog never re-arms a disarmed task;
+			// `retry()` clears the marker to bring it back.
+			console.error(
+				`[scheduler] task ${task.id} ("${task.type}") exhausted its retry budget (${attempts}/${task.max_attempts}) and is now disarmed: ${error}`,
+			);
 			await db.run({
-				sql: `UPDATE _scheduler_tasks SET status = 'failed', attempts = ?, last_error = ?, last_run_at = ?, updated_at = ? WHERE id = ?`,
-				bindings: [attempts, error, nowIso, nowIso, id],
+				sql: `UPDATE _scheduler_tasks SET status = 'failed', attempts = ?, last_error = ?, last_run_at = ?, disarmed_at = ?, updated_at = ? WHERE id = ?`,
+				bindings: [attempts, error, nowIso, nowIso, nowIso, id],
 			});
 			await disarm();
-			return { id, status: 'failed', attempts, run_count: task.run_count, next_run_at: null, error };
+			return { id, status: 'failed', attempts, run_count: task.run_count, next_run_at: null, error, disarmed: true };
 		}
 
 		// Backoff and re-arm — the alarm IS the retry timer; the watchdog backs it up.
+		// A backing-off task is NOT disarmed (`disarmed_at = NULL`), so its `failed`
+		// status reads as "will retry", not "stopped".
 		const backoffMs = schedulerBackoffMs(attempts);
 		const nextMs = nowMs + backoffMs;
 		await db.run({
-			sql: `UPDATE _scheduler_tasks SET status = 'failed', attempts = ?, last_error = ?, run_at = ?, last_run_at = ?, updated_at = ? WHERE id = ?`,
+			sql: `UPDATE _scheduler_tasks SET status = 'failed', attempts = ?, last_error = ?, run_at = ?, last_run_at = ?, disarmed_at = NULL, updated_at = ? WHERE id = ?`,
 			bindings: [attempts, error, new Date(nextMs).toISOString(), nowIso, nowIso, id],
 		});
 		await arm(nextMs);
-		return { id, status: 'failed', attempts, run_count: task.run_count, next_run_at: new Date(nextMs).toISOString(), error };
+		return {
+			id,
+			status: 'failed',
+			attempts,
+			run_count: task.run_count,
+			next_run_at: new Date(nextMs).toISOString(),
+			error,
+			disarmed: false,
+		};
 	}
 }
 

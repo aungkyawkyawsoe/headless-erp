@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Checkbox, Input } from '@mmbix/design-system';
+import { Badge, Button, Checkbox, Input, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@mmbix/design-system';
 import { Plus, Save, Search, ShieldCheck } from 'lucide-react';
 import { createRole, updateRole, getRolePermissions, setPermission, type RolePermission } from '../../lib/api';
 import { appRequiredCollections } from '../../lib/app-collections';
@@ -34,9 +34,9 @@ const sectionTitle = {
 	fontWeight: 700,
 	textTransform: 'uppercase' as const,
 	letterSpacing: '0.05em',
-	color: '#64748b',
+	color: 'var(--mmbix-muted-foreground, #64748b)',
 };
-const note = { fontSize: '0.7rem', color: '#9ca3af', margin: 0 };
+const note = { fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: 0 };
 
 /** A collection already has a `_role_permissions` grant row for this role. */
 function isGranted(p: RolePermission) {
@@ -308,7 +308,7 @@ export function RolesTab({ token }: { token: string }) {
 			<aside style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
 					<span style={sectionTitle}>Roles</span>
-					<span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>{roles.length}</span>
+					<span style={{ fontSize: '0.6rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{roles.length}</span>
 				</div>
 				<div style={{ marginTop: 2 }}>
 					<Button
@@ -340,9 +340,9 @@ export function RolesTab({ token }: { token: string }) {
 								style={{
 									...btnPrimary,
 									justifyContent: 'space-between',
-									border: active ? '1px solid #2563eb' : '1px solid var(--mmbix-border, #e5e7eb)',
+									border: active ? '1px solid var(--mmbix-primary, #2563eb)' : '1px solid var(--mmbix-border, #e5e7eb)',
 									background: active ? 'rgba(37,99,235,0.08)' : 'var(--mmbix-card, #fff)',
-									color: active ? '#1d4ed8' : 'var(--mmbix-foreground, #374151)',
+									color: active ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-foreground, #374151)',
 								}}
 							>
 								<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
@@ -356,7 +356,16 @@ export function RolesTab({ token }: { token: string }) {
 			{/* ── Right: editor for the selected role ─────────── */}
 			<div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
 				{!role ? (
-					<div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', padding: '3rem 0', color: '#9ca3af' }}>
+					<div
+						style={{
+							display: 'flex',
+							flexDirection: 'column',
+							gap: 6,
+							alignItems: 'center',
+							padding: '3rem 0',
+							color: 'var(--mmbix-muted-foreground, #9ca3af)',
+						}}
+					>
 						<ShieldCheck size={26} />
 						<span style={{ fontSize: '0.74rem' }}>Select a role (or create one) to manage its access.</span>
 					</div>
@@ -379,7 +388,9 @@ export function RolesTab({ token }: { token: string }) {
 								{role.is_system === 1 && <Badge variant="outline">system role</Badge>}
 							</div>
 							<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-								<span style={{ fontSize: '0.7rem', color: '#9ca3af', whiteSpace: 'nowrap' }}>Description</span>
+								<span style={{ fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', whiteSpace: 'nowrap' }}>
+									Description
+								</span>
 								<Input
 									value={draftDesc}
 									onChange={(e) => setDraftDesc(e.target.value)}
@@ -410,7 +421,16 @@ export function RolesTab({ token }: { token: string }) {
 									<Save size={12} /> Save role
 								</Button>
 							</div>
-							<label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: '#374151', cursor: 'pointer' }}>
+							<label
+								style={{
+									display: 'flex',
+									alignItems: 'center',
+									gap: 6,
+									fontSize: '0.76rem',
+									color: 'var(--mmbix-foreground, #374151)',
+									cursor: 'pointer',
+								}}
+							>
 								<Checkbox checked={appsAll} onCheckedChange={(v) => setBoardMode(Boolean(v))} />
 								<span style={{ fontWeight: 600 }}>Every app (unrestricted board)</span>
 							</label>
@@ -438,7 +458,7 @@ export function RolesTab({ token }: { token: string }) {
 													borderRadius: 6,
 													background: on ? 'rgba(37,99,235,0.08)' : 'transparent',
 													fontSize: '0.72rem',
-													color: '#374151',
+													color: 'var(--mmbix-foreground, #374151)',
 													cursor: 'pointer',
 												}}
 											>
@@ -468,7 +488,7 @@ export function RolesTab({ token }: { token: string }) {
 								<span style={{ ...note, marginLeft: 4, flex: 1 }}>Every collection shown; check flags and Save to grant access.</span>
 							</div>
 							<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-								<Search size={13} style={{ color: '#9ca3af' }} />
+								<Search size={13} style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)' }} />
 								<Input
 									value={permQuery}
 									onChange={(e) => setPermQuery(e.target.value)}
@@ -481,40 +501,59 @@ export function RolesTab({ token }: { token: string }) {
 								<p style={note}>{library.length === 0 ? 'Loading collections…' : `No collection matches “${permQuery}”.`}</p>
 							) : (
 								<div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
-									<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
-										<thead style={{ position: 'sticky', top: 0, background: 'var(--mmbix-card, #fff)', zIndex: 1 }}>
-											<tr>
-												<th style={{ textAlign: 'left', padding: '0.2rem 0.4rem', color: '#9ca3af', fontWeight: 600 }}>Collection</th>
+									<Table style={{ width: '100%', fontSize: '0.72rem' }}>
+										<TableHeader style={{ position: 'sticky', top: 0, background: 'var(--mmbix-card, #fff)', zIndex: 1 }}>
+											<TableRow>
+												<TableHead
+													style={{
+														height: 'auto',
+														textAlign: 'left',
+														padding: '0.2rem 0.4rem',
+														color: 'var(--mmbix-muted-foreground, #9ca3af)',
+														fontWeight: 600,
+													}}
+												>
+													Collection
+												</TableHead>
 												{FLAG_KEYS.map((k) => (
-													<th key={k} style={{ textAlign: 'center', padding: '0.2rem 0.3rem', color: '#9ca3af', fontWeight: 600 }}>
+													<TableHead
+														key={k}
+														style={{
+															height: 'auto',
+															textAlign: 'center',
+															padding: '0.2rem 0.3rem',
+															color: 'var(--mmbix-muted-foreground, #9ca3af)',
+															fontWeight: 600,
+														}}
+													>
 														{FLAG_LABEL[k]}
-													</th>
+													</TableHead>
 												))}
-												<th style={{ textAlign: 'right', padding: '0.2rem 0.3rem' }} />
-											</tr>
-										</thead>
-										<tbody>
+												<TableHead style={{ height: 'auto', textAlign: 'right', padding: '0.2rem 0.3rem' }} />
+											</TableRow>
+										</TableHeader>
+										<TableBody>
 											{filtered.map((p) => {
 												const hasGrant = FLAG_KEYS.some((k) => Boolean(p[k]));
 												return (
-													<tr key={p.collection_slug} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
-														<td
+													<TableRow key={p.collection_slug}>
+														<TableCell
 															style={{
 																padding: '0.3rem 0.4rem',
 																fontWeight: 600,
 																fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
 																fontSize: '0.68rem',
-																color: hasGrant ? '#1d4ed8' : '#9ca3af',
+																color: hasGrant ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-muted-foreground, #9ca3af)',
 															}}
 														>
 															{p.collection_slug}
-														</td>
+														</TableCell>
 														{FLAG_KEYS.map((k) => (
-															<td key={k} style={{ textAlign: 'center', padding: '0.3rem 0.25rem' }}>
+															<TableCell key={k} style={{ textAlign: 'center', padding: '0.3rem 0.25rem' }}>
 																<Checkbox checked={Boolean(p[k])} onCheckedChange={() => togglePerm(p.collection_slug, k)} />
-															</td>
+															</TableCell>
 														))}
-														<td style={{ textAlign: 'right', padding: '0.25rem 0.3rem', whiteSpace: 'nowrap' }}>
+														<TableCell style={{ textAlign: 'right', padding: '0.25rem 0.3rem', whiteSpace: 'nowrap' }}>
 															<Button
 																size="sm"
 																variant="outline"
@@ -524,12 +563,12 @@ export function RolesTab({ token }: { token: string }) {
 															>
 																<Save size={12} /> Save
 															</Button>
-														</td>
-													</tr>
+														</TableCell>
+													</TableRow>
 												);
 											})}
-										</tbody>
-									</table>
+										</TableBody>
+									</Table>
 								</div>
 							)}
 						</section>
@@ -540,7 +579,10 @@ export function RolesTab({ token }: { token: string }) {
 					<span
 						style={{
 							fontSize: '0.72rem',
-							color: msg.includes('failed') || msg.includes('required') || msg.includes('removed') ? '#d97706' : '#059669',
+							color:
+								msg.includes('failed') || msg.includes('required') || msg.includes('removed')
+									? 'var(--mmbix-tone-warning-fg, #d97706)'
+									: 'var(--mmbix-tone-positive-fg, #059669)',
 						}}
 					>
 						{msg}

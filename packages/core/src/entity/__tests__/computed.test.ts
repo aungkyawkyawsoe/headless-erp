@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { FieldDefinition } from '@mmbix/types';
+import { FORMULA_RESULT_TYPES as TYPES_SSOT } from '@mmbix/types';
 import {
 	extractLookupRefs,
 	buildLookupScope,
@@ -149,6 +150,12 @@ describe('formulaResultType / coerceComputedValue', () => {
 		expect(formulaResultType(field('f', 'formula', { formula: '1' }))).toBe(DEFAULT_FORMULA_RESULT_TYPE);
 		expect(formulaResultType(field('f', 'formula', { formula: '1', result_type: 'string' }))).toBe('string');
 		expect(FORMULA_RESULT_TYPES).toEqual(['number', 'string', 'boolean', 'json']);
+	});
+
+	it('re-exports the ONE @mmbix/types SSOT (not a local copy)', () => {
+		// Reference equality: `computed.ts` re-exports the canonical binding, so a
+		// re-declared local union would make this fail instead of silently drifting.
+		expect(FORMULA_RESULT_TYPES).toBe(TYPES_SSOT);
 	});
 
 	it('coerces number results (NaN → 0, null passes through)', () => {

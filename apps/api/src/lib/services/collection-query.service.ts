@@ -18,6 +18,7 @@ import { getIndexAdvisor, resolvePolicy } from '@mmbix/core';
 import { readCacheKey, readCached, storeCached } from '@mmbix/core';
 import { buildSystemColumnsList, physicalColumnNames, mergeRowData, decodeJsonFields } from '@mmbix/core';
 import { MAX_AGGREGATE_GROUPS, assertGroupCeiling } from '@/lib/api/aggregate-size';
+import { authzVersion } from '@/lib/services/authz-version';
 import {
 	QueryParser,
 	OPERATOR_MAP,
@@ -32,7 +33,7 @@ import {
 	type SortClause,
 } from '@/lib/api/query-parser';
 import { validators, assertValid } from '@mmbix/utils';
-import { sanitizeIdentifier } from '@mmbix/utils';
+import { sanitizeIdentifier, SEARCHABLE_FIELD_TYPES } from '@mmbix/utils';
 import { ValidationError, NotFoundError } from '@mmbix/utils';
 import { DataFilterService } from '@/lib/services/data-filter.service';
 import { backgroundTask } from '@/lib/request-tasks';
@@ -131,34 +132,20 @@ export class ItemQueryService {
 			url.searchParams.get('explain') !== 'true'
 				? await this.readDependencies(info, selection)
 				: null;
-		const cacheKey = dependencies !== null ? readCacheKey(collectionSlug, authFingerprint(this.getAuth()), url.search) : null;
+		// Fold the authz-version stamp into the cache KEY so a permission/role change
+		// in another isolate retires this user's cached body (see authFingerprint).
+		const readVersion = dependencies !== null ? await authzVersion(this.db) : undefined;
+		const cacheKey = dependencies !== null ? readCacheKey(collectionSlug, authFingerprint(this.getAuth(), readVersion), url.search) : null;
 		if (cacheKey) {
 			const hit = readCached<ItemListResult>(cacheKey);
 			if (hit) return hit;
 		}
 
 		const qb = QueryBuilder.from(tableName);
-		// Text-ish field types the global `?search=` term matches (OR across all of
-		// them) — id/system timestamps and relations are never searched.
-		const SEARCHABLE_FIELD_TYPES = new Set([
-			'text',
-			'longtext',
-			'text_editor',
-			'markdown',
-			'code',
-			'slug',
-			'phone',
-			'email',
-			'url',
-			'icon',
-			'barcode',
-			'csv',
-			'tags',
-			'uuid',
-			'color',
-			'select',
-			'time',
-		]);
+		// Text-ish field types the `?search=` term matches (OR across all of them) —
+		// the ONE shared list (`@mmbix/utils`), so every search surface agrees and a
+		// new text-ish type is added in exactly one place. id/system timestamps and
+		// relations are never searched.
 		const textSearchFields = schemaFields.filter((f) => SEARCHABLE_FIELD_TYPES.has(f.type)).map((f) => f.name);
 		// A collection may opt into the INDEX-BACKED `prefix` search over declared
 		// fields (SearchPolicy) — the type-ahead shape whose `LIKE 'term%'` an index
@@ -401,7 +388,11 @@ export class ItemQueryService {
 		const dependencies = cachePol.enabled && fieldsKey !== FULL_ROW_READ_KEY ? await this.readDependencies(info, selection ?? null) : null;
 		const cacheKey =
 			dependencies !== null
-				? readCacheKey(collectionSlug, authFingerprint(this.getAuth()), `get/${id}${fieldsKey ? `?fields=${fieldsKey}` : ''}`)
+				? readCacheKey(
+						collectionSlug,
+						authFingerprint(this.getAuth(), await authzVersion(this.db)),
+						`get/${id}${fieldsKey ? `?fields=${fieldsKey}` : ''}`,
+					)
 				: null;
 		if (cacheKey) {
 			const hit = readCached<Record<string, unknown>>(cacheKey);

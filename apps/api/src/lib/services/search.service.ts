@@ -12,7 +12,7 @@
 
 import { D1Client } from '@mmbix/core';
 import { QueryBuilder } from '@mmbix/core';
-import { sanitizeIdentifier } from '@mmbix/utils';
+import { sanitizeIdentifier, SEARCHABLE_FIELD_TYPES } from '@mmbix/utils';
 import type { EntitySchema } from '@mmbix/types';
 import { DataFilterService } from '@/lib/services/data-filter.service';
 import { findAllCollections } from '@/lib/services/schema-lookup';
@@ -471,7 +471,7 @@ export class SearchService {
 		const systemFields = new Set(['id', 'doc_status', 'display_number', 'deleted_at', '_meta', 'created_at', 'updated_at', 'rowid']);
 
 		return schemaFields
-			.filter((f) => f.type === 'text' || f.type === 'longtext' || f.type === 'slug')
+			.filter((f) => SEARCHABLE_FIELD_TYPES.has(f.type))
 			.map((f) => f.name)
 			.filter((n) => !systemFields.has(n));
 	}
