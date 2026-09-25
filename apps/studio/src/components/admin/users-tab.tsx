@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Checkbox, Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList, Input } from '@mmbix/design-system';
+import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
 import { ArrowLeft, Plus, Save } from 'lucide-react';
 import { createUser, updateUser, type StudioUser, type UpdateStudioUserInput } from '../../lib/api';
 import { itemsQuery, rolesQuery, serverMetaQuery, usersQuery } from '../../lib/queries';
@@ -72,8 +73,6 @@ const field = {
 	background: 'var(--mmbix-card, #fff)',
 	outline: 'none',
 };
-const th = { textAlign: 'left' as const, padding: '0.2rem 0.4rem', color: '#9ca3af', fontWeight: 600 };
-const td = { padding: '0.3rem 0.4rem', verticalAlign: 'top' as const };
 
 /** Pre-attentive state colour — the column is scanned, not read. */
 const STATE_COLOR: Record<UserState, string> = { active: '#059669', disabled: '#dc2626', unknown: '#9ca3af' };
@@ -553,6 +552,84 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 		);
 	}
 
+	// ── The list's columns (design-system DataTable) ──────────────────────────
+	//
+	// The same facts the raw table rendered, now as a real DataTable so the
+	// registry gets the system's sorting, column layout and density for free —
+	// and stays visually identical to every other list in the Studio. The
+	// cross-field search stays the external `Input` (it matches a role NAME and
+	// an employee NAME, which a per-column accessor cannot), so the table's own
+	// toolbar is suppressed and the filtered rows are handed in directly.
+	const columns: ColumnDef<StudioUser>[] = [
+		{
+			id: 'account',
+			accessorKey: 'email',
+			header: 'Account',
+			cell: ({ row }) => (
+				<div style={{ minWidth: 0 }}>
+					<div style={{ fontWeight: 600 }}>{displayNameOf(row.original)}</div>
+					<div style={{ fontSize: '0.66rem', color: '#9ca3af' }}>{row.original.email}</div>
+				</div>
+			),
+		},
+		{
+			id: 'identity',
+			header: 'Signs in via',
+			accessorFn: (u) => IDENTITY_KIND_LABEL[identityKindOf(u)],
+			cell: ({ row }) => <span style={{ color: '#6b7280' }}>{IDENTITY_KIND_LABEL[identityKindOf(row.original)]}</span>,
+		},
+		{
+			id: 'employee',
+			header: 'Employee',
+			accessorFn: (u) => employeeOf(u),
+			cell: ({ row }) => {
+				// Which employee this account acts as. An account with none can sign in
+				// but cannot punch, file leave or move stock — a state worth SEEING, so
+				// it is stated rather than left as an empty cell.
+				const name = employeeOf(row.original);
+				return name ? <span style={employeeName}>{name}</span> : <span style={muted}>Not linked</span>;
+			},
+		},
+		{
+			id: 'role',
+			header: 'Role',
+			accessorFn: (u) => roleNameOf(u.role_id),
+			cell: ({ row }) => <span style={{ color: row.original.role_id ? '#1d4ed8' : '#9ca3af' }}>{roleNameOf(row.original.role_id)}</span>,
+		},
+		{
+			id: 'status',
+			header: 'Status',
+			accessorFn: (u) => userStateOf(u),
+			cell: ({ row }) => {
+				const state = userStateOf(row.original);
+				return <span style={{ fontWeight: 700, color: STATE_COLOR[state] }}>{STATE_LABEL[state]}</span>;
+			},
+		},
+		{
+			id: 'last_login',
+			accessorKey: 'last_login',
+			header: 'Last sign-in',
+			cell: ({ row }) => <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{formatStamp(row.original.last_login)}</span>,
+		},
+		{
+			id: 'created_at',
+			accessorKey: 'created_at',
+			header: 'Created',
+			cell: ({ row }) => <span style={{ color: '#9ca3af', whiteSpace: 'nowrap' }}>{formatStamp(row.original.created_at)}</span>,
+		},
+		{
+			id: 'actions',
+			header: '',
+			align: 'right',
+			enableSorting: false,
+			cell: ({ row }) => (
+				<Button size="sm" variant="outline" aria-label={`Edit ${row.original.email}`} onClick={() => openEdit(row.original)}>
+					Edit
+				</Button>
+			),
+		},
+	];
+
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0.75rem 0.9rem' }}>
 			<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -591,51 +668,16 @@ export function UsersTab({ token, currentEmail }: { token: string; currentEmail?
 					{users.length === 0 ? 'No accounts yet — create one to allow an email + password sign-in.' : `No account matches “${query}”.`}
 				</p>
 			) : (
-				<div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
-					<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
-						<thead style={{ position: 'sticky', top: 0, background: 'var(--mmbix-card, #fff)', zIndex: 1 }}>
-							<tr>
-								<th style={th}>Account</th>
-								<th style={th}>Signs in via</th>
-								<th style={th}>Employee</th>
-								<th style={th}>Role</th>
-								<th style={th}>Status</th>
-								<th style={th}>Last sign-in</th>
-								<th style={th}>Created</th>
-								<th style={{ ...th, textAlign: 'right' }} />
-							</tr>
-						</thead>
-						<tbody>
-							{filtered.map((user) => {
-								const state = userStateOf(user);
-								return (
-									<tr key={user.id} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
-										<td style={td}>
-											<div style={{ fontWeight: 600 }}>{displayNameOf(user)}</div>
-											<div style={{ fontSize: '0.66rem', color: '#9ca3af' }}>{user.email}</div>
-										</td>
-										<td style={{ ...td, color: '#6b7280' }}>{IDENTITY_KIND_LABEL[identityKindOf(user)]}</td>
-										<td style={td}>
-											{/* Which employee this account acts as. An account with none can sign in
-											    but cannot punch, file leave or move stock — a state worth SEEING, so
-											    it is stated rather than left as an empty cell. */}
-											{employeeOf(user) ? <span style={employeeName}>{employeeOf(user)}</span> : <span style={muted}>Not linked</span>}
-										</td>
-										<td style={{ ...td, color: user.role_id ? '#1d4ed8' : '#9ca3af' }}>{roleNameOf(user.role_id)}</td>
-										<td style={{ ...td, fontWeight: 700, color: STATE_COLOR[state] }}>{STATE_LABEL[state]}</td>
-										<td style={{ ...td, color: '#6b7280', whiteSpace: 'nowrap' }}>{formatStamp(user.last_login)}</td>
-										<td style={{ ...td, color: '#9ca3af', whiteSpace: 'nowrap' }}>{formatStamp(user.created_at)}</td>
-										<td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-											<Button size="sm" variant="outline" aria-label={`Edit ${user.email}`} onClick={() => openEdit(user)}>
-												Edit
-											</Button>
-										</td>
-									</tr>
-								);
-							})}
-						</tbody>
-					</table>
-				</div>
+				<DataTable
+					columns={columns}
+					data={filtered}
+					rowKey="id"
+					density="compact"
+					defaultPageSize={25}
+					showToolbar={false}
+					stickyHeader
+					borderStyle="row"
+				/>
 			)}
 
 			{msg && (

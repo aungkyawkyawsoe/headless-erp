@@ -17,6 +17,8 @@
  *   POST /api/idp/deployments/:id/rollback  → re-apply previous live snapshot (admin)
  *   GET  /api/idp/ownership          → list ownership (read: idp_ownership)
  *   POST /api/idp/ownership          → assign ownership (admin)
+ *   GET  /api/idp/policies           → policy-as-data scorecard (read: ownership/deployment/template_usage)
+ *   GET  /api/idp/audit              → append-only governance audit trail (read: idp_audit)
  */
 
 import { Hono, type Context } from 'hono';
@@ -26,6 +28,8 @@ import { requireAdmin, requireCollectionRead } from '@/middleware/rbac-guard';
 import { success, fail } from '@/lib/api/response';
 import type { AuthContext } from '@mmbix/types';
 import { SmartCollectionService } from '@/lib/services/smart-collection.service';
+import { AddonService } from '@/lib/services/addon.service';
+import { moduleManifests } from '@/domain-modules';
 import { IdpError, IdpService } from './service';
 
 type IdpBindings = {
@@ -108,7 +112,37 @@ app.get('/catalog', canRead('idp_ownership'), canRead('idp_deployment'), async (
 	try {
 		const svc = getService(c);
 		await svc.ensureCollections();
-		return success(c, await svc.catalog());
+		// Merge the RUNTIME add-on state (available/installed + graph) onto the
+		// catalog so a module that is not installed is shown as such, rather than
+		// silently presented as live. `_modules` is the factory's data plane; the
+		// add-on registry is the build+runtime gate — this is the one place a
+		// client sees both, so it can never mistake an uninstalled module for a
+		// running one. Matching is by slug ⇔ add-on id (a factory module IS an
+		// add-on); a custom module with no manifest simply reports `registry: null`.
+		const [catalog, { catalog: addons }] = await Promise.all([
+			svc.catalog(),
+			new AddonService(new D1Client(c.env.DB)).catalog((c.env ?? {}) as Record<string, unknown>, moduleManifests),
+		]);
+		const byId = new Map(addons.map((a) => [a.id, a]));
+		const data = catalog.map((entry) => {
+			const a = byId.get(entry.slug);
+			return {
+				...entry,
+				registry: a
+					? {
+							available: a.available,
+							installed: a.installed,
+							scope: a.scope,
+							version: a.version,
+							depends: a.depends,
+							provides: a.provides,
+							requires: a.requires,
+							extends: a.extends,
+						}
+					: null,
+			};
+		});
+		return success(c, data);
 	} catch (err) {
 		return idpFail(c, err, 500);
 	}
@@ -135,6 +169,10 @@ app.post('/environments', requireAdmin, async (c: Context<IdpBindings>) => {
 		const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
 		if (!body || !body.name || !body.slug) return fail(c, 'name and slug are required', 422);
 		const item = await svc.createItem('idp_environment', pick(body, ENVIRONMENT_FIELDS));
+		await getService(c).recordAudit('environment.create', 'idp_environment', String((item as { id: unknown }).id), c.get('auth'), {
+			slug: body.slug,
+			kind: body.kind ?? null,
+		});
 		return success(c, item, 201);
 	} catch (err) {
 		return idpFail(c, err, 500);
@@ -148,7 +186,9 @@ app.put('/environments/:id', requireAdmin, async (c: Context<IdpBindings>) => {
 		const svc = getSmart(c);
 		await svc.ensureMigrations();
 		const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-		const item = await svc.updateItem('idp_environment', id, pick(body ?? {}, ENVIRONMENT_FIELDS));
+		const fields = pick(body ?? {}, ENVIRONMENT_FIELDS);
+		const item = await svc.updateItem('idp_environment', id, fields);
+		await getService(c).recordAudit('environment.update', 'idp_environment', id, c.get('auth'), { fields: Object.keys(fields) });
 		return success(c, item);
 	} catch (err) {
 		return idpFail(c, err, 500);
@@ -162,6 +202,7 @@ app.delete('/environments/:id', requireAdmin, async (c: Context<IdpBindings>) =>
 		const svc = getSmart(c);
 		await svc.ensureMigrations();
 		await svc.softDeleteItem('idp_environment', id);
+		await getService(c).recordAudit('environment.delete', 'idp_environment', id, c.get('auth'), {});
 		return success(c, { deleted: true });
 	} catch (err) {
 		return idpFail(c, err, 500);
@@ -201,6 +242,11 @@ app.post('/deployments', requireAdmin, async (c: Context<IdpBindings>) => {
 			status: 'draft',
 			deployed_by: auth.email ?? null,
 			deployed_at: new Date().toISOString(),
+		});
+		await getService(c).recordAudit('deployment.create', 'idp_deployment', String((item as { id: unknown }).id), auth, {
+			module_id: body.module_id,
+			environment_id: body.environment_id,
+			version: body.version ?? null,
 		});
 		return success(c, item, 201);
 	} catch (err) {
@@ -302,6 +348,41 @@ app.get('/scorecard', canRead('idp_ownership'), canRead('idp_deployment'), async
 	}
 });
 
+/**
+ * Policy-as-data scorecard — per-module pass/fail against `IDP_POLICY_RULES`
+ * with the exact rule ids violated. Assembled from the same ownership +
+ * deployment + template-usage collections, so it takes the same read gates.
+ */
+app.get(
+	'/policies',
+	canRead('idp_ownership'),
+	canRead('idp_deployment'),
+	canRead('idp_template_usage'),
+	async (c: Context<IdpBindings>) => {
+		try {
+			const svc = getService(c);
+			await svc.ensureCollections();
+			return success(c, await svc.policies());
+		} catch (err) {
+			return idpFail(c, err, 500);
+		}
+	},
+);
+
+/**
+ * Append-only IDP audit trail (newest first). Gated on a read grant for
+ * `idp_audit` — deny-by-default like every other collection.
+ */
+app.get('/audit', canRead('idp_audit'), async (c: Context<IdpBindings>) => {
+	try {
+		const svc = getService(c);
+		await svc.ensureCollections();
+		return success(c, await svc.audit(Number(c.req.query('limit') ?? 100)));
+	} catch (err) {
+		return idpFail(c, err, 500);
+	}
+});
+
 /** Golden-path templates from the shared registry. */
 app.get('/templates', async (c: Context<IdpBindings>) => {
 	try {
@@ -359,6 +440,11 @@ app.post('/ownership', requireAdmin, async (c: Context<IdpBindings>) => {
 		const item = await svc.createItem('idp_ownership', {
 			...pick(body, OWNERSHIP_FIELDS),
 			owner_type: body.owner_type ?? 'user',
+			role: body.role ?? 'viewer',
+		});
+		await getService(c).recordAudit('ownership.assign', 'idp_ownership', String((item as { id: unknown }).id), c.get('auth'), {
+			module_id: body.module_id,
+			owner_id: body.owner_id,
 			role: body.role ?? 'viewer',
 		});
 		return success(c, item, 201);

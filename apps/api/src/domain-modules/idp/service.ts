@@ -71,6 +71,27 @@ export interface CatalogEntry {
 	environments: CatalogEnvironment[];
 }
 
+/**
+ * Policy-as-data: the declarative rules the governance scorecard evaluates.
+ * Adding a rule is one entry here + one branch in `policies()` — the shape a
+ * real policy engine would load from a table; kept as a typed constant because
+ * the factory ships a fixed, auditable baseline (a caller-supplied ruleset would
+ * be an unvalidated expression surface).
+ */
+export interface IdpPolicyRule {
+	id: string;
+	label: string;
+	description: string;
+}
+
+export const IDP_POLICY_RULES: IdpPolicyRule[] = [
+	{ id: 'has_owner', label: 'Owned', description: 'The module has at least one owner' },
+	{ id: 'live_deployment', label: 'Live', description: 'The module has a live deployment' },
+	{ id: 'multi_env', label: 'Multi-environment', description: 'The module is live in two or more environments' },
+	{ id: 'release_record', label: 'Release record', description: 'A live deployment captured a manifest (data lineage)' },
+	{ id: 'golden_path', label: 'Golden path', description: 'The module was scaffolded from a golden-path template' },
+];
+
 export class IdpService {
 	constructor(private db: D1Client) {}
 
@@ -99,7 +120,17 @@ export class IdpService {
 			const existing = await this.db.first<{ id: string }>(
 				QueryBuilder.from('_entity_schemas').select('id').where('slug', def.slug).toSelect(),
 			);
-			if (existing) continue;
+			if (existing) {
+				// The table exists — reconcile any field added to the definition
+				// AFTER this install was created. `CREATE TABLE IF NOT EXISTS` in
+				// `createCollectionRecord` can only build the initial shape, so a
+				// new declared field (e.g. `idp_audit`) would otherwise be missing
+				// on an existing DB and every write to it would 500. Idempotent and
+				// additive: columns are added nullable (SQLite cannot ADD a NOT NULL
+				// column to a table with rows), never dropped or retyped.
+				await this.reconcileColumns(def);
+				continue;
+			}
 			// Create the collection row + table directly (mirrors what the
 			// schema designer's POST /api/collections does, minus the HTTP layer).
 			await this.createCollectionRecord(def);
@@ -109,6 +140,25 @@ export class IdpService {
 		// would otherwise not know these tables exist (a later read would 500).
 		if (created.length > 0) SchemaService.invalidateCache();
 		return created;
+	}
+
+	/**
+	 * Add any declared field that is missing from an already-existing table.
+	 * Reads the real columns via `PRAGMA table_info` (a table may legitimately
+	 * carry extra columns a future definition dropped); only ADDs. Memoized by
+	 * the caller's per-isolate `ensureCollections`, so this costs one PRAGMA per
+	 * collection per isolate.
+	 */
+	private async reconcileColumns(def: { slug: string; fields: Array<{ name: string; type: string }> }): Promise<void> {
+		const tableName = collectionTable(def.slug);
+		const have = new Set(
+			(await this.db.all<{ name: string }>({ sql: `PRAGMA table_info("${tableName}")`, bindings: [] })).map((c) => c.name),
+		);
+		for (const f of def.fields) {
+			if (have.has(f.name)) continue;
+			// db.exec() splits statements on newlines — DDL must be single-line.
+			await this.db.exec(`ALTER TABLE "${tableName}" ADD COLUMN ${f.name} ${fieldSqlType(f.type)};`);
+		}
 	}
 
 	/**
@@ -273,21 +323,23 @@ export class IdpService {
 		// write + history append (a plugin service call, not plain SQL), so it cannot
 		// join a `db.batch` with the mirror. The mirror is therefore the VERY NEXT
 		// statement (nothing between them) and a failure is loud — see
-		// `mirrorWorkflowStatus` — because a silently missing mirror is a catalog that
-		// reports a state the workflow does not have.
-		await this.mirrorWorkflowStatus(deploymentId, next, manifest ? { manifest_json: JSON.stringify(manifest) } : {});
+		// `writeDeploymentStatus` — because a silently missing mirror is a catalog
+		// that reports a state the workflow does not have.
+		await this.writeDeploymentStatus(deploymentId, next, manifest ? { manifest_json: JSON.stringify(manifest) } : {});
 		if (manifest) await this.notifyDeployed(dep, manifest, auth);
+		await this.recordAudit('deployment.promote', 'idp_deployment', deploymentId, auth, { from: result.from, to: next });
 
 		return { deployment_id: deploymentId, from: result.from, to: result.to, state: next };
 	}
 
 	/**
-	 * Mirror a workflow state onto `idp_deployment.status` — the denormalized column
-	 * the catalog + scorecard read (ONE place for the rule, so promote and the
-	 * generic transition route can never apply it differently, nor forget the
-	 * response-cache invalidation that makes the new state readable at once).
+	 * The ONE writer of `idp_deployment.status` (plus its provenance columns).
+	 * The workflow side table (`_workflow_states`) is the single source of truth;
+	 * this mirrors it onto the denormalized column the catalog + scorecard read.
+	 * Every caller must have ALREADY moved the workflow — see `commitDeploymentState`
+	 * when it has not.
 	 */
-	private async mirrorWorkflowStatus(deploymentId: string, state: string, extra: Record<string, unknown> = {}): Promise<void> {
+	private async writeDeploymentStatus(deploymentId: string, state: string, extra: Record<string, unknown> = {}): Promise<void> {
 		try {
 			await this.db.run(
 				QueryBuilder.from(collectionTable('idp_deployment'))
@@ -302,7 +354,7 @@ export class IdpService {
 			// The workflow has already moved, so a failure here is a live drift between
 			// `_workflow_states` and the column the catalog reads — never swallow it.
 			console.error(
-				`[idp] status mirror failed — _workflow_states=${state} for deployment ${deploymentId} is not reflected in idp_deployment.status:`,
+				`[idp] status write failed — _workflow_states=${state} for deployment ${deploymentId} is not reflected in idp_deployment.status:`,
 				err instanceof Error ? err.message : err,
 			);
 			throw err;
@@ -310,6 +362,48 @@ export class IdpService {
 		// Raw write → clear this collection's response cache so the new status is
 		// visible on the very next read (the engine's own writes do this for us).
 		invalidateCollectionReads('idp_deployment', deploymentId);
+	}
+
+	/**
+	 * Move a deployment to `toState` through the workflow side table (optimistic
+	 * lock + append-only history) AND mirror it onto `status` — in ONE place.
+	 *
+	 * The GitOps `apply`/`rollback` paths set `status = 'live'` directly before
+	 * this existed, which moved the column but NOT `_workflow_states`: a
+	 * deployment could read `status='live'` while its workflow still said
+	 * `draft` (the dual-writer drift). Now the only way to reach a state is here,
+	 * so the two can never disagree.
+	 */
+	private async commitDeploymentState(
+		deploymentId: string,
+		toState: string,
+		auth: AuthContext | null,
+		extra: Record<string, unknown> = {},
+		comment = 'Deploy',
+	): Promise<void> {
+		const workflow = await this.ensureWorkflow();
+		const { WorkflowService } = await import('@/plugins/workflow/service');
+		const wsvc = new WorkflowService(this.db);
+		const current = (await wsvc.getState('idp_deployment', deploymentId)) ?? workflow.definition.initial;
+		if (current !== toState) {
+			// Optimistic lock — a concurrent transition already past `current` is a
+			// 409, never a silent overwrite of someone else's move.
+			const committed = await wsvc.transitionState('idp_deployment', deploymentId, current, toState);
+			if (!committed) {
+				throw new IdpError(`Deployment already left state "${current}" (concurrent change) — reload and retry`, 409);
+			}
+			await wsvc.logHistory({
+				workflow_id: workflow.id,
+				collection_slug: 'idp_deployment',
+				document_id: deploymentId,
+				from_state: current,
+				to_state: toState,
+				by_user: auth?.user_id ?? null,
+				by_email: auth?.email ?? null,
+				comment,
+			});
+		}
+		await this.writeDeploymentStatus(deploymentId, toState, extra);
 	}
 
 	/** Generic workflow transition on a deployment (submit/approve/reject/rollback). */
@@ -323,8 +417,9 @@ export class IdpService {
 		const engine = new WorkflowEngine(this.db, wsvc);
 		const result = await engine.transition(workflow, 'idp_deployment', deploymentId, toState, auth, { comment: 'Transition' });
 		// Keep the denormalized status column in lock-step with the workflow state —
-		// the same shared rule (and drift log) `promote` uses.
-		await this.mirrorWorkflowStatus(deploymentId, toState);
+		// the same shared writer (and drift log) `promote` uses.
+		await this.writeDeploymentStatus(deploymentId, toState);
+		await this.recordAudit('deployment.transition', 'idp_deployment', deploymentId, auth, { from: result.from, to: toState });
 		return { deployment_id: deploymentId, from: result.from, to: result.to };
 	}
 
@@ -476,6 +571,118 @@ export class IdpService {
 		};
 	}
 
+	/**
+	 * Governance scorecard as policy-as-data — every module evaluated against
+	 * `IDP_POLICY_RULES`, with the exact rule ids it violates. One deterministic
+	 * query set (no N+1), ordered by module name so two reads agree.
+	 *
+	 * Distinct from `scorecard()` (which reports coverage percentages): this is
+	 * the actionable "which module FAILS which rule" view a golden-path program
+	 * enforces against, and it is the consumer of the same source tables — never
+	 * a parallel log.
+	 */
+	async policies(): Promise<Record<string, unknown>> {
+		const modules = await this.db.all<{ id: string; name: string; slug: string }>(
+			QueryBuilder.from('_modules').select('id', 'name', 'slug').orderBy('name', 'asc').toSelect(),
+		);
+		const ownership = await this.db.all<{ module_id: string }>(
+			QueryBuilder.from(collectionTable('idp_ownership')).select('module_id').toSelect(),
+		);
+		const deployments = await this.db.all<{ module_id: string; environment_id: string; status: string; manifest_json: string | null }>(
+			QueryBuilder.from(collectionTable('idp_deployment')).select('module_id', 'environment_id', 'status', 'manifest_json').toSelect(),
+		);
+		const usage = await this.db.all<{ module_id: string }>(
+			QueryBuilder.from(collectionTable('idp_template_usage')).select('module_id').toSelect(),
+		);
+
+		const ownerSet = new Set(ownership.map((o) => o.module_id));
+		const goldenSet = new Set(usage.map((u) => u.module_id));
+		// Aggregate live deployments per module: distinct env count + whether any
+		// live deployment pinned a manifest.
+		const live = new Map<string, { envs: Set<string>; manifest: boolean }>();
+		for (const d of deployments) {
+			if (d.status !== 'live') continue;
+			const acc = live.get(d.module_id) ?? { envs: new Set<string>(), manifest: false };
+			acc.envs.add(d.environment_id);
+			if (d.manifest_json) acc.manifest = true;
+			live.set(d.module_id, acc);
+		}
+
+		const violationsFor = (id: string): string[] => {
+			const v: string[] = [];
+			const l = live.get(id);
+			if (!ownerSet.has(id)) v.push('has_owner');
+			if (!l) v.push('live_deployment');
+			if (!l || l.envs.size < 2) v.push('multi_env');
+			if (!l || !l.manifest) v.push('release_record');
+			if (!goldenSet.has(id)) v.push('golden_path');
+			return v;
+		};
+
+		const entries = modules.map((m) => {
+			const violations = violationsFor(m.id);
+			return { id: m.id, slug: m.slug, name: m.name, status: violations.length === 0 ? 'pass' : 'fail', violations };
+		});
+		const perRule = IDP_POLICY_RULES.map((r) => {
+			const passed = entries.filter((e) => !e.violations.includes(r.id)).length;
+			return { ...r, passed, total: entries.length, pass_pct: entries.length ? Math.round((passed / entries.length) * 100) : 0 };
+		});
+		return {
+			rules: IDP_POLICY_RULES,
+			modules: entries,
+			summary: {
+				total: entries.length,
+				passing: entries.filter((e) => e.status === 'pass').length,
+				failing: entries.filter((e) => e.status === 'fail').length,
+				rules: perRule,
+			},
+		};
+	}
+
+	/**
+	 * Append one audit row for an IDP governance action. NEVER throws — a failing
+	 * audit write must not fail the action it records (the action's own write is
+	 * the source of truth; this is its trail). `action` is a dotted
+	 * `<entity>.<verb>` token, `entity` the collection/system it touched.
+	 */
+	async recordAudit(
+		action: string,
+		entity: string,
+		entityId: string | null,
+		auth: AuthContext | null,
+		detail?: Record<string, unknown>,
+	): Promise<void> {
+		try {
+			const now = new Date().toISOString();
+			await this.db.run(
+				QueryBuilder.from(collectionTable('idp_audit')).toInsert({
+					id: crypto.randomUUID(),
+					action,
+					entity,
+					entity_id: entityId,
+					actor_email: auth?.email ?? null,
+					detail_json: detail ? JSON.stringify(detail) : null,
+					created_at: now,
+					updated_at: now,
+				}),
+			);
+			invalidateCollectionReads('idp_audit');
+		} catch (err) {
+			console.error('[idp] audit record failed:', err instanceof Error ? err.message : err);
+		}
+	}
+
+	/** The append-only audit trail, newest first (LIMIT-bounded). */
+	async audit(limit = 100): Promise<unknown[]> {
+		await this.ensureCollections();
+		const n = Math.min(Math.max(Number(limit) || 100, 1), 500);
+		return this.db.all({
+			// Identifier interpolated from a closed constant, never request input.
+			sql: `SELECT * FROM "${collectionTable('idp_audit')}" WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT ?`,
+			bindings: [n],
+		});
+	}
+
 	/** List golden-path templates from the shared registry (single source of truth). */
 	async listTemplates(): Promise<unknown[]> {
 		const { listTemplates } = await import('@/plugins/templates/registry');
@@ -530,6 +737,7 @@ export class IdpService {
 		} catch (err) {
 			console.error('[idp] template usage record failed:', err instanceof Error ? err.message : err);
 		}
+		await this.recordAudit('template.scaffold', 'module', module.id, auth ?? null, { template: templateName, collections: created });
 		return { module, collections: created };
 	}
 
@@ -825,7 +1033,16 @@ export class IdpService {
 	 */
 	async applyDeployment(deploymentId: string, auth: AuthContext | null, force = false): Promise<Record<string, unknown>> {
 		const dep = await this.getDeployment(deploymentId);
-		return this.applySnapshot(deploymentId, dep.snapshot_json, auth, force);
+		const result = await this.applySnapshot(deploymentId, dep.snapshot_json, auth, force);
+		// Audit only a real apply — an idempotent no-op (`already_applied`) is not a
+		// new action and would otherwise pad the trail on every retry.
+		if (result.applied) {
+			await this.recordAudit('deployment.apply', 'idp_deployment', deploymentId, auth, {
+				checksum: result.checksum,
+				environment_id: dep.environment_id,
+			});
+		}
+		return result;
 	}
 
 	/**
@@ -845,7 +1062,12 @@ export class IdpService {
 			bindings: [dep.module_id, dep.environment_id, deploymentId],
 		});
 		if (!prev?.snapshot_json) throw new IdpError('No previous live snapshot to roll back to', 409);
-		return this.applySnapshot(deploymentId, prev.snapshot_json, auth, true);
+		const result = await this.applySnapshot(deploymentId, prev.snapshot_json, auth, true);
+		await this.recordAudit('deployment.rollback', 'idp_deployment', deploymentId, auth, {
+			restored_from: prev.id,
+			environment_id: dep.environment_id,
+		});
+		return result;
 	}
 
 	/** Shared apply path — idempotent, gated, atomic, ledgered. */
@@ -909,19 +1131,15 @@ export class IdpService {
 			bindings: [ledgerId, checksum, dep.environment_id, auth?.email ?? null, new Date().toISOString()],
 		});
 
-		// Mark the deployment live + capture the applied snapshot + notify.
-		await this.db.run(
-			QueryBuilder.from(collectionTable('idp_deployment'))
-				.where('id', deploymentId)
-				.toUpdate({
-					status: 'live',
-					deployed_at: new Date().toISOString(),
-					deployed_by: auth?.email ?? null,
-					manifest_json: JSON.stringify(snapshot),
-					updated_at: new Date().toISOString(),
-				}),
-		);
-		invalidateCollectionReads('idp_deployment', deploymentId);
+		// Mark the deployment live + capture the applied snapshot + notify. Routed
+		// through `commitDeploymentState` so `_workflow_states` moves in lock-step
+		// (this used to write the `status` column alone, leaving the workflow at
+		// `draft` — the drift this fixes).
+		await this.commitDeploymentState(deploymentId, 'live', auth, {
+			deployed_at: new Date().toISOString(),
+			deployed_by: auth?.email ?? null,
+			manifest_json: JSON.stringify(snapshot),
+		});
 		await this.notifyDeployed(dep, snapshot as unknown as Record<string, unknown>, auth);
 
 		return { deployment_id: deploymentId, applied: true, checksum, results, summary: diff.summary };

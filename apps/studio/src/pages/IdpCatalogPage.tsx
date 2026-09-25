@@ -95,6 +95,30 @@ export default function IdpCatalogPage({ token, user }: { token: string; user: {
 			cell: ({ row }) => <span style={{ fontSize: '0.78rem' }}>{row.original.version}</span>,
 		},
 		{
+			// The RUNTIME add-on state merged onto the catalog by the API — a module
+			// in `_modules` that is not installed must not read as live. `null` means
+			// a custom module with no build manifest (a normal authored app).
+			id: 'registry',
+			header: 'Registry',
+			cell: ({ row }) => {
+				const reg = row.original.registry;
+				if (!reg) return <span style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Custom</span>;
+				const tone = !reg.available
+					? { color: '#b45309', background: '#fffbeb', borderColor: '#fcd34d', label: 'Not in build' }
+					: reg.installed
+						? { color: '#15803d', background: '#ecfdf5', borderColor: '#86efac', label: 'Installed' }
+						: { color: '#b91c1c', background: '#fef2f2', borderColor: '#fca5a5', label: 'Not installed' };
+				return (
+					<Badge
+						variant="outline"
+						style={{ color: tone.color, background: tone.background, borderColor: tone.borderColor, fontWeight: 600 }}
+					>
+						{tone.label}
+					</Badge>
+				);
+			},
+		},
+		{
 			id: 'environments',
 			header: 'Environments',
 			cell: ({ row }) => (

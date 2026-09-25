@@ -242,6 +242,20 @@ export const idpScorecardQuery = (token: string) =>
 		enabled: live(token),
 	});
 
+export const idpPoliciesQuery = (token: string) =>
+	queryOptions({
+		queryKey: qk.idpPolicies(),
+		queryFn: () => api.getIdpPolicies(token),
+		enabled: live(token),
+	});
+
+export const idpAuditQuery = (token: string, limit = 100) =>
+	queryOptions({
+		queryKey: qk.idpAudit(limit),
+		queryFn: () => api.getIdpAudit(token, limit),
+		enabled: live(token),
+	});
+
 export const idpUsageQuery = (token: string, days = 30) =>
 	queryOptions({
 		queryKey: qk.idpUsage(days),

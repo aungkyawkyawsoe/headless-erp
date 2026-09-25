@@ -106,13 +106,16 @@
 
 ## 🔑 Default Dev Credentials
 
-| Setting              | Value                                           |
-| -------------------- | ----------------------------------------------- |
-| Admin username       | `dev@mmbics.com` (email, from `ADMIN_USERNAME`) |
-| Admin password       | `dev-password-for-local-only` (dev only)        |
-| Dev token            | `dev-token` (only when `IS_DEV=true`)           |
-| Base URL (local)     | `http://localhost:8788`                         |
-| Scalar API Reference | `/api/docs`                                     |
+> `headless init` sets these to **your** email/name/password in
+> `apps/api/.dev.vars`. The values below are the un-initialized factory defaults.
+
+| Setting              | Value                                                                           |
+| -------------------- | ------------------------------------------------------------------------------- |
+| Admin username       | your `ADMIN_USERNAME` (init sets it; factory default `dev@mmbics.com`)          |
+| Admin password       | your `ADMIN_PASSWORD` in `apps/api/.dev.vars` (factory default above, dev only) |
+| Dev token            | `dev-token` (only when `IS_DEV=true`)                                           |
+| Base URL (local)     | `http://localhost:8788`                                                         |
+| Scalar API Reference | `/api/docs`                                                                     |
 
 > `headless init` scaffolds a project with **your** admin email / name / password
 > written to `apps/api/.dev.vars` — the first login creates that superadmin.

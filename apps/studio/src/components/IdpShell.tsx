@@ -3,12 +3,28 @@ import { useQuery } from '@tanstack/react-query';
 import { AppShell, StatusBar, type Module, type NavMainItem } from '@mmbix/design-system';
 import { appColor, smartIconFor } from '@mmbix/ui-views';
 import type { LucideIcon } from 'lucide-react';
-import { BarChart3, BookOpen, Box, Database, GitBranch, Home, Layers, LayoutGrid, Rocket, Server, ShieldCheck, Users } from 'lucide-react';
+import {
+	BarChart3,
+	BookOpen,
+	Box,
+	Database,
+	Gauge,
+	GitBranch,
+	Home,
+	Layers,
+	LayoutGrid,
+	Rocket,
+	ScrollText,
+	Server,
+	ShieldCheck,
+	Users,
+} from 'lucide-react';
 import { modulesQuery } from '../lib/queries';
 import { isIdpManagedModule } from '../lib/idp';
 
 /** The sections of the developer portal. Mirrors the sidebar nav. */
-export type IdpNavKey = 'home' | 'catalog' | 'collections' | 'roles' | 'users' | 'create' | 'environments' | 'deployments' | 'usage';
+export type IdpNavKey =
+	'home' | 'catalog' | 'collections' | 'roles' | 'users' | 'create' | 'environments' | 'deployments' | 'usage' | 'policies' | 'audit';
 
 export interface IdpBreadcrumb {
 	label: string;
@@ -42,6 +58,8 @@ const IDP_NAV: Array<{ key: IdpNavKey; title: string; url: string; icon: LucideI
 	{ key: 'environments', title: 'Environments', url: '/idp/environments', icon: Server },
 	{ key: 'deployments', title: 'Deployments', url: '/idp/deployments', icon: GitBranch },
 	{ key: 'usage', title: 'Usage', url: '/idp/usage', icon: BarChart3 },
+	{ key: 'policies', title: 'Policies', url: '/idp/policies', icon: Gauge },
+	{ key: 'audit', title: 'Audit', url: '/idp/audit', icon: ScrollText },
 ];
 
 /** Small number + label stat used by the overview and usage pages. */

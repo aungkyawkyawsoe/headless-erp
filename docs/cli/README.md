@@ -61,7 +61,8 @@ backend (`POST /api/modules`). The client app sidebar dock is **DB-driven** — 
 reads `GET /api/modules`, so a scaffolded module appears there without editing
 any barrel file.
 
-**Credentials (local dev):** `dev@mmbics.com` / `dev-password-for-local-only`
+**Credentials (local dev):** the email + password in `apps/api/.dev.vars` (set by
+`headless init`; factory default `dev@mmbics.com` / `dev-password-for-local-only`).
 
 **Project env auto-load:** the CLI reads `.env.local` (then `.env`) from the project
 root on every command — `headless init` writes `MMBIX_ADMIN_EMAIL` /

@@ -5,7 +5,7 @@
 	 * Source of truth: infra/env.prod → scripts/gen-wrangler.mjs (pnpm gen:infra).
 	 * CI drift gate: pnpm check:infra
 	 */
-	"name": "mff-sys-api",
+	"name": "headless-erp-api",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-07-31",
 	"compatibility_flags": ["nodejs_compat"],
@@ -24,9 +24,9 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "mff-sys-db",
-			// Production D1 — created via `npx wrangler d1 create mff-sys-db`.
-			"database_id": "8d19c262-aac5-42f0-a124-6283d460b054",
+			"database_name": "headless-erp-db",
+			// Production D1 — created via `npx wrangler d1 create headless-erp-db`.
+			"database_id": "00000000-0000-0000-0000-000000000000",
 			// NO preview_database_id — preview/`--remote` must never touch the prod
 			// database. Set D1_PREVIEW_ID in infra/env.prod to point at a scratch D1.
 		},
@@ -34,7 +34,7 @@
 	"r2_buckets": [
 		{
 			"binding": "BUCKET",
-			"bucket_name": "mff-sys-media",
+			"bucket_name": "headless-erp-media",
 		},
 	],
 	/**
@@ -82,24 +82,24 @@
 		"producers": [
 			{
 				"binding": "WEBHOOK_QUEUE",
-				"queue": "mff-sys-webhook-delivery",
+				"queue": "headless-erp-webhook-delivery",
 			},
 			{
 				"binding": "EVENTS",
-				"queue": "mff-sys-events",
+				"queue": "headless-erp-events",
 			},
 		],
 		"consumers": [
 			{
-				"queue": "mff-sys-webhook-delivery",
+				"queue": "headless-erp-webhook-delivery",
 				"max_retries": 3,
-				"dead_letter_queue": "mff-sys-webhook-dlq",
+				"dead_letter_queue": "headless-erp-webhook-dlq",
 				"retry_delay": 30,
 			},
 			{
-				"queue": "mff-sys-events",
+				"queue": "headless-erp-events",
 				"max_retries": 5,
-				"dead_letter_queue": "mff-sys-events-dlq",
+				"dead_letter_queue": "headless-erp-events-dlq",
 				"retry_delay": 30,
 			},
 		],
@@ -111,7 +111,7 @@
 	"analytics_engine_datasets": [
 		{
 			"binding": "ANALYTICS",
-			"dataset": "mff_sys_api_requests",
+			"dataset": "headless_erp_api_requests",
 		},
 	],
 	/**
@@ -139,7 +139,7 @@
 		 * Bootstrap admin username (config, not a secret). The password is set via
 		 * `wrangler secret put ADMIN_PASSWORD` — never in vars.
 		 */
-		"ADMIN_USERNAME": "dev@mmbics.com",
+		"ADMIN_USERNAME": "akm@mmbix.com",
 		/**
 		 * Table prefix + business modules served by this worker.
 		 * DOMAIN_MODULES default when unset: 'idp'; 'none' = pure factory.
@@ -167,11 +167,11 @@
 		// via `wrangler secret put R2_SQL_TOKEN`. R2_ACCOUNT_ID overrides autodetect.
 		"ENABLE_R2_LAKE": "true",
 		"R2_ACCOUNT_ID": "4893d057edb60776ec8bf60c69e29586",
-		"R2_BUCKET": "mff-sys-media",
+		"R2_BUCKET": "headless-erp-media",
 		// Queue-name contract for the worker queue() dispatch (src/index.ts) —
 		// generated from the same env value as the EVENTS binding, so the runtime
 		// comparison `batch.queue === EVENT_QUEUE_NAME` can never drift.
-		"EVENT_QUEUE_NAME": "mff-sys-events",
+		"EVENT_QUEUE_NAME": "headless-erp-events",
 	},
 	"observability": {
 		"enabled": true,

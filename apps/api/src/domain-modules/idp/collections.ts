@@ -106,4 +106,20 @@ export const IDP_COLLECTIONS: IdpCollectionDef[] = [
 			{ name: 'created_by_email', type: 'text', label: 'Created By', required: false },
 		],
 	},
+	{
+		name: 'IDP Audit',
+		slug: 'idp_audit',
+		description: 'Append-only trail of every IDP governance action (env/deployment/ownership/template).',
+		// One row per action, written by `IdpService.recordAudit`. Deliberately a
+		// plain collection (not a bespoke table) so it inherits soft-delete,
+		// timestamps, the change envelope and the response cache for free — and so
+		// a read can be gated by `canRead('idp_audit')` like any other collection.
+		fields: [
+			{ name: 'action', type: 'text', label: 'Action', required: true },
+			{ name: 'entity', type: 'text', label: 'Entity', required: true },
+			{ name: 'entity_id', type: 'text', label: 'Entity ID', required: false },
+			{ name: 'actor_email', type: 'text', label: 'Actor', required: false },
+			{ name: 'detail_json', type: 'json', label: 'Detail', required: false },
+		],
+	},
 ];

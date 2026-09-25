@@ -253,6 +253,41 @@ export interface CatalogEntry {
 	owner: string | null;
 	owner_role: string | null;
 	environments: IdpEnvironment[];
+	/** Runtime add-on state merged on by the catalog route (null for a custom module with no manifest). */
+	registry: {
+		available: boolean;
+		installed: boolean;
+		scope: string;
+		version: string;
+		depends: string[];
+		provides: string[];
+		requires: string[];
+		extends: string[];
+	} | null;
+}
+export interface IdpPolicyRule {
+	id: string;
+	label: string;
+	description: string;
+}
+export interface IdpPolicies {
+	rules: IdpPolicyRule[];
+	modules: Array<{ id: string; slug: string; name: string; status: 'pass' | 'fail'; violations: string[] }>;
+	summary: {
+		total: number;
+		passing: number;
+		failing: number;
+		rules: Array<IdpPolicyRule & { passed: number; total: number; pass_pct: number }>;
+	};
+}
+export interface IdpAuditEntry {
+	id: string;
+	action: string;
+	entity: string;
+	entity_id: string | null;
+	actor_email: string | null;
+	detail_json: string | null;
+	created_at: string;
 }
 export interface IdpScorecard {
 	total: number;
@@ -308,6 +343,14 @@ export async function getIdpCatalog(token: string) {
 }
 export async function getIdpScorecard(token: string) {
 	return api<IdpScorecard>(token, '/api/idp/scorecard');
+}
+/** Policy-as-data scorecard — per-module rule violations. */
+export async function getIdpPolicies(token: string) {
+	return api<IdpPolicies>(token, '/api/idp/policies');
+}
+/** Append-only IDP governance audit trail (newest first). */
+export async function getIdpAudit(token: string, limit = 100) {
+	return api<IdpAuditEntry[]>(token, `/api/idp/audit?limit=${limit}`);
 }
 export async function listIdpTemplates(token: string) {
 	return api<IdpTemplate[]>(token, '/api/idp/templates');

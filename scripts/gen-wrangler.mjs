@@ -408,12 +408,19 @@ function renderStudioProd(e) {
 	lines.push(t(3, `"service": "${e.WORKER_API}",`));
 	lines.push(t(2, '},'));
 	lines.push(t(1, '],'));
-	lines.push(t(1, '"routes": ['));
-	lines.push(t(2, '{'));
-	lines.push(t(3, `"pattern": "${e.STUDIO_DOMAIN}",`));
-	lines.push(t(3, '"custom_domain": true,'));
-	lines.push(t(2, '},'));
-	lines.push(t(1, '],'));
+	// Custom domain is OPTIONAL: a freshly initialized project has none (it is
+	// reached at <WORKER_STUDIO>.workers.dev via `workers_dev`). Emitting an
+	// empty pattern would be an invalid config, and emitting the TEMPLATE
+	// author's domain would hijack it — so the block is omitted entirely when
+	// STUDIO_DOMAIN is blank.
+	if (e.STUDIO_DOMAIN) {
+		lines.push(t(1, '"routes": ['));
+		lines.push(t(2, '{'));
+		lines.push(t(3, `"pattern": "${e.STUDIO_DOMAIN}",`));
+		lines.push(t(3, '"custom_domain": true,'));
+		lines.push(t(2, '},'));
+		lines.push(t(1, '],'));
+	}
 	lines.push(t(0, '}'));
 	return lines.join('\n') + '\n';
 }

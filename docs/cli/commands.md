@@ -298,7 +298,7 @@ headless client destroy acme -y       # non-interactive (CI)
 
 Deletes the client's workers (`acme-cms`, `acme-frontend`), its D1 database and R2 bucket, removes the registry entry and `clients/acme/` folder.
 
-> ⚠️ Client credentials are **generated per client** — login as `dev@mmbics.com` with the password from `clients/<prefix>/.env`. Never reuse the factory dev password for clients.
+> ⚠️ Client credentials are **generated per client** — log in as the deployment's `ADMIN_USERNAME` (factory default `dev@mmbics.com`) with the password from `clients/<prefix>/.env`. Never reuse the factory dev password for clients.
 
 ---
 

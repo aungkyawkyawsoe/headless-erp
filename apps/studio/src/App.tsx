@@ -21,6 +21,8 @@ const IdpCreatePage = lazy(() => import('./pages/IdpCreatePage'));
 const IdpEnvironmentsPage = lazy(() => import('./pages/IdpEnvironmentsPage'));
 const IdpDeploymentsPage = lazy(() => import('./pages/IdpDeploymentsPage'));
 const IdpUsagePage = lazy(() => import('./pages/IdpUsagePage'));
+const IdpPoliciesPage = lazy(() => import('./pages/IdpPoliciesPage'));
+const IdpAuditPage = lazy(() => import('./pages/IdpAuditPage'));
 const IdpAppDetailPage = lazy(() => import('./pages/IdpAppDetailPage'));
 const IdpAccessPage = lazy(() => import('./pages/IdpAccessPage'));
 const IdpUsersPage = lazy(() => import('./pages/IdpUsersPage'));
@@ -115,6 +117,8 @@ function AppInner({ token, user, onLogout }: { token: string; user: { email: str
 								<Route path="/idp/environments" element={<IdpEnvironmentsPage token={token} user={user} />} />
 								<Route path="/idp/deployments" element={<IdpDeploymentsPage token={token} user={user} />} />
 								<Route path="/idp/usage" element={<IdpUsagePage token={token} user={user} />} />
+								<Route path="/idp/policies" element={<IdpPoliciesPage token={token} user={user} />} />
+								<Route path="/idp/audit" element={<IdpAuditPage token={token} user={user} />} />
 								<Route path="/idp/access" element={<IdpAccessPage token={token} user={user} />} />
 								<Route path="/idp/users" element={<IdpUsersPage token={token} user={user} />} />
 								<Route path="/idp/:slug" element={<IdpAppDetailPage token={token} user={user} />} />

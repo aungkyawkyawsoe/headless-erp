@@ -161,7 +161,9 @@ designs collections, pages, menus and views (written to the API / D1), and edits
 users, roles, policies and the IDP portal. It is deployed as its own worker
 (`WORKER_STUDIO`).
 
-**Login (local dev):** `dev@mmbics.com` / `dev-password-for-local-only`
+**Login (local dev):** the email + password you chose at `headless init` — read
+them from `apps/api/.dev.vars` (and `.env.local`). On an un-initialized template
+clone the factory default is `dev@mmbics.com` / `dev-password-for-local-only`.
 
 Local secrets live in `apps/api/.dev.vars` (git-ignored). `headless init` writes
 `ADMIN_USERNAME` / `ADMIN_PASSWORD` / `ADMIN_NAME` / `JWT_SECRET` there for you —
@@ -233,7 +235,7 @@ headless client deploy acme                         # provision + deploy (api)
 
 **Naming convention** (tenant key = prefix): `{prefix}-cms` (API worker) · `{prefix}-cms-db` (D1) · `{prefix}-cms-media` (R2) · tables `{prefix}_*`. A client frontend/app is project-specific and deployed separately.
 
-> 🔑 Client login = `dev@mmbics.com` with the **generated** password in `clients/<prefix>/.env` — never reuse the factory dev password.
+> 🔑 Client login = the deployment's `ADMIN_USERNAME` (factory default `dev@mmbics.com`) with the **generated** password in `clients/<prefix>/.env` — never reuse the factory dev password.
 
 Full reference: [`docs/cli/commands.md`](docs/cli/commands.md)
 
@@ -241,10 +243,10 @@ Full reference: [`docs/cli/commands.md`](docs/cli/commands.md)
 
 ## 🔑 Credentials & Secrets Cheat-Sheet
 
-| Context                   | Email            | Password                                                |
-| ------------------------- | ---------------- | ------------------------------------------------------- |
-| Local dev (`IS_DEV=true`) | `dev@mmbics.com` | `dev-password-for-local-only` (in `apps/api/.dev.vars`) |
-| Cloudflare factory        | `dev@mmbics.com` | `dev-password-for-local-only` (secret)                  |
-| CLI-provisioned client    | `dev@mmbics.com` | generated → `clients/<prefix>/.env`                     |
+| Context                   | Email                                                          | Password                                                                    |
+| ------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Local dev (`IS_DEV=true`) | your `ADMIN_USERNAME` in `apps/api/.dev.vars` (set by init)    | your `ADMIN_PASSWORD` there (factory default `dev-password-for-local-only`) |
+| Cloudflare factory        | deployment `ADMIN_USERNAME` (factory default `dev@mmbics.com`) | `ADMIN_PASSWORD` secret                                                     |
+| CLI-provisioned client    | deployment `ADMIN_USERNAME` (factory default `dev@mmbics.com`) | generated → `clients/<prefix>/.env`                                         |
 
 Secrets are **never** committed: `.dev.vars`, `.env.local`, `clients/**/.env`, and `wrangler.*.jsonc` are git-ignored.

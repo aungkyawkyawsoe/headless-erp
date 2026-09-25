@@ -14,7 +14,7 @@
 	 *
 	 * Regenerate types after changing bindings: `pnpm cf-typegen` (wrangler types).
 	 */
-	"name": "mff-sys-studio",
+	"name": "headless-erp-studio",
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-08-25",
 	"compatibility_flags": ["nodejs_compat"],
@@ -32,9 +32,9 @@
 	"d1_databases": [
 		{
 			"binding": "STUDIO_DB",
-			"database_name": "mff-sys-studio-db",
-			// Studio metadata D1 — created via `npx wrangler d1 create mff-sys-studio-db`.
-			"database_id": "c60ea537-555d-4436-8f6a-60fdb8eb97b3",
+			"database_name": "headless-erp-studio-db",
+			// Studio metadata D1 — created via `npx wrangler d1 create headless-erp-studio-db`.
+			"database_id": "00000000-0000-0000-0000-000000000000",
 			// NO preview_database_id — preview/`--remote` must never touch the prod
 			// Studio database. Set STUDIO_D1_PREVIEW_ID in infra/env.prod to point at a scratch D1.
 		},
@@ -42,13 +42,7 @@
 	"services": [
 		{
 			"binding": "API",
-			"service": "mff-sys-api",
-		},
-	],
-	"routes": [
-		{
-			"pattern": "erp-studio.mfflogistics.com",
-			"custom_domain": true,
+			"service": "headless-erp-api",
 		},
 	],
 }

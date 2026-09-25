@@ -23,8 +23,9 @@ pnpm dev          # API :8788 · admin UI :5173
    filtering, search, pagination, audit, and media. Nothing else to configure.
 
 > Prefer the repo as-is (skip scaffolding)? Follow the steps below directly:
-> `pnpm install` → `npx wrangler dev` → log in as `dev@mmbics.com` /
-> `dev-password-for-local-only` (dev only).
+> `pnpm install` → `npx headless init .` (sets your admin email/password) →
+> `pnpm dev` → log in with the credentials in `apps/api/.dev.vars` (factory
+> default `dev@mmbics.com` / `dev-password-for-local-only`).
 
 ## 1. Install Dependencies
 
