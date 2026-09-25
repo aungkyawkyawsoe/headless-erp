@@ -74,9 +74,9 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		id: 'schema.field.validate',
 		domain: 'schema',
 		class: 'read',
-		summary: 'Validate a field list against the 41-type SSOT.',
-		params: 'fields',
-		available: false,
+		summary: 'Dry-run a field list against the 41-type SSOT (`validate_fields` — the same validator apply uses).',
+		params: 'collection?, fields',
+		available: true,
 	},
 
 	// ── pages (Face) ────────────────────────────────────────
@@ -210,9 +210,10 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		id: 'automation.schedule.define',
 		domain: 'automation',
 		class: 'apply',
-		summary: 'Schedule a job.',
-		params: 'cron, handler',
-		available: false,
+		summary:
+			'Schedule a recurring job (manifest `schedules`). The work is a registered handler — see `list_handlers`; an unknown type is refused.',
+		params: 'name, type, cron|repeat_ms, timezone?, payload?',
+		available: true,
 	},
 
 	// ── analytics ───────────────────────────────────────────
@@ -220,9 +221,10 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		id: 'analytics.report.define',
 		domain: 'analytics',
 		class: 'apply',
-		summary: 'Define a report.',
-		params: 'name, collection, measures',
-		available: false,
+		summary:
+			'Define a saved report (manifest `reports`) — a named on-demand export, materialized by the scheduled-reports route. Aggregates live on `analytics.kpi.define`.',
+		params: 'name, collection, format',
+		available: true,
 	},
 	{
 		id: 'analytics.kpi.define',

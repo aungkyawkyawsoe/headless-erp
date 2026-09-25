@@ -115,6 +115,46 @@ export interface FactoryApiKeySpec {
 	scope?: 'read' | 'write' | 'admin';
 }
 
+/**
+ * A recurring job. The SCHEDULE is data (a `_scheduler_tasks` row); the WORK is
+ * a handler type resolved from the code-side registry (`list_handlers`), so a
+ * manifest can never invent a handler — an unknown type is refused at apply.
+ * The row is armed by the every-10-minute reconcile watchdog, so it still runs
+ * if the DO alarm was lost.
+ */
+export interface FactoryScheduleSpec {
+	name: string;
+	/** Registered handler type, e.g. `query.rollup`, `notify.digest`, `entity.expire`. */
+	type: string;
+	/** 5-field cron (in `timezone`, default UTC) OR a fixed `repeat_ms` interval. */
+	cron?: string;
+	repeat_ms?: number;
+	/** IANA timezone for the cron, e.g. `Asia/Yangon`. Default `UTC`. */
+	timezone?: string;
+	/** Passed to the handler verbatim. */
+	payload?: Record<string, unknown>;
+	/** Per-occurrence retry budget (default 5). */
+	max_attempts?: number;
+}
+
+/**
+ * A SAVED report definition — a named, on-demand export of one collection,
+ * stored in `_report_schedules` and materialized by
+ * `POST /api/scheduled-reports/schedule/:id/generate` (json or csv).
+ *
+ * Deliberately narrow: that route exports the collection as-is, so aggregate /
+ * grouping / filter are NOT offered here (they would be decorative). Aggregated
+ * analytics live on the `kpis` key, which really does materialize values.
+ * Deliberately NO cron either: nothing dispatches that column yet, so promising
+ * delivery would be a lie. Scheduled delivery composes the `schedules` key with
+ * a registered handler instead.
+ */
+export interface FactoryReportSpec {
+	name: string;
+	collection: string;
+	format?: 'json' | 'csv';
+}
+
 export interface FactoryManifest {
 	version: 1;
 	collections?: FactoryCollectionSpec[];
@@ -126,6 +166,8 @@ export interface FactoryManifest {
 	kpis?: FactoryKpiSpec[];
 	serverFunctions?: FactoryServerFunctionSpec[];
 	apiKeys?: FactoryApiKeySpec[];
+	schedules?: FactoryScheduleSpec[];
+	reports?: FactoryReportSpec[];
 }
 
 export type ManifestActionKind = 'create' | 'update' | 'skip';

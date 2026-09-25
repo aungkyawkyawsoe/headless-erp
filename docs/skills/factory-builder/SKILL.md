@@ -78,6 +78,15 @@ let the factory plan + apply it:
 	],
 	"menus": [{ "module": "finance", "label": "Invoices", "type": "action", "target": "supplier_invoice" }],
 	"kpis": [{ "name": "Order Count", "collection": "supplier_invoice", "agg": "count" }],
+	"schedules": [
+		{
+			"name": "nightly-invoice-rollup",
+			"type": "query.rollup",
+			"cron": "0 3 * * *",
+			"payload": { "collection": "supplier_invoice", "measures": [{ "op": "sum", "field": "amount" }] },
+		},
+	],
+	"reports": [{ "name": "Invoice Register", "collection": "supplier_invoice", "format": "csv" }],
 }
 ```
 
@@ -129,6 +138,9 @@ your code.
 | Server functions (declarative hooks)        | `automation.serverFunction.define` (manifest `serverFunctions`)    |
 | KPIs                                        | `analytics.kpi.define` (manifest `kpis`)                           |
 | Provision an agent key                      | manifest `apiKeys` (plaintext returned once)                       |
+| Run a job nightly                           | manifest `schedules` — `type` MUST come from `list_handlers`       |
+| Publish a standard export                   | manifest `reports` (materialized on demand, no cron yet)           |
+| Dry-run a field list                        | `validate_fields` (the same validator apply uses)                  |
 | Reads                                       | `query`                                                            |
 | Data writes                                 | `mutate` (create/update/delete/import)                             |
 | Audit                                       | `get_audit`                                                        |

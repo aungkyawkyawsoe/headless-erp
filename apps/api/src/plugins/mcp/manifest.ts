@@ -19,7 +19,9 @@ import type {
 	FactoryMenuSpec,
 	FactoryPageSpec,
 	FactoryPermissionSpec,
+	FactoryReportSpec,
 	FactoryRoleSpec,
+	FactoryScheduleSpec,
 	FactoryServerFunctionSpec,
 	FactoryWorkflowSpec,
 	FieldDefinition,
@@ -27,6 +29,8 @@ import type {
 	ManifestPlan,
 } from '@mmbix/types';
 import { DECLARATIVE_TRIGGER_EVENTS } from '@mmbix/types';
+import { hasHandler, isValidCron, isValidTimeZone, registerBuiltinHandlers, SchedulerService } from '@mmbix/scheduler';
+import type { SchedulerEnv } from '@mmbix/scheduler';
 import type { AuthContext } from '@/lib/services/auth.service';
 import { AuthService } from '@/lib/services/auth.service';
 import { CollectionService } from '@/lib/services/collection.service';
@@ -49,6 +53,27 @@ const MAX_MENUS = 100;
 const MAX_KPIS = 100;
 const MAX_SERVER_FUNCTIONS = 100;
 const MAX_API_KEYS = 20;
+const MAX_SCHEDULES = 100;
+const MAX_REPORTS = 100;
+
+/** Bindings a schedule needs to arm its alarm. Omitted → the watchdog arms it. */
+export type ManifestEnv = { DB: D1Database; SCHEDULER?: DurableObjectNamespace };
+
+/**
+ * Deterministic id for a manifest-declared artifact. Replay resolves to the SAME
+ * row (an upsert), so a manifest is idempotent without storing a version.
+ */
+function declaredId(prefix: string, name: string): string {
+	const slug = name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 60);
+	return `${prefix}${slug || 'item'}`;
+}
+
+/** The report table's `cron` is NOT NULL but nothing dispatches it — see the spec. */
+const REPORT_CRON_SENTINEL = 'on-demand';
 
 export interface ManifestValidation {
 	manifest: FactoryManifest | null;
@@ -82,6 +107,39 @@ function fieldDefinitionOf(f: FactoryFieldSpec): FieldDefinition {
 	};
 }
 
+/**
+ * Normalize an untrusted field list against the field-type SSOT. The ONE
+ * validator: `validate_manifest` (via collections) and the `validate_fields`
+ * dry-run tool both call it, so the two can never disagree on what a valid
+ * field is. Invalid entries are DROPPED and reported — never invented.
+ */
+export function normalizeFields(owner: string, raw: unknown, warnings: string[], limit = MAX_FIELDS_PER_COLLECTION): FactoryFieldSpec[] {
+	if (!Array.isArray(raw)) {
+		if (raw !== undefined) warnings.push(`${owner}: fields must be an array`);
+		return [];
+	}
+	const fields: FactoryFieldSpec[] = [];
+	for (const rf of raw.slice(0, limit)) {
+		const f = asObject(rf);
+		const name = safeName(f?.name);
+		const type = typeof f?.type === 'string' ? f.type : '';
+		if (!f || !name || !VALID_FIELD_TYPES.has(type)) {
+			warnings.push(`${owner}: dropped field with invalid name/type`);
+			continue;
+		}
+		const related = f.related_collection === undefined ? undefined : (safeName(f.related_collection) ?? undefined);
+		fields.push({
+			name,
+			type: type as FactoryFieldSpec['type'],
+			...(typeof f.required === 'boolean' ? { required: f.required } : {}),
+			...(related ? { related_collection: related } : {}),
+			...(Array.isArray(f.options) ? { options: f.options.filter((x): x is string => typeof x === 'string') } : {}),
+			...(f.unique === true ? { unique: true } : {}),
+		});
+	}
+	return fields;
+}
+
 /** Validate + normalize an untrusted manifest. Invalid entries are dropped + warned. */
 export function validateManifest(input: unknown): ManifestValidation {
 	const warnings: string[] = [];
@@ -99,32 +157,67 @@ export function validateManifest(input: unknown): ManifestValidation {
 				warnings.push('Dropped a collection with an invalid slug');
 				continue;
 			}
-			const rawFields = Array.isArray(c.fields) ? c.fields.slice(0, MAX_FIELDS_PER_COLLECTION) : [];
-			const fields: FactoryFieldSpec[] = [];
-			for (const rf of rawFields) {
-				const f = asObject(rf);
-				const name = safeName(f?.name);
-				const type = typeof f?.type === 'string' ? f.type : '';
-				if (!f || !name || !VALID_FIELD_TYPES.has(type)) {
-					warnings.push(`collection "${slug}": dropped field with invalid name/type`);
-					continue;
-				}
-				const related = f.related_collection === undefined ? undefined : (safeName(f.related_collection) ?? undefined);
-				fields.push({
-					name,
-					type: type as FactoryFieldSpec['type'],
-					...(typeof f.required === 'boolean' ? { required: f.required } : {}),
-					...(related ? { related_collection: related } : {}),
-					...(Array.isArray(f.options) ? { options: f.options.filter((x): x is string => typeof x === 'string') } : {}),
-					...(f.unique === true ? { unique: true } : {}),
-				});
-			}
 			collections.push({
 				slug,
 				...(typeof c.name === 'string' ? { name: c.name.slice(0, 200) } : {}),
 				...(typeof c.naming_series === 'string' ? { naming_series: c.naming_series.slice(0, 64) } : {}),
-				fields,
+				fields: normalizeFields(`collection "${slug}"`, c.fields, warnings),
 				...(asObject(c.policies) ? { policies: c.policies as Record<string, unknown> } : {}),
+			});
+		}
+	}
+
+	const schedules: FactoryScheduleSpec[] = [];
+	if (o.schedules !== undefined) {
+		if (!Array.isArray(o.schedules)) return { manifest: null, warnings: ['schedules must be an array'] };
+		for (const raw of o.schedules.slice(0, MAX_SCHEDULES)) {
+			const s = asObject(raw);
+			const name = safeName(s?.name);
+			const type = typeof s?.type === 'string' ? s.type.trim() : '';
+			if (!s || !name || !type) {
+				warnings.push('Dropped a schedule with an invalid name/type');
+				continue;
+			}
+			if (s.cron !== undefined && (typeof s.cron !== 'string' || !isValidCron(s.cron))) {
+				warnings.push(`schedule "${name}": dropped — invalid cron ${JSON.stringify(s.cron)}`);
+				continue;
+			}
+			if (s.timezone !== undefined && (typeof s.timezone !== 'string' || !isValidTimeZone(s.timezone))) {
+				warnings.push(`schedule "${name}": dropped — invalid timezone ${JSON.stringify(s.timezone)}`);
+				continue;
+			}
+			const repeatMs = typeof s.repeat_ms === 'number' && Number.isInteger(s.repeat_ms) && s.repeat_ms > 0 ? s.repeat_ms : undefined;
+			if (!s.cron && repeatMs === undefined) {
+				warnings.push(`schedule "${name}": dropped — needs a cron or a positive repeat_ms`);
+				continue;
+			}
+			schedules.push({
+				name,
+				type: type.slice(0, 100),
+				...(typeof s.cron === 'string' ? { cron: s.cron } : {}),
+				...(repeatMs !== undefined ? { repeat_ms: repeatMs } : {}),
+				...(typeof s.timezone === 'string' ? { timezone: s.timezone } : {}),
+				...(asObject(s.payload) ? { payload: s.payload as Record<string, unknown> } : {}),
+				...(typeof s.max_attempts === 'number' ? { max_attempts: s.max_attempts } : {}),
+			});
+		}
+	}
+
+	const reports: FactoryReportSpec[] = [];
+	if (o.reports !== undefined) {
+		if (!Array.isArray(o.reports)) return { manifest: null, warnings: ['reports must be an array'] };
+		for (const raw of o.reports.slice(0, MAX_REPORTS)) {
+			const r = asObject(raw);
+			const name = typeof r?.name === 'string' ? r.name.trim() : '';
+			const collection = safeName(r?.collection);
+			if (!r || !name || !collection) {
+				warnings.push('Dropped a report with an invalid name/collection');
+				continue;
+			}
+			reports.push({
+				name: name.slice(0, 100),
+				collection,
+				...(r.format === 'csv' || r.format === 'json' ? { format: r.format } : {}),
 			});
 		}
 	}
@@ -317,7 +410,7 @@ export function validateManifest(input: unknown): ManifestValidation {
 	}
 
 	return {
-		manifest: { version: 1, collections, pages, roles, permissions, workflows, menus, kpis, serverFunctions, apiKeys },
+		manifest: { version: 1, collections, pages, roles, permissions, workflows, menus, kpis, serverFunctions, apiKeys, schedules, reports },
 		warnings,
 	};
 }
@@ -495,6 +588,33 @@ export async function planManifest(db: D1Client, manifest: FactoryManifest): Pro
 		);
 	}
 
+	// A schedule's WORK is code (the handler registry); its TIMING is data. Seed
+	// the builtins so this is deterministic regardless of plugin load order, then
+	// refuse an unregistered type up front — a typo must not become a task row
+	// that silently never runs.
+	registerBuiltinHandlers();
+	for (const s of manifest.schedules ?? []) {
+		const target = `schedule:${s.name}`;
+		if (!hasHandler(s.type)) {
+			warnings.push(`schedule "${s.name}" skipped: no handler registered for type "${s.type}" (see list_handlers)`);
+			continue;
+		}
+		actions.push({
+			kind: 'update',
+			target,
+			detail: `upsert ${s.type} on ${s.cron ?? `${s.repeat_ms}ms`}${s.timezone ? ` ${s.timezone}` : ''}`,
+		});
+	}
+
+	const existingReportNames = new Set((await safeAll<{ name: string }>(db, 'SELECT name FROM _report_schedules')).map((r) => r.name));
+	for (const r of manifest.reports ?? []) {
+		actions.push(
+			existingReportNames.has(r.name)
+				? { kind: 'update', target: `report:${r.name}`, detail: 'upsert report definition' }
+				: { kind: 'create', target: `report:${r.name}`, detail: `saved ${r.format ?? 'json'} export` },
+		);
+	}
+
 	const summary = { create: 0, update: 0, skip: 0 };
 	for (const a of actions) summary[a.kind]++;
 	return { actions, summary, warnings };
@@ -507,9 +627,17 @@ export interface ManifestApplyResult {
 }
 
 /** Apply a manifest. Idempotent; per-item failures are isolated. */
-export async function applyManifest(db: D1Client, auth: AuthContext, manifest: FactoryManifest): Promise<ManifestApplyResult> {
+export async function applyManifest(
+	db: D1Client,
+	auth: AuthContext,
+	manifest: FactoryManifest,
+	env?: ManifestEnv,
+): Promise<ManifestApplyResult> {
 	// Core tables (e.g. `_pages`, `_entity_schemas`) must exist before a write.
 	await new MigrationRunner(db).runPending();
+	// `arm()` only touches the DO binding, so a missing namespace degrades to the
+	// `*/10` reconcile watchdog rather than failing the write.
+	const schedulerEnv = { DB: env?.DB, SCHEDULER: env?.SCHEDULER } as unknown as SchedulerEnv;
 	const plan = await planManifest(db, manifest);
 	const planByTarget = new Map(plan.actions.map((a) => [a.target, a]));
 	const results: ManifestApplyResult['results'] = [];
@@ -725,6 +853,55 @@ export async function applyManifest(db: D1Client, auth: AuthContext, manifest: F
 			results.push({ target, ok: true, secret: created.key });
 		} catch (err) {
 			results.push({ target, ok: false, error: err instanceof Error ? err.message : 'api key create failed' });
+		}
+	}
+
+	// Recurring jobs — the TIMING is data (a `_scheduler_tasks` row), the WORK is
+	// code (a registered handler, re-checked here so a plan/apply race cannot slip
+	// an unknown type through). The id is derived from the name, so replaying a
+	// manifest re-arms the same row instead of stacking duplicates.
+	const scheduler = new SchedulerService(db);
+	for (const s of manifest.schedules ?? []) {
+		const target = `schedule:${s.name}`;
+		if (!hasHandler(s.type)) {
+			results.push({ target, ok: false, error: `no handler registered for type "${s.type}" — see list_handlers` });
+			continue;
+		}
+		try {
+			await scheduler.schedule(
+				{
+					id: declaredId('mf_', s.name),
+					type: s.type,
+					name: s.name,
+					...(s.cron ? { cron: s.cron } : {}),
+					...(s.repeat_ms ? { repeatMs: s.repeat_ms } : {}),
+					...(s.timezone ? { timezone: s.timezone } : {}),
+					...(s.payload ? { payload: s.payload } : {}),
+					...(s.max_attempts ? { maxAttempts: s.max_attempts } : {}),
+				},
+				schedulerEnv,
+			);
+			results.push({ target, ok: true });
+		} catch (err) {
+			results.push({ target, ok: false, error: err instanceof Error ? err.message : 'schedule upsert failed' });
+		}
+	}
+
+	// Saved report definitions — materialized on demand by the scheduled-reports
+	// route. `cron` holds a sentinel: nothing dispatches that column yet, and an
+	// invalid cron fails closed for any future dispatcher.
+	for (const r of manifest.reports ?? []) {
+		const target = `report:${r.name}`;
+		try {
+			await db.run({
+				sql: `INSERT INTO _report_schedules (id, name, collection_slug, format, cron, group_by, aggregate, filter_json, enabled)
+					VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 1)
+					ON CONFLICT(id) DO UPDATE SET name = excluded.name, collection_slug = excluded.collection_slug, format = excluded.format, cron = excluded.cron`,
+				bindings: [declaredId('mfr_', r.name), r.name, r.collection, r.format ?? 'json', REPORT_CRON_SENTINEL],
+			});
+			results.push({ target, ok: true });
+		} catch (err) {
+			results.push({ target, ok: false, error: err instanceof Error ? err.message : 'report upsert failed' });
 		}
 	}
 

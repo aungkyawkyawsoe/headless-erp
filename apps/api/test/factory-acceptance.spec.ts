@@ -94,6 +94,15 @@ const APP = {
 	kpis: [{ name: 'Acc Order Count', collection: 'acc_purchase_order', agg: 'count' }],
 	serverFunctions: [{ name: 'Acc Stamp', collection: 'acc_purchase_order', trigger_event: 'after_insert' }],
 	apiKeys: [{ name: 'acc-agent-read', user_id: KEY_USER, scope: 'read' }],
+	schedules: [
+		{
+			name: 'acc_nightly_rollup',
+			type: 'query.rollup',
+			cron: '0 3 * * *',
+			payload: { collection: 'acc_purchase_order', measures: [{ op: 'sum', field: 'total' }] },
+		},
+	],
+	reports: [{ name: 'Acc PO Register', collection: 'acc_purchase_order', format: 'csv' }],
 };
 
 interface ApplyResult {
@@ -231,17 +240,24 @@ describe('FACTORY ACCEPTANCE — build an app through the control plane', () => 
 	});
 
 	// ── AUTOMATION ───────────────────────────────────────────
-	it('automation: the workflow and server function were defined', async () => {
+	it('automation: the workflow, server function and nightly schedule were defined', async () => {
 		const flows = await api<Array<{ collection_slug?: string }>>('/api/workflows');
 		expect(JSON.stringify(flows.data ?? [])).toContain('acc_purchase_order');
 		const fns = await api<Array<{ name: string }>>('/api/server-functions');
 		expect((fns.data ?? []).some((f) => f.name === 'Acc Stamp')).toBe(true);
+		// A schedule the operator can see, with its next run already computed.
+		const tasks = await api<Array<{ name?: string; cron?: string; run_at?: string }>>('/api/scheduler/tasks');
+		const rollup = (tasks.data ?? []).find((t) => t.name === 'acc_nightly_rollup');
+		expect(rollup?.cron).toBe('0 3 * * *');
+		expect(new Date(rollup!.run_at!).getTime()).toBeGreaterThan(Date.now());
 	});
 
 	// ── ANALYTICS ────────────────────────────────────────────
-	it('analytics: the KPI was defined', async () => {
+	it('analytics: the KPI and the saved report were defined', async () => {
 		const kpis = await api<Array<{ name: string }>>('/api/kpis');
 		expect((kpis.data ?? []).some((k) => k.name === 'Acc Order Count')).toBe(true);
+		const reports = await api<Array<{ name: string; format: string }>>('/api/scheduled-reports/schedule');
+		expect((reports.data ?? []).some((r) => r.name === 'Acc PO Register' && r.format === 'csv')).toBe(true);
 	});
 
 	// ── OPS ──────────────────────────────────────────────────

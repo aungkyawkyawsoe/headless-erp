@@ -33,7 +33,8 @@ import { promptToDesignDNA } from '@/plugins/generation/prompt-dna';
 import { buildProposal } from '@/plugins/generation/proposal';
 import { GenerationService } from '@/plugins/generation/service';
 import { CAPABILITIES, getCapability, searchCapabilities } from './capabilities';
-import { applyManifest, planManifest, validateManifest } from './manifest';
+import { listHandlers, registerBuiltinHandlers } from '@mmbix/scheduler';
+import { applyManifest, normalizeFields, planManifest, validateManifest, type ManifestEnv } from './manifest';
 import type { CapabilityQuery } from '@mmbix/types';
 
 const PROTOCOL_VERSION = '2025-06-18';
@@ -48,7 +49,14 @@ const GUIDE = [
 	'3. `apply_manifest` { manifest } — the only write (admin + write scope).',
 	'4. `query` { requests:[{collection,params}] } — bounded reads.',
 	'',
-	'Manifest shape: { version:1, collections:[{slug,name?,naming_series?,fields:[{name,type,required?,related_collection?,options?,unique?}],policies?}], pages:[{module?,path,title,blocks?}] }',
+	'Manifest shape: { version:1, collections:[…], pages:[…], roles:[…], permissions:[…], workflows:[…], menus:[…], kpis:[…], serverFunctions:[…], apiKeys:[…], schedules:[…], reports:[…] }',
+	'collection: { slug, name?, naming_series?, fields:[{name,type,required?,related_collection?,options?,unique?}], policies? }',
+	'page: { module?, path, title, blocks? } · permission: { role, collection, can_read?, can_write?, can_create?, can_delete?, can_approve?, can_submit? }',
+	'workflow: { name, collection, initial, states[], transitions[] } · menu: { module, label, type?, target?, icon?, roles? }',
+	'kpi: { name, collection, agg, field?, group_by?, period?, schedule? } · serverFunction: { name, collection, trigger_event, rules? }',
+	'apiKey: { name, user_id, role_id?, scope? } — the plaintext secret is returned ONCE in the result.',
+	'schedule: { name, type, cron?|repeat_ms?, timezone?, payload? } — `type` MUST be a handler from list_handlers.',
+	'report: { name, collection, format? } — a saved export, materialized by POST /api/scheduled-reports/schedule/:id/generate.',
 	'Field types are the 41-type SSOT. Identifiers are sanitized and validated.',
 ].join('\n');
 
@@ -139,6 +147,21 @@ const TOOLS = [
 		inputSchema: { type: 'object', properties: { manifest: { type: 'object' } }, required: ['manifest'], additionalProperties: false },
 	},
 	{
+		name: 'validate_fields',
+		description: 'Dry-run a field list against the field-type SSOT. WRITES NOTHING — same validator apply_manifest uses.',
+		inputSchema: {
+			type: 'object',
+			properties: { collection: { type: 'string' }, fields: { type: 'array' } },
+			required: ['fields'],
+			additionalProperties: false,
+		},
+	},
+	{
+		name: 'list_handlers',
+		description: 'The scheduler handler types a manifest `schedules[]` entry may reference.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+	},
+	{
 		name: 'query',
 		description: 'Bounded multi-collection read. requests[] = { collection, params? }.',
 		inputSchema: {
@@ -197,6 +220,8 @@ const TOOL_CLASS: Record<string, 'read' | 'write'> = {
 	describe_capability: 'read',
 	plan_manifest: 'read',
 	apply_manifest: 'write',
+	validate_fields: 'read',
+	list_handlers: 'read',
 	query: 'read',
 	get_audit: 'read',
 	mutate: 'write',
@@ -311,9 +336,21 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 			plan.warnings.unshift(...warnings);
 			return plan;
 		}
-		const applied = await applyManifest(db, auth!, manifest);
+		const applied = await applyManifest(db, auth!, manifest, c.env as unknown as ManifestEnv);
 		applied.plan.warnings.unshift(...warnings);
 		return applied;
+	}
+	if (name === 'validate_fields') {
+		// The SAME validator apply_manifest runs — a dry run can never disagree
+		// with the real thing, because there is only one implementation.
+		const warnings: string[] = [];
+		const collection = typeof args.collection === 'string' ? args.collection : 'fields';
+		const fields = normalizeFields(`collection "${collection}"`, args.fields, warnings);
+		return { collection, valid: fields, warnings, count: fields.length };
+	}
+	if (name === 'list_handlers') {
+		registerBuiltinHandlers();
+		return { handlers: listHandlers() };
 	}
 	if (name === 'query') {
 		const requests = Array.isArray(args.requests) ? args.requests.slice(0, 12) : [];

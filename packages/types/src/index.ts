@@ -159,6 +159,8 @@ export type {
 	FactoryKpiSpec,
 	FactoryServerFunctionSpec,
 	FactoryApiKeySpec,
+	FactoryScheduleSpec,
+	FactoryReportSpec,
 	FactoryManifest,
 	ManifestActionKind,
 	ManifestAction,
