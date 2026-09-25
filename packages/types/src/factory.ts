@@ -129,6 +129,12 @@ export interface FactoryScheduleSpec {
 	/** 5-field cron (in `timezone`, default UTC) OR a fixed `repeat_ms` interval. */
 	cron?: string;
 	repeat_ms?: number;
+	/**
+	 * One-shot: run once, immediately, then done. Mutually exclusive with
+	 * `cron`/`repeat_ms`, and NOT re-armed on replay — a retryable write would
+	 * fire the job a second time, so a replay of a spent trigger is skipped.
+	 */
+	run_now?: boolean;
 	/** IANA timezone for the cron, e.g. `Asia/Yangon`. Default `UTC`. */
 	timezone?: string;
 	/** Passed to the handler verbatim. */

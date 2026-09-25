@@ -110,6 +110,12 @@ an existing module. Per-item failures are isolated — one bad entry never abort
   must be a handler from `list_handlers` (`query.rollup`, `aggregate.delta`, `notify.digest`, `entity.transition`,
   `entity.expire`, `http.request`, `escalation.ladder`, `lake.export`, …). An unregistered type is refused by
   the plan **and** by apply, and writes no row — a typo must never become a task that silently never runs.
+  `cron`/`repeat_ms` (recurring) and `run_now` (once, immediately) are mutually exclusive; a one-shot that
+  already fired is **skipped** on replay, because a retryable write would run the job twice.
+- **Seeing a job** — `get_operations { domain: 'jobs' }` returns each task's status, cadence, next run,
+  `run_count` and `last_error` (payload omitted; it is operator data, not telemetry). The Studio's admin
+  **Operations** tab renders the same list with a Run now / retry affordance. A job that stopped is never
+  silent.
 - **`reports`** stores a named definition in `_report_schedules`, materialized on demand by
   `POST /api/scheduled-reports/schedule/:id/generate` (the declared `format` decides json vs csv). It offers no
   `cron` and no aggregate/grouping: nothing dispatches that column, and the export route returns the collection
@@ -154,5 +160,9 @@ new tool.
 `apps/api/test/mcp-manifest.spec.ts` (discovery, plan-never-writes, idempotent apply, scoped denial) ·
 `apps/api/test/factory-schedule-report.spec.ts` (handler registry, armed schedule, refused handler type,
 dropped cron, saved report materialized on demand, field dry-run) ·
+`apps/api/test/factory-jobs.spec.ts` (a declared job really executes and materializes its rollup, a spent
+one-shot is not re-fired, `run_now`+cron is refused, a broken payload surfaces `last_error`) ·
+`apps/studio/src/components/admin/operations-tab.spec.tsx` (a failed job's error is on screen; Run now
+targets the right id) ·
 `apps/api/test/factory-acceptance.spec.ts` (the end-to-end "can it build an app" contract — 13 checks across
 every capability domain).

@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Badge } from '@mmbix/design-system';
-import { Activity } from 'lucide-react';
-import { operationsQuery } from '../../lib/queries';
-import { listGenerationProposals } from '../../lib/api';
+import { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Badge, Button } from '@mmbix/design-system';
+import { Activity, Play } from 'lucide-react';
+import { operationsQuery, schedulerTasksQuery } from '../../lib/queries';
+import { listGenerationProposals, runSchedulerTask, type SchedulerTaskRow } from '../../lib/api';
+import { qk } from '../../lib/query-keys';
 
 /* ── Operations tab — the engine's self-tuning telemetry (admin) ──
  *
@@ -33,6 +34,7 @@ export function OperationsTab({ token }: { token: string }) {
 
 	return (
 		<div style={{ padding: '0.5rem 0.75rem' }}>
+			<SchedulerJobs token={token} />
 			<p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: '0 0 0.6rem' }}>
 				<Activity size={12} /> Self-tuning index advisor — the composite indexes the engine created (or proposes) and the hot filter shapes
 				it observes. Read-only telemetry.
@@ -120,5 +122,104 @@ export function OperationsTab({ token }: { token: string }) {
 				</>
 			)}
 		</div>
+	);
+}
+
+/* ── Declared jobs — the visibility half of the scheduler ──
+ *
+ * A job that stops is invisible unless someone can see it. This lists what the
+ * factory declared, when it next runs, and — the point of the table — its
+ * `last_error`, so a broken job is obvious instead of silently absent. Rendered
+ * independently of the index advisor above: one failing query must not hide the
+ * other. `retry:false` means a deployment with the scheduler plugin off shows
+ * nothing rather than an error. */
+
+const STATUS_TINT: Record<string, string> = {
+	pending: '#2563eb',
+	running: '#7c3aed',
+	done: '#059669',
+	failed: '#dc2626',
+	cancelled: '#6b7280',
+};
+
+function when(iso: string | null | undefined): string {
+	if (!iso) return '—';
+	const ms = Date.parse(iso);
+	return Number.isNaN(ms) ? '—' : new Date(ms).toISOString().replace('T', ' ').slice(0, 16);
+}
+
+function SchedulerJobs({ token }: { token: string }) {
+	const qc = useQueryClient();
+	const jobsQ = useQuery(schedulerTasksQuery(token));
+	const jobs = jobsQ.data ?? [];
+	const [busy, setBusy] = useState<string | null>(null);
+	const [failure, setFailure] = useState<string | null>(null);
+
+	async function runNow(task: SchedulerTaskRow) {
+		setBusy(task.id);
+		setFailure(null);
+		try {
+			// The api helper throws on a non-2xx envelope, so the catch IS the
+			// error path — a failed run must never look like a successful one.
+			await runSchedulerTask(token, task.id);
+		} catch (err) {
+			setFailure(err instanceof Error ? err.message : 'run failed');
+		} finally {
+			setBusy(null);
+			// The task row changed (status, run_count, last_result) — re-read it.
+			await qc.invalidateQueries({ queryKey: qk.schedulerTasks() });
+		}
+	}
+
+	return (
+		<section style={{ marginBottom: '1rem' }}>
+			<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', margin: '0 0 0.3rem' }}>Declared jobs</h4>
+			{failure && (
+				<p role="alert" style={{ fontSize: '0.72rem', color: '#dc2626' }}>
+					{failure}
+				</p>
+			)}
+			{jobsQ.isLoading ? (
+				<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Loading jobs…</p>
+			) : jobs.length === 0 ? (
+				<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>No jobs declared. A manifest `schedules` entry creates one.</p>
+			) : (
+				<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem' }}>
+					<thead>
+						<tr>
+							<th style={th}>Job</th>
+							<th style={th}>Status</th>
+							<th style={th}>Cadence</th>
+							<th style={th}>Next run</th>
+							<th style={th}>Runs</th>
+							<th style={th}>Last result / error</th>
+							<th style={th} />
+						</tr>
+					</thead>
+					<tbody>
+						{jobs.map((t) => (
+							<tr key={t.id} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
+								<td style={td}>
+									<div>{t.name ?? t.id}</div>
+									<div style={{ ...td, ...mono, color: '#9ca3af' }}>{t.type}</div>
+								</td>
+								<td style={td}>
+									<Badge style={{ background: STATUS_TINT[t.status] ?? '#6b7280', color: '#fff' }}>{t.status}</Badge>
+								</td>
+								<td style={{ ...td, ...mono }}>{t.cron ?? (t.repeat_ms ? `${Math.round(t.repeat_ms / 1000)}s` : 'once')}</td>
+								<td style={td}>{when(t.run_at)}</td>
+								<td style={td}>{t.run_count}</td>
+								<td style={{ ...td, color: t.last_error ? '#dc2626' : '#6b7280' }}>{t.last_error ?? (t.last_result ? 'ok' : '—')}</td>
+								<td style={td}>
+									<Button size="sm" variant="outline" disabled={busy === t.id} onClick={() => void runNow(t)}>
+										<Play size={11} /> {busy === t.id ? 'Running…' : 'Run now'}
+									</Button>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
+		</section>
 	);
 }

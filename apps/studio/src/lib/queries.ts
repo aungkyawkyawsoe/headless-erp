@@ -205,6 +205,16 @@ export const operationsQuery = (token: string) =>
 		enabled: live(token),
 	});
 
+/** Declared jobs + health (admin). `retry:false` so a deployment with the
+ *  scheduler plugin disabled shows nothing instead of a spurious error. */
+export const schedulerTasksQuery = (token: string) =>
+	queryOptions({
+		queryKey: qk.schedulerTasks(),
+		queryFn: () => api.listSchedulerTasks(token),
+		enabled: live(token),
+		retry: false,
+	});
+
 export const moduleQuery = (token: string, slug: string | null | undefined) =>
 	queryOptions({
 		queryKey: qk.module(slug ?? ''),

@@ -70,6 +70,8 @@ export const qk = {
 	addons: () => [...qk.all, 'addons'] as const,
 	/** Self-tuning index-advisor telemetry (`/api/operations`). */
 	operations: () => [...qk.all, 'operations'] as const,
+	/** Declared jobs + their health (scheduler tasks). */
+	schedulerTasks: () => [...qk.all, 'scheduler-tasks'] as const,
 	module: (slug: string) => [...qk.all, 'module', slug] as const,
 	pages: () => [...qk.all, 'pages'] as const,
 	menus: (slug: string) => [...qk.all, 'menus', slug] as const,

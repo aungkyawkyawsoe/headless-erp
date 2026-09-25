@@ -181,6 +181,30 @@ export interface IndexAdvisorReport {
 export async function getOperations(token: string) {
 	return api<IndexAdvisorReport>(token, '/api/operations/index-advisor');
 }
+
+/** A declared job. `last_error` is the field that makes a silent stoppage visible. */
+export interface SchedulerTaskRow {
+	id: string;
+	name: string | null;
+	type: string;
+	status: string;
+	cron: string | null;
+	repeat_ms?: number | null;
+	run_at: string;
+	run_count: number;
+	attempts: number;
+	last_run_at: string | null;
+	last_error: string | null;
+	last_result: string | null;
+}
+export async function listSchedulerTasks(token: string) {
+	return api<SchedulerTaskRow[]>(token, '/api/scheduler/tasks');
+}
+export async function runSchedulerTask(token: string, id: string) {
+	return api<{ status: string; error?: string }>(token, `/api/scheduler/tasks/${encodeURIComponent(id)}/run`, {
+		method: 'POST',
+	});
+}
 export async function installAddon(token: string, id: string) {
 	return api<AddonCatalogResponse>(token, `/api/addons/${encodeURIComponent(id)}/install`, { method: 'POST' });
 }

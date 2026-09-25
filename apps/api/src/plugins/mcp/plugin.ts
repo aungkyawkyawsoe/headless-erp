@@ -194,8 +194,8 @@ const TOOLS = [
 	},
 	{
 		name: 'get_operations',
-		description: 'Index-advisor telemetry (mode, created/proposed indexes, hot filter shapes). Read-only.',
-		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		description: 'Engine telemetry: index advisor (default) or declared jobs with their last result/error. Read-only.',
+		inputSchema: { type: 'object', properties: { domain: { type: 'string', enum: ['indexes', 'jobs'] } }, additionalProperties: false },
 	},
 	{
 		name: 'run_integrity',
@@ -233,6 +233,34 @@ export function mcpScopeAllows(scope: string | null | undefined, tool: string): 
 	if (TOOL_CLASS[tool] !== 'write') return true;
 	if (scope === undefined || scope === null || scope === '') return true;
 	return scope === 'write' || scope === 'admin';
+}
+
+/**
+ * Declared jobs + their health. Bounded and ordered, and `payload_json` is NOT
+ * returned (it can be large and is operator data, not telemetry). `last_error` is
+ * included on purpose: a job that silently stopped is the failure mode this exists
+ * to make visible.
+ */
+async function safeTaskList(db: D1Client): Promise<
+	Array<{
+		id: string;
+		name: string | null;
+		type: string;
+		status: string;
+		cron: string | null;
+		run_at: string;
+		run_count: number;
+		attempts: number;
+		last_run_at: string | null;
+		last_error: string | null;
+		last_result: string | null;
+	}>
+> {
+	return db.all({
+		sql: `SELECT id, name, type, status, cron, run_at, run_count, attempts, last_run_at, last_error, last_result
+			FROM _scheduler_tasks ORDER BY COALESCE(run_at, created_at) ASC LIMIT 100`,
+		bindings: [],
+	});
 }
 
 function rpcResult(id: JsonRpcRequest['id'], result: unknown) {
@@ -456,7 +484,13 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 		return { results };
 	}
 	if (name === 'get_operations') {
-		return getIndexAdvisor().report();
+		// One telemetry verb, selected by domain — the control plane stays small
+		// while an agent can still see what the jobs it declared are doing.
+		if (args.domain === 'jobs') {
+			const tasks = await safeTaskList(db);
+			return { domain: 'jobs', tasks };
+		}
+		return { domain: 'indexes', ...getIndexAdvisor().report() };
 	}
 	if (name === 'run_integrity') {
 		const slug = String(args.slug ?? '');

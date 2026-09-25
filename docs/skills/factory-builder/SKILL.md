@@ -139,6 +139,8 @@ your code.
 | KPIs                                        | `analytics.kpi.define` (manifest `kpis`)                           |
 | Provision an agent key                      | manifest `apiKeys` (plaintext returned once)                       |
 | Run a job nightly                           | manifest `schedules` — `type` MUST come from `list_handlers`       |
+| Run a job once, right now                   | manifest `schedules` with `run_now: true` (no cron)                |
+| Check whether a job is failing              | `get_operations { domain: 'jobs' }` → `last_error`                 |
 | Publish a standard export                   | manifest `reports` (materialized on demand, no cron yet)           |
 | Dry-run a field list                        | `validate_fields` (the same validator apply uses)                  |
 | Reads                                       | `query`                                                            |

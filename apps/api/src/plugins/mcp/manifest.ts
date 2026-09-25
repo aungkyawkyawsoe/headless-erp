@@ -187,8 +187,14 @@ export function validateManifest(input: unknown): ManifestValidation {
 				continue;
 			}
 			const repeatMs = typeof s.repeat_ms === 'number' && Number.isInteger(s.repeat_ms) && s.repeat_ms > 0 ? s.repeat_ms : undefined;
-			if (!s.cron && repeatMs === undefined) {
-				warnings.push(`schedule "${name}": dropped — needs a cron or a positive repeat_ms`);
+			// One-shot vs recurring are MECE: a trigger cannot be both.
+			const runNow = s.run_now === true;
+			if (runNow && (s.cron !== undefined || repeatMs !== undefined)) {
+				warnings.push(`schedule "${name}": dropped — run_now is one-shot and cannot take a cron/repeat_ms`);
+				continue;
+			}
+			if (!s.cron && repeatMs === undefined && !runNow) {
+				warnings.push(`schedule "${name}": dropped — needs a cron, a positive repeat_ms, or run_now`);
 				continue;
 			}
 			schedules.push({
@@ -196,6 +202,7 @@ export function validateManifest(input: unknown): ManifestValidation {
 				type: type.slice(0, 100),
 				...(typeof s.cron === 'string' ? { cron: s.cron } : {}),
 				...(repeatMs !== undefined ? { repeat_ms: repeatMs } : {}),
+				...(runNow ? { run_now: true } : {}),
 				...(typeof s.timezone === 'string' ? { timezone: s.timezone } : {}),
 				...(asObject(s.payload) ? { payload: s.payload as Record<string, unknown> } : {}),
 				...(typeof s.max_attempts === 'number' ? { max_attempts: s.max_attempts } : {}),
@@ -593,16 +600,25 @@ export async function planManifest(db: D1Client, manifest: FactoryManifest): Pro
 	// refuse an unregistered type up front — a typo must not become a task row
 	// that silently never runs.
 	registerBuiltinHandlers();
+	const existingTaskIds = new Set((await safeAll<{ id: string }>(db, 'SELECT id FROM _scheduler_tasks')).map((t) => t.id));
 	for (const s of manifest.schedules ?? []) {
 		const target = `schedule:${s.name}`;
 		if (!hasHandler(s.type)) {
 			warnings.push(`schedule "${s.name}" skipped: no handler registered for type "${s.type}" (see list_handlers)`);
 			continue;
 		}
+		// A one-shot trigger that already exists has fired: re-arming it on replay
+		// would run the job a second time, which a manifest replay must never do.
+		if (s.run_now && existingTaskIds.has(declaredId('mf_', s.name))) {
+			actions.push({ kind: 'skip', target, detail: 'one-shot already triggered' });
+			continue;
+		}
 		actions.push({
 			kind: 'update',
 			target,
-			detail: `upsert ${s.type} on ${s.cron ?? `${s.repeat_ms}ms`}${s.timezone ? ` ${s.timezone}` : ''}`,
+			detail: s.run_now
+				? `run ${s.type} now, once`
+				: `upsert ${s.type} on ${s.cron ?? `${s.repeat_ms}ms`}${s.timezone ? ` ${s.timezone}` : ''}`,
 		});
 	}
 
@@ -863,6 +879,10 @@ export async function applyManifest(
 	const scheduler = new SchedulerService(db);
 	for (const s of manifest.schedules ?? []) {
 		const target = `schedule:${s.name}`;
+		if (planByTarget.get(target)?.kind === 'skip') {
+			results.push({ target, ok: true });
+			continue;
+		}
 		if (!hasHandler(s.type)) {
 			results.push({ target, ok: false, error: `no handler registered for type "${s.type}" — see list_handlers` });
 			continue;
@@ -875,6 +895,7 @@ export async function applyManifest(
 					name: s.name,
 					...(s.cron ? { cron: s.cron } : {}),
 					...(s.repeat_ms ? { repeatMs: s.repeat_ms } : {}),
+					...(s.run_now ? { delayMs: 0 } : {}),
 					...(s.timezone ? { timezone: s.timezone } : {}),
 					...(s.payload ? { payload: s.payload } : {}),
 					...(s.max_attempts ? { maxAttempts: s.max_attempts } : {}),
