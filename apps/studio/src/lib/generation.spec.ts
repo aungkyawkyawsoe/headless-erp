@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { confidenceTone, nextGenerationActions, summarizeProposal } from './generation';
+import { blockTypeSummary, confidenceTone, nextGenerationActions, summarizeProposal } from './generation';
 import type { SchemaProposal } from '@mmbix/types';
 
 describe('nextGenerationActions', () => {
@@ -42,6 +42,51 @@ describe('summarizeProposal', () => {
 			relations: [{ from: 'x', to: 'y', cardinality: 'many', confidence: 2, reason: 'declared relation' }],
 			warnings: [{ code: 'w', message: 'm' }],
 		};
-		expect(summarizeProposal(proposal)).toEqual({ fields: 3, declared: 1, rules: 1, heuristic: 1, relations: 1, warnings: 1 });
+		expect(summarizeProposal(proposal)).toEqual({
+			fields: 3,
+			declared: 1,
+			rules: 1,
+			heuristic: 1,
+			relations: 1,
+			warnings: 1,
+			pages: 0,
+			blocks: 0,
+		});
+	});
+
+	it('counts the proposed UI (pages + blocks) when the design implied a screen', () => {
+		const proposal: SchemaProposal = {
+			collection: {
+				slug: 'po',
+				name: 'PO',
+				fields: [{ name: 'code', type: 'text', required: true, inference: { confidence: 1, reason: 'rule', source: 'rule' } }],
+			},
+			relations: [],
+			warnings: [],
+			pages: [
+				{ path: '/po', title: 'PO', blocks: [{ type: 'entity-form' }, { type: 'table' }] },
+				{ path: '/po-lines', title: 'Lines', blocks: [{ type: 'table' }] },
+			],
+		};
+		const summary = summarizeProposal(proposal);
+		expect(summary.pages).toBe(2);
+		expect(summary.blocks).toBe(3);
+	});
+});
+
+describe('blockTypeSummary', () => {
+	it('lists unique block types, bounded', () => {
+		const proposal = {
+			collection: { slug: 'x', name: 'X', fields: [] },
+			relations: [],
+			warnings: [],
+			pages: [
+				{ path: '/a', title: 'A', blocks: [{ type: 'table' }, { type: 'table' }, { type: 'kpi' }] },
+				{ path: '/b', title: 'B', blocks: [{ type: 'chart' }, { type: 'list' }, { type: 'calendar' }] },
+			],
+		} as unknown as SchemaProposal;
+		expect(blockTypeSummary(proposal)).toBe('table, kpi, chart, list +1');
+		// No pages → empty, so the panel can omit the line entirely.
+		expect(blockTypeSummary({ collection: { slug: 'x', name: 'X', fields: [] }, relations: [], warnings: [] })).toBe('');
 	});
 });

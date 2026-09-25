@@ -9,7 +9,7 @@ import {
 	updateGenerationFields,
 	type GenerationProposalRecord,
 } from '../lib/api';
-import { confidenceTone, nextGenerationActions, summarizeProposal, type GenerationAction } from '../lib/generation';
+import { blockTypeSummary, confidenceTone, nextGenerationActions, summarizeProposal, type GenerationAction } from '../lib/generation';
 
 /**
  * GenerationPanel — the human gate in the Studio.
@@ -24,7 +24,7 @@ const ACTION_LABEL: Record<GenerationAction, string> = {
 	submit: 'Submit for review',
 	approve: 'Approve',
 	reject: 'Reject',
-	apply: 'Apply (create collection)',
+	apply: 'Apply (create app)',
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -140,6 +140,7 @@ export default function GenerationPanel({
 			<div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 				{proposals.map((p) => {
 					const summary = summarizeProposal(p.proposal);
+					const blockTypes = blockTypeSummary(p.proposal);
 					return (
 						<div key={p.id} style={{ border: '1px solid var(--mmbix-border, #e2e8f0)', borderRadius: 8, padding: 10 }}>
 							<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -150,6 +151,9 @@ export default function GenerationPanel({
 								<span style={{ fontSize: 12, opacity: 0.7, marginLeft: 'auto' }}>
 									{summary.fields} fields · {summary.declared} declared / {summary.rules} rules / {summary.heuristic} heuristic
 									{summary.relations > 0 ? ` · ${summary.relations} relations` : ''}
+									{summary.pages > 0
+										? ` · ${summary.pages} page${summary.pages === 1 ? '' : 's'}${blockTypes ? ` (${blockTypes})` : ''}`
+										: ''}
 									{summary.warnings > 0 ? ` · ${summary.warnings} warnings` : ''}
 								</span>
 							</div>
@@ -193,6 +197,15 @@ export default function GenerationPanel({
 									);
 								})}
 							</div>
+							{(p.proposal.pages ?? []).length > 0 && (
+								<div style={{ marginTop: 6, fontSize: 11, opacity: 0.75 }}>
+									{(p.proposal.pages ?? []).map((page) => (
+										<div key={page.path}>
+											{page.path} · {page.blocks.length} block{page.blocks.length === 1 ? '' : 's'}
+										</div>
+									))}
+								</div>
+							)}
 							<div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
 								{nextGenerationActions(p.status, p.require_review).map((action) => (
 									<Button

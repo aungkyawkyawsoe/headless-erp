@@ -180,4 +180,8 @@ screen, so a proposal now carries **pages** as well as fields:
   runs the core migrations, so a fresh database can apply a proposal directly.
 
 `propose_schema` returns `pages` alongside `fields`, so the human gate reviews the
-whole app — schema and UI — before anything is written.
+whole app — schema and UI — before anything is written. The Studio **Generation
+panel** renders the same review: a prompt (or a pasted DesignDNA) → Propose →
+per-field type edit (learned on the next proposal) → Submit → Approve → **Apply
+(create app)**, with each proposed page and its block types shown before it is
+written.
