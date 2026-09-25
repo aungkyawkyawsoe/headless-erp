@@ -128,23 +128,24 @@ your code.
 
 ## Reuse map
 
-| Need                                        | Capability                                                         |
-| ------------------------------------------- | ------------------------------------------------------------------ |
-| Collections / fields                        | `schema.manifest.apply` (existing collections gain missing fields) |
-| Policies (cache, search, writes, integrity) | collection `policies` in the manifest                              |
-| Pages / menus                               | `pages.manifest.apply` · `pages.menu.create` (module must exist)   |
-| Roles / permissions                         | `governance.role.create` · `governance.permission.grant`           |
-| Workflows                                   | `automation.workflow.define`                                       |
-| Server functions (declarative hooks)        | `automation.serverFunction.define` (manifest `serverFunctions`)    |
-| KPIs                                        | `analytics.kpi.define` (manifest `kpis`)                           |
-| Provision an agent key                      | manifest `apiKeys` (plaintext returned once)                       |
-| Run a job nightly                           | manifest `schedules` — `type` MUST come from `list_handlers`       |
-| Run a job once, right now                   | manifest `schedules` with `run_now: true` (no cron)                |
-| Check whether a job is failing              | `get_operations { domain: 'jobs' }` → `last_error`                 |
-| Publish a standard export                   | manifest `reports` (materialized on demand, no cron yet)           |
-| Dry-run a field list                        | `validate_fields` (the same validator apply uses)                  |
-| Reads                                       | `query`                                                            |
-| Data writes                                 | `mutate` (create/update/delete/import)                             |
-| Audit                                       | `get_audit`                                                        |
-| Design → schema proposal                    | `generation.schema.propose`                                        |
-| Gate a proposal                             | `generation.proposal.gate`                                         |
+| Need                                        | Capability                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------- |
+| Collections / fields                        | `schema.manifest.apply` (existing collections gain missing fields)  |
+| Policies (cache, search, writes, integrity) | collection `policies` in the manifest                               |
+| Pages / menus                               | `pages.manifest.apply` · `pages.menu.create` (module must exist)    |
+| Roles / permissions                         | `governance.role.create` · `governance.permission.grant`            |
+| Workflows                                   | `automation.workflow.define`                                        |
+| Server functions (declarative hooks)        | `automation.serverFunction.define` (manifest `serverFunctions`)     |
+| KPIs                                        | `analytics.kpi.define` (manifest `kpis`)                            |
+| Provision an agent key                      | manifest `apiKeys` (plaintext returned once)                        |
+| Run a job nightly                           | manifest `schedules` — `type` MUST come from `list_handlers`        |
+| Run a job once, right now                   | manifest `schedules` with `run_now: true` (no cron)                 |
+| Check whether a job is failing              | `get_operations { domain: 'jobs' }` → `last_error`                  |
+| Publish a standard export                   | manifest `reports` (materialized on demand, no cron yet)            |
+| Dry-run a field list                        | `validate_fields` (the same validator apply uses)                   |
+| Learn how to build a page                   | read `factory://blocks` — each entry has `defaults` + nesting rules |
+| Reads                                       | `query`                                                             |
+| Data writes                                 | `mutate` (create/update/delete/import)                              |
+| Audit                                       | `get_audit`                                                         |
+| Design → schema proposal                    | `generation.schema.propose`                                         |
+| Gate a proposal                             | `generation.proposal.gate`                                          |

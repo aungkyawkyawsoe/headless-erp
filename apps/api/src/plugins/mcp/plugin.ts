@@ -17,7 +17,7 @@
 
 import type { Plugin, PluginRegistration, PluginContext } from '@mmbix/types/worker';
 import { applyOps, type BlockNode, type PatchOp, type FieldDefinition } from '@mmbix/types';
-import { BLOCK_REGISTRY } from '@mmbix/ui-views/block-registry';
+import { blockVocabulary, normalizeBlocks } from '@/lib/services/block-validation';
 import { Hono, type Context } from 'hono';
 import { D1Client, getIndexAdvisor, resolvePolicy } from '@mmbix/core';
 import { requireAuth } from '@/routes/auth';
@@ -58,6 +58,7 @@ const GUIDE = [
 	'schedule: { name, type, cron?|repeat_ms?, timezone?, payload? } — `type` MUST be a handler from list_handlers.',
 	'report: { name, collection, format? } — a saved export, materialized by POST /api/scheduled-reports/schedule/:id/generate.',
 	'Field types are the 41-type SSOT. Identifiers are sanitized and validated.',
+	"Blocks: every `type` MUST come from `factory://blocks` (it carries each block's `defaults` + nesting rules); an unknown block is dropped with a warning, never written.",
 ].join('\n');
 
 interface JsonRpcRequest {
@@ -331,15 +332,20 @@ async function callTool(c: Context, name: string, args: Record<string, unknown>)
 		const page = await pages.getById(pageId);
 		if (!page) throw new Error('Page not found');
 		const tree = applyOps((page.blocks ?? []) as unknown as BlockNode[], ops);
+		// Structure is not enough: a patch can name any `type` string. Validate the
+		// RESULT against the block registry before it is persisted, and report what
+		// was dropped (an unknown block would render as nothing).
+		const warnings: string[] = [];
+		const validated = normalizeBlocks(`page "${page.path}"`, tree, warnings);
 		const saved = await pages.save({
 			module_id: page.module_id,
 			path: page.path,
 			title: page.title,
-			blocks: tree as unknown as PageBlocks[],
+			blocks: validated as unknown as PageBlocks[],
 			globalFilter: page.globalFilter,
 			is_published: page.isPublished,
 		});
-		return { id: saved.id, blocks: saved.blocks };
+		return { id: saved.id, blocks: saved.blocks, ...(warnings.length ? { warnings } : {}) };
 	}
 	if (name === 'search_capabilities') {
 		const query: CapabilityQuery = {};
@@ -574,8 +580,13 @@ export function mcpPlugin(): Plugin {
 							return c.json(rpcResult(body.id, { contents: [{ uri, mimeType: 'text/markdown', text: GUIDE }] }), 200);
 						}
 						if (uri === 'factory://blocks') {
-							const compact = BLOCK_REGISTRY.map((b) => ({ type: b.type, label: b.label, group: b.group }));
-							return c.json(rpcResult(body.id, { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(compact) }] }), 200);
+							// The FULL vocabulary — defaults (how to configure a block) and
+							// nesting rules, not just names. Generated from BLOCK_REGISTRY,
+							// so it cannot drift from what the renderer draws.
+							return c.json(
+								rpcResult(body.id, { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(blockVocabulary()) }] }),
+								200,
+							);
 						}
 						return c.json(rpcError(body.id, -32602, `Unknown resource "${uri}"`), 200);
 					}

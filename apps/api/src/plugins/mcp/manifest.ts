@@ -34,6 +34,7 @@ import type { SchedulerEnv } from '@mmbix/scheduler';
 import type { AuthContext } from '@/lib/services/auth.service';
 import { AuthService } from '@/lib/services/auth.service';
 import { CollectionService } from '@/lib/services/collection.service';
+import { normalizeBlocks } from '@/lib/services/block-validation';
 import { PageService, type PageBlocks } from '@/lib/services/page.service';
 import { ModuleMenuService } from '@/lib/services/module-menu.service';
 import { ApiKeyService, type ApiKeyScope } from '@/lib/services/api-key.service';
@@ -245,7 +246,10 @@ export function validateManifest(input: unknown): ManifestValidation {
 				path: path.slice(0, 200),
 				title: title.slice(0, 200),
 				...(module ? { module } : {}),
-				...(Array.isArray(p.blocks) ? { blocks: (p.blocks as Array<Record<string, unknown>>).slice(0, 200) } : {}),
+				// The block tree goes through the SAME registry-backed validator the
+				// patch path uses, so an unknown block type is reported here (plan)
+				// instead of being written and then rendering as nothing.
+				blocks: normalizeBlocks(`page "${path}"`, p.blocks, warnings) as unknown as Array<Record<string, unknown>>,
 			});
 		}
 	}

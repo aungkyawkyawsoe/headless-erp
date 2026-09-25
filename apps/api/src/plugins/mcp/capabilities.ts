@@ -105,6 +105,14 @@ export const CAPABILITIES: readonly CapabilityDescriptor[] = [
 		available: true,
 	},
 	{
+		id: 'pages.components.registry',
+		domain: 'pages',
+		class: 'read',
+		summary: 'The block vocabulary with defaults + nesting rules (`factory://blocks`) — how to configure a real UI block.',
+		params: '—',
+		available: true,
+	},
+	{
 		id: 'pages.blocks.registry',
 		domain: 'pages',
 		class: 'read',

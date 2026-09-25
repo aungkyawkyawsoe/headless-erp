@@ -35,7 +35,13 @@ ships **15 tools (~1k tokens)** plus on-demand knowledge:
 | `apply_patch`                                 | write     | write/admin | persist structural ops to a page                                        |
 
 Resources: `factory://capabilities` (the registry), `factory://guide` (a short builder guide), `factory://blocks`
-(the page block vocabulary).
+(the page block vocabulary — each entry carries `defaults` and nesting rules, so an agent can _configure_ a block,
+not just name it).
+
+An unknown block `type` is **dropped with a warning** at both write seams (manifest `pages[].blocks` and
+`apply_patch`), because a block the renderer cannot draw would otherwise be persisted and then render as
+nothing — a silent no-op. The vocabulary and the validator are one registry
+(`packages/ui-views/src/block-registry.ts` + `apps/api/src/lib/services/block-validation.ts`).
 
 ## The Manifest (the write primitive)
 
@@ -164,5 +170,7 @@ dropped cron, saved report materialized on demand, field dry-run) ·
 one-shot is not re-fired, `run_now`+cron is refused, a broken payload surfaces `last_error`) ·
 `apps/studio/src/components/admin/operations-tab.spec.tsx` (a failed job's error is on screen; Run now
 targets the right id) ·
+`apps/api/test/factory-ui-blocks.spec.ts` (the vocabulary carries defaults + container flags; an unknown
+block is dropped with a warning on both the manifest and the patch path) ·
 `apps/api/test/factory-acceptance.spec.ts` (the end-to-end "can it build an app" contract — 13 checks across
 every capability domain).
