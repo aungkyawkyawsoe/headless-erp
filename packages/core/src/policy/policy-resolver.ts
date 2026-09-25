@@ -100,6 +100,8 @@ export interface ResolvedPolicy {
 	writes: WritesPolicy;
 	search: SearchPolicy;
 	integrity: IntegrityPolicy;
+	generation: GenerationPolicy;
+	designSource: DesignSourcePolicy;
 	/** Fields stamped with the authenticated employee on create (see PolicyInput). */
 	actorFields: string[];
 	audit: boolean;
@@ -131,6 +133,34 @@ export interface IntegrityPolicy {
 	rules: IntegrityRule[];
 }
 
+/**
+ * Generation policy — may the design→schema generation pipeline run for this
+ * collection, and under what gate?
+ *
+ * Deny-by-default: no AI write path exists until an operator turns it on. The
+ * human gate is `requireReview` (default TRUE) — a proposal is a STATE
+ * (`draft → review → live`), never auto-applied. `maxFieldsPerProposal` bounds
+ * the work per call (Big-O / DoS); `allowLlmFallback` gates the only
+ * non-deterministic step, which is still constrained to the field-type SSOT.
+ */
+export interface GenerationPolicy {
+	enabled: boolean;
+	requireReview: boolean;
+	maxFieldsPerProposal: number;
+	allowLlmFallback: boolean;
+}
+
+/**
+ * Design-source policy — which external/original design source is accepted.
+ * Deny-by-default (`provider: 'none'`): a source must be named explicitly.
+ * `allowedHosts` is the outbound reference allowlist (the agent-side adapter,
+ * not the Worker, is the one that fetches).
+ */
+export interface DesignSourcePolicy {
+	provider: 'none' | 'stitch' | 'figma' | 'manual';
+	allowedHosts: string[];
+}
+
 /** The per-collection shape stored in schema_json.policies (partial, optional). */
 export interface PolicyInput {
 	auto_index?: { enabled?: boolean; mode?: 'auto' | 'propose'; max_dynamic?: number };
@@ -148,6 +178,10 @@ export interface PolicyInput {
 	search?: { mode?: 'contains' | 'prefix'; fields?: string[] };
 	/** Declarative data-quality rules (see IntegrityPolicy). */
 	integrity?: { enabled?: boolean; limit?: number; rules?: IntegrityRule[] };
+	/** Design→schema generation gate (see GenerationPolicy). OFF by default. */
+	generation?: { enabled?: boolean; require_review?: boolean; max_fields_per_proposal?: number; allow_llm_fallback?: boolean };
+	/** Accepted design source (see DesignSourcePolicy). `none` by default. */
+	design_source?: { provider?: 'none' | 'stitch' | 'figma' | 'manual'; allowed_hosts?: string[] };
 	/** Creator-attribution fields forced to the session employee (e.g. `reported_by`). */
 	actor_fields?: string[];
 	audit?: { enabled?: boolean };
@@ -168,6 +202,8 @@ export interface PolicyDefaults {
 	};
 	search: { mode: 'contains' | 'prefix'; fields: string[] };
 	integrity: { enabled: boolean; limit: number; rules: IntegrityRule[] };
+	generation: { enabled: boolean; requireReview: boolean; maxFieldsPerProposal: number; allowLlmFallback: boolean };
+	designSource: { provider: 'none' | 'stitch' | 'figma' | 'manual'; allowedHosts: string[] };
 	actorFields: string[];
 	audit: boolean;
 	hooks: boolean;
@@ -189,6 +225,11 @@ export const DEFAULT_POLICY: PolicyDefaults = {
 	// Integrity checks are OFF until a collection declares rules (declarative
 	// data-quality, never an implicit cost).
 	integrity: { enabled: false, limit: 100, rules: [] },
+	// Generation is OFF: no AI write path exists until an operator turns it on.
+	// Even when on, a proposal is a review STATE, never auto-applied.
+	generation: { enabled: false, requireReview: true, maxFieldsPerProposal: 40, allowLlmFallback: true },
+	// No design source is trusted until one is named explicitly.
+	designSource: { provider: 'none', allowedHosts: [] },
 	// No field is actor-stamped unless the collection declares it.
 	actorFields: [],
 	audit: false,
@@ -249,6 +290,31 @@ export function resolvePolicy(input: PolicyInput | undefined, defaults: PolicyDe
 				? input.integrity.rules.filter((r): r is IntegrityRule => !!r && typeof (r as { type?: unknown }).type === 'string')
 				: defaults.integrity.rules,
 		},
+		generation: {
+			enabled: input?.generation?.enabled ?? defaults.generation.enabled,
+			requireReview: input?.generation?.require_review ?? defaults.generation.requireReview,
+			// Clamp the bound so a proposal can never ask for an unbounded batch.
+			maxFieldsPerProposal:
+				typeof input?.generation?.max_fields_per_proposal === 'number' &&
+				Number.isFinite(input.generation.max_fields_per_proposal) &&
+				input.generation.max_fields_per_proposal > 0
+					? Math.min(Math.floor(input.generation.max_fields_per_proposal), 200)
+					: defaults.generation.maxFieldsPerProposal,
+			allowLlmFallback: input?.generation?.allow_llm_fallback ?? defaults.generation.allowLlmFallback,
+		},
+		designSource: {
+			// Only a known provider is honoured; anything else falls back to `none`.
+			provider:
+				input?.design_source?.provider === 'none' ||
+				input?.design_source?.provider === 'stitch' ||
+				input?.design_source?.provider === 'figma' ||
+				input?.design_source?.provider === 'manual'
+					? input.design_source.provider
+					: defaults.designSource.provider,
+			allowedHosts: Array.isArray(input?.design_source?.allowed_hosts)
+				? input.design_source.allowed_hosts.filter((h): h is string => typeof h === 'string')
+				: defaults.designSource.allowedHosts,
+		},
 		actorFields: Array.isArray(input?.actor_fields)
 			? input.actor_fields.filter((f): f is string => typeof f === 'string')
 			: defaults.actorFields,
@@ -259,5 +325,17 @@ export function resolvePolicy(input: PolicyInput | undefined, defaults: PolicyDe
 
 /** The set of feature names a caller can discover for a collection (headless). */
 export function policyFeatures(): string[] {
-	return ['auto_index', 'cache', 'offline_reads', 'writes', 'search', 'integrity', 'actor_fields', 'audit', 'hooks'];
+	return [
+		'auto_index',
+		'cache',
+		'offline_reads',
+		'writes',
+		'search',
+		'integrity',
+		'generation',
+		'design_source',
+		'actor_fields',
+		'audit',
+		'hooks',
+	];
 }

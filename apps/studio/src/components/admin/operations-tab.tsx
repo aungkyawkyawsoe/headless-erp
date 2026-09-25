@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@mmbix/design-system';
 import { Activity } from 'lucide-react';
 import { operationsQuery } from '../../lib/queries';
+import { listGenerationProposals } from '../../lib/api';
 
 /* ── Operations tab — the engine's self-tuning telemetry (admin) ──
  *
@@ -19,6 +20,16 @@ export function OperationsTab({ token }: { token: string }) {
 	const report = opsQ.data ?? null;
 	const journal = useMemo(() => report?.journal ?? [], [report]);
 	const candidates = useMemo(() => report?.candidates ?? [], [report]);
+
+	// Generation-gate telemetry — how many proposals sit in each review state.
+	// `retry:false` + success-only rendering means a deployment with the
+	// generation plugin disabled shows nothing rather than a spurious error.
+	const genQ = useQuery({ queryKey: ['generation-proposals'], queryFn: () => listGenerationProposals(token), retry: false });
+	const genCounts = useMemo(() => {
+		const counts: Record<string, number> = {};
+		for (const p of genQ.data ?? []) counts[p.status] = (counts[p.status] ?? 0) + 1;
+		return counts;
+	}, [genQ.data]);
 
 	return (
 		<div style={{ padding: '0.5rem 0.75rem' }}>
@@ -86,6 +97,25 @@ export function OperationsTab({ token }: { token: string }) {
 								))}
 							</tbody>
 						</table>
+					)}
+
+					{genQ.isSuccess && (
+						<>
+							<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', margin: '0.9rem 0 0.3rem' }}>Generation gate</h4>
+							{(genQ.data ?? []).length === 0 ? (
+								<p style={{ fontSize: '0.72rem', color: '#9ca3af' }}>No proposals yet.</p>
+							) : (
+								<div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+									{['draft', 'review', 'promoted', 'live', 'rejected']
+										.filter((s) => genCounts[s])
+										.map((s) => (
+											<Badge key={s} variant="outline">
+												{s}: {genCounts[s]}
+											</Badge>
+										))}
+								</div>
+							)}
+						</>
 					)}
 				</>
 			)}

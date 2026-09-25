@@ -70,7 +70,7 @@ export const requireAuth = createMiddleware<AV>(async (c, next) => {
 	if (token.startsWith('mmk_')) {
 		const db = new D1Client(c.env.DB);
 		const keyHash = await sha256Hex(token);
-		const key = await db.first<{ id: string; user_id: string; role_id: string | null; is_active: number }>(
+		const key = await db.first<{ id: string; user_id: string; role_id: string | null; is_active: number; scope: string | null }>(
 			QueryBuilder.from('_api_keys').select('*').where('key_hash', keyHash).toSelect(),
 		);
 		if (!key || key.is_active !== 1) return fail(c, 'Invalid API key', 401);
@@ -91,6 +91,9 @@ export const requireAuth = createMiddleware<AV>(async (c, next) => {
 			role_name: roleName,
 			email: user.email,
 			is_admin: roleName === 'Administrator',
+			// PoLP: a scoped key is limited to its scope; a legacy key (null) keeps
+			// full access so the migration never silently breaks an integration.
+			api_key_scope: key.scope === 'read' || key.scope === 'write' || key.scope === 'admin' ? key.scope : 'admin',
 		} satisfies AuthContext);
 		return next();
 	}

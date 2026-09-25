@@ -51,6 +51,7 @@ import {
 	Plus,
 	Settings,
 	ShieldCheck,
+	Sparkles,
 	Table2,
 	Trash2,
 	Upload,
@@ -93,6 +94,7 @@ import PermissionsPanel from '../components/PermissionsPanel';
 import WorkflowPanel from '../components/WorkflowPanel';
 import AuditPanel from '../components/AuditPanel';
 import PolicyPanel from '../components/PolicyPanel';
+import GenerationPanel from '../components/GenerationPanel';
 import AddFieldDialog from '../components/AddFieldDialog';
 import { PageBuilderProvider, PageCanvas } from '../components/PageBuilder';
 import { FieldTypeIcon } from '../components/formlayout';
@@ -131,6 +133,7 @@ export default function AppDetailPage({ token }: { token: string }) {
 	const [wfOpen, setWfOpen] = useState(false);
 	const [auditOpen, setAuditOpen] = useState(false);
 	const [policyOpen, setPolicyOpen] = useState(false);
+	const [generationOpen, setGenerationOpen] = useState(false);
 	const [importMsg, setImportMsg] = useState<string | null>(null);
 	const importRef = useRef<HTMLInputElement>(null);
 	const [newOpen, setNewOpen] = useState(false);
@@ -1305,6 +1308,14 @@ export default function AppDetailPage({ token }: { token: string }) {
 														<Button size="sm" variant="outline" onClick={() => setPolicyOpen(true)}>
 															<Gauge size={13} /> Policies
 														</Button>
+														<Button
+															size="sm"
+															variant="outline"
+															onClick={() => setGenerationOpen(true)}
+															title="Propose fields from a design (reviewed before anything is written)"
+														>
+															<Sparkles size={13} /> Generate
+														</Button>
 													</div>
 												</div>
 
@@ -1657,6 +1668,25 @@ export default function AppDetailPage({ token }: { token: string }) {
 						</DialogDescription>
 					</DialogHeader>
 					{selected && <PolicyPanel token={token} slug={selected} schema={selectedSchema} />}
+				</DialogContent>
+			</Dialog>
+
+			{/* Governed generation — propose fields from a design, review the visible
+			 * inference, then apply. Nothing is written until Apply. */}
+			<Dialog open={generationOpen} onOpenChange={setGenerationOpen}>
+				<DialogContent style={{ width: 720 }}>
+					<DialogHeader>
+						<DialogTitle>Generate Schema</DialogTitle>
+						<DialogDescription>
+							Propose a collection’s fields from a DesignDNA, review the inference, then apply. Proposals never write until you apply.
+						</DialogDescription>
+					</DialogHeader>
+					<GenerationPanel
+						token={token}
+						defaultName={selectedModel?.name}
+						defaultSlug={selected ?? ''}
+						onApplied={() => queryClient.invalidateQueries()}
+					/>
 				</DialogContent>
 			</Dialog>
 

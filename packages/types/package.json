@@ -9,10 +9,12 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./worker": "./src/worker.ts",
-		"./manifest": "./src/manifest.ts"
+		"./manifest": "./src/manifest.ts",
+		"./dsl": "./src/dsl/index.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@mmbix/utils": "workspace:*"
@@ -20,6 +22,7 @@
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",
 		"hono": "catalog:",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"vitest": "catalog:"
 	}
 }

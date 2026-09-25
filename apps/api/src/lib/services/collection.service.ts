@@ -124,6 +124,11 @@ export class CollectionService {
 		return this.schema.createCollection(input);
 	}
 
+	/** Add fields to an existing collection (declarative evolution via EntityMigrator). */
+	async addCollectionFields(slug: string, fields: FieldDefinition[]): Promise<{ added: string[]; table_name: string }> {
+		return this.schema.addFields(slug, fields);
+	}
+
 	async deleteCollection(slug: string): Promise<void> {
 		return this.schema.deleteCollection(slug);
 	}

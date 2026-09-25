@@ -110,10 +110,39 @@ describe('resolvePolicy', () => {
 			'writes',
 			'search',
 			'integrity',
+			'generation',
+			'design_source',
 			'actor_fields',
 			'audit',
 			'hooks',
 		]);
+	});
+
+	it('leaves generation OFF and review-required by default (deny-by-default)', () => {
+		expect(resolvePolicy(undefined).generation).toEqual({
+			enabled: false,
+			requireReview: true,
+			maxFieldsPerProposal: 40,
+			allowLlmFallback: true,
+		});
+		expect(DEFAULT_POLICY.generation.enabled).toBe(false);
+	});
+
+	it('merges a generation patch and clamps the field bound', () => {
+		const p = resolvePolicy({ generation: { enabled: true, require_review: false, max_fields_per_proposal: 100000 } });
+		expect(p.generation.enabled).toBe(true);
+		expect(p.generation.requireReview).toBe(false);
+		expect(p.generation.maxFieldsPerProposal).toBe(200); // clamped
+	});
+
+	it('trusts no design source by default and only a named provider', () => {
+		expect(resolvePolicy(undefined).designSource).toEqual({ provider: 'none', allowedHosts: [] });
+		expect(resolvePolicy({ design_source: { provider: 'stitch', allowed_hosts: ['stitch.googleapis.com'] } }).designSource).toEqual({
+			provider: 'stitch',
+			allowedHosts: ['stitch.googleapis.com'],
+		});
+		// An unknown provider falls back to `none` rather than trusting it.
+		expect(resolvePolicy({ design_source: { provider: 'evil' as never } }).designSource.provider).toBe('none');
 	});
 
 	it('leaves integrity OFF by default and clamps the rule limit', () => {

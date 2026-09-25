@@ -46,6 +46,8 @@ const POLICY_TOP_LEVEL = new Set([
 	'writes',
 	'search',
 	'integrity',
+	'generation',
+	'design_source',
 	'actor_fields',
 	'audit',
 	'hooks',
@@ -200,6 +202,34 @@ app.put('/', async (c) => {
 			return fail(c, 'actor_fields must be an array of non-empty field names', 400);
 		}
 		merged.actor_fields = actorFields.map((f) => (f as string).trim());
+	}
+	// Generation gate — validate the shape before it can enable an AI write path.
+	const generation = merged.generation as
+		{ enabled?: unknown; require_review?: unknown; max_fields_per_proposal?: unknown; allow_llm_fallback?: unknown } | undefined;
+	if (generation && typeof generation === 'object') {
+		for (const k of ['enabled', 'require_review', 'allow_llm_fallback'] as const) {
+			if (generation[k] !== undefined && typeof generation[k] !== 'boolean') {
+				return fail(c, `generation.${k} must be a boolean`, 400);
+			}
+		}
+		if (generation.max_fields_per_proposal !== undefined) {
+			const n = Number(generation.max_fields_per_proposal);
+			if (!Number.isFinite(n) || n < 1) return fail(c, 'generation.max_fields_per_proposal must be a positive number', 400);
+			generation.max_fields_per_proposal = Math.min(Math.floor(n), 200);
+		}
+	}
+	// Design source — only a known provider, string hosts.
+	const designSource = merged.design_source as { provider?: unknown; allowed_hosts?: unknown } | undefined;
+	if (designSource && typeof designSource === 'object') {
+		if (designSource.provider !== undefined && !['none', 'stitch', 'figma', 'manual'].includes(String(designSource.provider))) {
+			return fail(c, 'design_source.provider must be one of: none, stitch, figma, manual', 400);
+		}
+		if (designSource.allowed_hosts !== undefined) {
+			if (!Array.isArray(designSource.allowed_hosts) || designSource.allowed_hosts.some((h) => typeof h !== 'string' || !h.trim())) {
+				return fail(c, 'design_source.allowed_hosts must be an array of non-empty hostnames', 400);
+			}
+			designSource.allowed_hosts = (designSource.allowed_hosts as string[]).map((h) => h.trim());
+		}
 	}
 	schemaJson.policies = merged;
 	// Policies live inside schema_json, so a policy write IS a schema change —

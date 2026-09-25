@@ -1,0 +1,36 @@
+# AIO Sandbox — local isolated execution for AI agents
+#
+# A single container that gives an agent shell / file / browser / VSCode / Jupyter
+# / MCP, so it can run code in isolation and then call this factory's API or MCP.
+#
+#   docker compose -f sandbox/docker-compose.yml up -d
+#   open http://localhost:8080            (Dashboard)
+#
+# The sandbox reaches the factory dev server (`pnpm dev`, :8788) through
+# `host.docker.internal` — mapped below so it works on Docker Desktop (macOS).
+#
+# Docs: https://github.com/agent-infra/sandbox  ·  https://sandbox.agent-infra.com
+services:
+  aio-sandbox:
+    container_name: aio-sandbox
+    image: ghcr.io/agent-infra/sandbox:latest
+    # Required for the in-container browser automation to work.
+    security_opt:
+      - seccomp:unconfined
+    # Local-only: bind to loopback so the sandbox is never exposed on the LAN.
+    ports:
+      - '127.0.0.1:8080:8080'
+    # Let the sandbox call the factory running on the host (localhost:8788).
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    shm_size: '2gb'
+    restart: 'unless-stopped'
+    environment:
+      # Optional: protect the sandbox API. Empty = open (local dev only).
+      SANDBOX_API_KEY: ${SANDBOX_API_KEY:-}
+      TZ: ${TZ:-Asia/Singapore}
+    volumes:
+      - aio-sandbox-workspace:/home/gem/workspace
+
+volumes:
+  aio-sandbox-workspace:

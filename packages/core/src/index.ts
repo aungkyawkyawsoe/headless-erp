@@ -61,6 +61,9 @@ export {
 } from './entity/computed';
 export type { FormulaResultType, RoundingMode } from './entity/computed';
 
+// ─── v1.8: Deterministic design→schema inference (rules-first, SSOT-closed) ──
+export { inferFieldType, inferFields, inferRelations, snakeName } from './inference/field-inference';
+
 // v0.11: Callable-function introspection (save-time reference validation)
 export { isCallableFunction } from './entity/expression';
 // v0.11: formula dependency resolution (virtual formulas auto-select their sources)

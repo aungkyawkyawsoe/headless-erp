@@ -2,7 +2,7 @@
  * API Keys Routes — /api/api-keys (admin only)
  *
  *   GET    /api/api-keys        — list keys (never the hash/plaintext)
- *   POST   /api/api-keys        — create { name, user_id, role_id? } → plaintext ONCE
+ *   POST   /api/api-keys        — create { name, user_id, role_id?, scope? } → plaintext ONCE
  *   DELETE /api/api-keys/:id    — revoke
  */
 import { Hono, type Context } from 'hono';
@@ -38,7 +38,16 @@ app.post('/', requireAdmin, async (c) => {
 	if (!name) return fail(c, 'name is required', 400);
 	if (!userId) return fail(c, "user_id is required (the key acts on this user's behalf)", 400);
 	const roleId = body?.role_id ? String(body.role_id) : null;
-	const created = await getService(c).create({ name, user_id: userId, role_id: roleId });
+	const scopeRaw = body?.scope === undefined ? 'read' : String(body.scope);
+	if (!['read', 'write', 'admin'].includes(scopeRaw)) {
+		return fail(c, 'scope must be one of: read, write, admin', 400);
+	}
+	const created = await getService(c).create({
+		name,
+		user_id: userId,
+		role_id: roleId,
+		scope: scopeRaw as 'read' | 'write' | 'admin',
+	});
 	return success(c, created, 201);
 });
 

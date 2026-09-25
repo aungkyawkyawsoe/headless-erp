@@ -16,6 +16,7 @@
 | 2 · Run it locally + first curl | [Quickstart](getting-started/quickstart.md)                                                         |
 | 3 · Install & configure         | [Installation](getting-started/installation.md) · [Configuration](getting-started/configuration.md) |
 | 4 · Read the factory blueprint  | [MECE Capability Map](concepts/factory-blueprint.md)                                                |
+| 5 · Let an AI agent build on it | [MCP Control Plane](backend-api/mcp.md) · [Local AI Sandbox](../sandbox/README.md)                  |
 
 ---
 
@@ -44,6 +45,8 @@
 | [Search](backend-api/search.md) · [Audit](backend-api/audit.md) · [Reports](backend-api/reports.md) | Discovery & governance                                                     |
 | [Webhooks](backend-api/webhooks.md) · [Scheduler](backend-api/scheduler.md)                         | Events & automation                                                        |
 | [tRPC Layer](backend-api/trpc.md)                                                                   | Type-safe RPC with end-to-end types                                        |
+| [Governed Generation](backend-api/generation.md)                                                    | DesignDNA → schema proposal → human gate → live; DSL codec; read-only MCP  |
+| [MCP Control Plane](backend-api/mcp.md)                                                             | Few-tool MCP server: capability registry + Manifest plan/apply; scoped     |
 
 ### Backend Plugins — declarative enterprise features (`apps/api`)
 

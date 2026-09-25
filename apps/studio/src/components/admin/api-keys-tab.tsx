@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@mmbix/design-system';
 import { KeyRound, Plus } from 'lucide-react';
-import { createApiKey, revokeApiKey, type ApiKeyInfo } from '../../lib/api';
+import { createApiKey, revokeApiKey, type ApiKeyInfo, type ApiKeyScope } from '../../lib/api';
 import { apiKeysQuery, usersQuery } from '../../lib/queries';
 import { invalidateApiKeys } from '../../lib/query-client';
 
@@ -19,6 +19,7 @@ export function ApiKeysTab({ token }: { token: string }) {
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState('');
 	const [userId, setUserId] = useState('');
+	const [scope, setScope] = useState<ApiKeyScope>('read');
 	const [createdKey, setCreatedKey] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
@@ -34,9 +35,10 @@ export function ApiKeysTab({ token }: { token: string }) {
 		setBusy(true);
 		setMsg(null);
 		try {
-			const created = await createApiKey(token, name.trim(), userId);
+			const created = await createApiKey(token, name.trim(), userId, null, scope);
 			setCreatedKey(created.key);
 			setName('');
+			setScope('read');
 			setOpen(false);
 			await invalidateApiKeys(queryClient);
 		} catch (e) {
@@ -165,6 +167,9 @@ export function ApiKeysTab({ token }: { token: string }) {
 						{k.name}
 					</span>
 					<span style={{ fontSize: '0.66rem', color: '#9ca3af' }}>{userEmail(k.user_id)}</span>
+					<span style={{ fontSize: '0.6rem', fontWeight: 700, color: k.scope === 'read' ? '#6b7280' : '#b45309' }}>
+						{k.scope ?? 'admin'}
+					</span>
 					{k.is_active !== 1 ? (
 						<span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#dc2626' }}>revoked</span>
 					) : (
@@ -219,6 +224,11 @@ export function ApiKeysTab({ token }: { token: string }) {
 									{u.email}
 								</option>
 							))}
+						</select>
+						<select value={scope} onChange={(e) => setScope(e.target.value as ApiKeyScope)} style={field}>
+							<option value="read">read — may call read tools only (recommended)</option>
+							<option value="write">write — may call mutating tools</option>
+							<option value="admin">admin — full access</option>
 						</select>
 						<div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
 							<Button variant="outline" size="sm" onClick={() => setOpen(false)}>

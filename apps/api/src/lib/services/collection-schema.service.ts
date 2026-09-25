@@ -335,6 +335,59 @@ export class SchemaService {
 		SchemaService.invalidateCache(slug);
 	}
 
+	/**
+	 * Add fields to an EXISTING collection — declarative schema evolution.
+	 *
+	 * Reuses `EntityMigrator.diff/apply` (the SAME DDL engine `PUT /:slug` uses),
+	 * so a new field path never hand-writes a second ALTER TABLE. Rejects a field
+	 * that already exists, appends the survivors to `schema_json`, bumps
+	 * `_schema_version` and invalidates the schema cache. Returns the added names.
+	 */
+	async addFields(slug: string, fields: FieldDefinition[]): Promise<{ added: string[]; table_name: string }> {
+		await this.ensureMigrations();
+		const row = await this.getCollectionRow(slug);
+		const tableName = (row.table_name as string) || collectionTable(slug);
+
+		let schemaJson: Record<string, unknown>;
+		try {
+			schemaJson = JSON.parse((row.schema_json as string) || '{}') as Record<string, unknown>;
+		} catch {
+			schemaJson = {};
+		}
+		const oldFields = Array.isArray(schemaJson.fields) ? (schemaJson.fields as FieldDefinition[]) : [];
+		const existing = new Set(oldFields.map((f) => f.name));
+
+		const added: FieldDefinition[] = [];
+		for (const f of fields) {
+			this.validateFields([f]);
+			if (existing.has(f.name)) throw new ValidationError(`Field "${f.name}" already exists on "${slug}"`);
+			existing.add(f.name);
+			added.push(f);
+		}
+		if (added.length === 0) return { added: [], table_name: tableName };
+
+		const merged = [...oldFields, ...added];
+		const migration = EntityMigrator.diff(tableName, oldFields, merged);
+		if (migration.operations.length > 0) {
+			const migrated = await EntityMigrator.apply(this.db, migration);
+			if (migrated.errors.length > 0) {
+				throw new ValidationError(
+					`Schema change could not be applied to the database — the collection was NOT updated. ${migrated.errors.join('; ')}`,
+				);
+			}
+		}
+		// m2m owns no column → EntityMigrator emits nothing; provision junctions.
+		await this.reconcileJunctionTables(tableName, oldFields, merged);
+
+		schemaJson.fields = merged;
+		await this.db.run({
+			sql: 'UPDATE _entity_schemas SET schema_json = ?, updated_at = ?, _schema_version = COALESCE(_schema_version, 1) + 1 WHERE slug = ?',
+			bindings: [JSON.stringify(schemaJson), new Date().toISOString(), slug],
+		});
+		SchemaService.invalidateCache(slug);
+		return { added: added.map((f) => f.name), table_name: tableName };
+	}
+
 	async createCollection(input: CreateCollectionInput): Promise<EntitySchema> {
 		if (!input.name || typeof input.name !== 'string' || input.name.trim().length === 0) {
 			throw new ValidationError('Collection name is required');

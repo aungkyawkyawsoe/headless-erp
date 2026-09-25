@@ -203,7 +203,7 @@ async function resolveDbName(opts: { dbName?: string }, projectName: string): Pr
  * `check:infra` fail). Older templates without `infra/` fall back to a direct
  * rewrite.
  */
-function writeWranglerConfig(destRoot: string, projectName: string, dbName: string, adminEmail: string): void {
+function writeWranglerConfig(destRoot: string, projectName: string, dbName: string, adminEmail: string, domainModules: string): void {
 	const placeholderId = '00000000-0000-0000-0000-000000000000';
 	// Cloudflare resource names must be lowercase — never trust the raw input.
 	const safe = projectName.toLowerCase();
@@ -211,7 +211,7 @@ function writeWranglerConfig(destRoot: string, projectName: string, dbName: stri
 	const envPath = path.join(destRoot, 'infra', 'env.prod');
 	const genScript = path.join(destRoot, 'scripts', 'gen-wrangler.mjs');
 	if (readFile(envPath) && fs.existsSync(genScript)) {
-		personalizeInfraEnv(envPath, safe, dbName, placeholderId, adminEmail);
+		personalizeInfraEnv(envPath, safe, dbName, placeholderId, adminEmail, domainModules);
 		// Regenerate BOTH targets from the now-personalized SSOT.
 		for (const args of [[genScript], [genScript, '--env', 'testco']]) {
 			const r = spawnSync(process.execPath, args, { cwd: destRoot, stdio: 'inherit' });
@@ -275,7 +275,14 @@ function writeWranglerConfig(destRoot: string, projectName: string, dbName: stri
  * `^KEY=` replacements so a longer key (`QUEUE_EVENTS` vs `QUEUE_EVENTS_DLQ`,
  * `D1_NAME` vs `STUDIO_D1_NAME`) can never be clobbered by a prefix match.
  */
-function personalizeInfraEnv(envPath: string, safe: string, dbName: string, placeholderId: string, adminEmail: string): void {
+function personalizeInfraEnv(
+	envPath: string,
+	safe: string,
+	dbName: string,
+	placeholderId: string,
+	adminEmail: string,
+	domainModules: string,
+): void {
 	let out = readFile(envPath) ?? '';
 	const assign = (key: string, value: string): void => {
 		out = out.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${value}`);
@@ -296,6 +303,7 @@ function personalizeInfraEnv(envPath: string, safe: string, dbName: string, plac
 	assign('QUEUE_EVENTS_DLQ', `${safe}-events-dlq`);
 	assign('ANALYTICS_DATASET', `${safe}_api_requests`);
 	assign('ADMIN_USERNAME', adminEmail);
+	assign('DOMAIN_MODULES', domainModules);
 	writeFile(envPath, out);
 }
 
@@ -368,6 +376,32 @@ async function resolveAdmin(
 }
 
 /**
+ * Resolve which domain modules ship. The factory core is always present; the
+ * IDP admin surface is the one built-in vertical. `--addons none` = pure factory
+ * (the generated `infra/env.prod` is the SSOT the deploy reads).
+ */
+async function resolveAddons(opts: { addons?: string }): Promise<string> {
+	if (opts.addons !== undefined) {
+		const ids = opts.addons
+			.split(',')
+			.map((s) => s.trim().toLowerCase())
+			.filter(Boolean)
+			.filter((x) => x !== 'none');
+		return ids.length > 0 ? ids.join(',') : 'none';
+	}
+	if (process.stdout.isTTY) {
+		console.log(pc.cyan('\n  ── Add-ons ───────────────────────────────────────────'));
+		const enable = (await p.confirm({
+			message: 'Enable the IDP module (Internal Developer Platform admin surface)?',
+			initialValue: true,
+		})) as boolean | symbol;
+		if (p.isCancel(enable)) process.exit(0);
+		return enable === true ? 'idp' : 'none';
+	}
+	return 'idp';
+}
+
+/**
  * Write apps/api/.dev.vars (git-ignored) with the bootstrap admin credentials,
  * and rewrite wrangler.jsonc vars.ADMIN_USERNAME so the deployed var matches.
  */
@@ -416,6 +450,7 @@ export async function initProject(
 		adminName?: string;
 		adminPassword?: string;
 		dbName?: string;
+		addons?: string;
 	},
 ): Promise<void> {
 	const { template, skipInstall } = opts;
@@ -540,10 +575,11 @@ export async function initProject(
 	// the admin email lands in the SSOT rather than a hand-patch of a generated file.
 	const dbName = await resolveDbName(opts, projectName);
 	const admin = await resolveAdmin(opts, projectName);
+	const domainModules = await resolveAddons(opts);
 
 	// Cloudflare resource names (never inherit the template's): personalize
 	// infra/env.prod and regenerate the wrangler configs from it.
-	writeWranglerConfig(destRoot, projectName, dbName, admin.email);
+	writeWranglerConfig(destRoot, projectName, dbName, admin.email, domainModules);
 
 	// Bootstrap superadmin secrets → apps/api/.dev.vars (+ CLI .env.local)
 	writeAdminEnv(destRoot, admin);
@@ -575,6 +611,7 @@ export async function initProject(
 	console.log('  npx headless collection create  # API-first collection with templates');
 	console.log('  npx headless client add acme      # onboard a tenant');
 	console.log('  npx headless deploy               # ship to Cloudflare');
+	console.log('  # AI agents build over MCP → POST /api/mcp (plan_manifest · apply_manifest; see docs/backend-api/mcp.md)');
 	console.log('  docs: docs/README.md     # full API reference (architecture, entities, security)');
 	console.log(pc.dim('  (npx runs the CLI from this repo — `pnpm cli:link` is optional, for a global `headless` command)'));
 	console.log('');
@@ -600,6 +637,7 @@ export function registerInitCommand(program: Command): void {
 		.argument('[name]', 'Project name (kebab-case) — omit or use "." to initialize the current directory')
 		.option('-t, --template <source>', 'Template source: a path, git URL, or omit to use the current repo')
 		.option('--db-name <name>', 'D1 database name (default: <project>-db)')
+		.option('--addons <list>', "Domain modules to enable (comma-separated; default: idp; 'none' = pure factory)")
 		.option('--admin-email <email>', 'Bootstrap superadmin email (skips guided prompt)')
 		.option('--admin-name <name>', 'Bootstrap superadmin display name')
 		.option('--admin-password <password>', 'Bootstrap superadmin password (min 8 chars)')
@@ -616,6 +654,7 @@ export function registerInitCommand(program: Command): void {
 					adminName?: string;
 					adminPassword?: string;
 					dbName?: string;
+					addons?: string;
 				},
 			) => {
 				try {

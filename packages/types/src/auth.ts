@@ -26,6 +26,14 @@ export interface AuthContext {
 	 * password / admin / external identities.
 	 */
 	tg_id?: string | null;
+	/**
+	 * The scope of a machine API key (`mmk_…`) authenticating this request, when
+	 * one is used. Absent for sessions (JWT / dev-token), which are already
+	 * role-gated. A `read` key may call read tools but not mutating ones — the
+	 * PoLP default for new keys. Legacy keys written before scopes existed map to
+	 * `admin` (backward compatible).
+	 */
+	api_key_scope?: 'read' | 'write' | 'admin' | null;
 }
 
 // ─── v0.7: Auth Provider Pattern ────────────────────────

@@ -632,6 +632,15 @@ const MIGRATIONS: Migration[] = [
 			}),
 		],
 	},
+	{
+		name: '040_api_keys_scope',
+		up: [
+			// Machine-key scope (PoLP). New keys default to `read`; a `write`/`admin`
+			// key may call mutating MCP tools. Nullable so keys created before scopes
+			// existed keep working (resolved as `admin` at auth time).
+			QueryBuilder.raw('ALTER TABLE _api_keys ADD COLUMN scope TEXT'),
+		],
+	},
 ];
 
 /** Source-of-truth migration names — the CLI imports these instead of keeping a stale copy. */

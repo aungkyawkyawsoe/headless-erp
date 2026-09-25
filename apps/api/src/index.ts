@@ -136,6 +136,8 @@ import { quotaPlugin } from './plugins/quota/plugin';
 import { gdprPlugin } from './plugins/gdpr/plugin';
 import { viewsPlugin } from './plugins/views/plugin';
 import { jobsPlugin } from './plugins/jobs/plugin';
+import { generationPlugin } from './plugins/generation/plugin';
+import { mcpPlugin } from './plugins/mcp/plugin';
 import { setChainEnv } from './plugins/marketplace/chain';
 import { setTelegramPushEnv } from './lib/telegram-push';
 import { registerComputeFunctions } from '@mmbix/compute';
@@ -626,6 +628,8 @@ const plugins = [
 	gdprPlugin(),
 	viewsPlugin(),
 	jobsPlugin(),
+	generationPlugin(),
+	mcpPlugin(),
 ];
 
 // Plugin-declared D1 migrations run once per isolate (tracked in _migrations),

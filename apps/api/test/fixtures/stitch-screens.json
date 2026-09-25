@@ -1,0 +1,33 @@
+{
+	"projectId": "demo-erp",
+	"screens": [
+		{
+			"id": "purchase-order",
+			"anatomy": "A purchase order with a header and a line-item table",
+			"components": [
+				{
+					"kind": "form",
+					"label": "Order header",
+					"hints": [
+						{ "label": "Order Number" },
+						{ "label": "Supplier Name" },
+						{ "label": "Order Date", "valueFormat": "date" },
+						{ "label": "Total Amount", "valueFormat": "currency" },
+						{ "label": "Is Approved", "valueFormat": "boolean" },
+						{ "label": "Notes" }
+					]
+				},
+				{
+					"kind": "table",
+					"label": "Line items",
+					"hints": [
+						{ "label": "Item SKU" },
+						{ "label": "Quantity", "valueFormat": "number" },
+						{ "label": "Unit Price", "valueFormat": "currency" }
+					]
+				}
+			],
+			"relations": [{ "from": "purchase_order", "to": "purchase_order_line", "cardinality": "many", "label": "has lines" }]
+		}
+	]
+}

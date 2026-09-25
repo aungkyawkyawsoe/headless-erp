@@ -8,6 +8,14 @@
 			"headers": {
 				"X-Goog-Api-Key": "{env:STITCH_MCP_KEY}"
 			}
+		},
+		"Factory API (MCP)": {
+			"type": "remote",
+			"url": "http://localhost:8788/api/mcp",
+			"enabled": true,
+			"headers": {
+				"Authorization": "Bearer dev-token"
+			}
 		}
 	}
 }

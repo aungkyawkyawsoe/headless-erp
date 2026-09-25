@@ -182,6 +182,15 @@ export interface CollectionPolicy {
 	audit?: { enabled?: boolean };
 	/** Server-hooks / declarative rules dispatch toggle. */
 	hooks?: { enabled?: boolean };
+	/** Design→schema generation gate (deny by default). */
+	generation?: {
+		enabled?: boolean;
+		require_review?: boolean;
+		max_fields_per_proposal?: number;
+		allow_llm_fallback?: boolean;
+	};
+	/** Accepted external design source (deny by default: `none`). */
+	design_source?: { provider?: 'none' | 'stitch' | 'figma' | 'manual'; allowed_hosts?: string[] };
 	/**
 	 * Who may mutate ROWS through the GENERIC entity API (POST/PUT/DELETE
 	 * /api/entities/:slug). This never constrains the owning domain service, which

@@ -121,3 +121,46 @@ export type { ModuleManifest, ModuleRole, ModuleRoleGrant, ModuleIdentity, Modul
 // the plugin manifest contract, and Studio tooling.
 export { LIFECYCLE_EVENTS, DECLARATIVE_TRIGGER_EVENTS } from './hooks';
 export type { LifecycleEvent, TriggerEvent } from './hooks';
+// DSL — ONE codec + ONE vocabulary for the design → schema → page seams.
+// Prefer the `@mmbix/types/dsl` subpath in Worker hot paths; this barrel export
+// keeps the shared types one import away for consumers that already use it.
+export { applyOps, unionColumns, encodeColumns, decodeColumns, META_WIRE_VERSION, encodeMeta, decodeMeta } from './dsl';
+export type {
+	ColumnarTable,
+	WireTable,
+	WireMeta,
+	MetaSnapshot,
+	DesignProvider,
+	DesignSourceRef,
+	DesignHint,
+	DesignComponent,
+	DesignRelation,
+	DesignScreen,
+	DesignDNA,
+	FieldInference,
+	FieldProposal,
+	RelationProposal,
+	ProposalWarning,
+	SchemaProposal,
+	ProposalStatus,
+	BlockNode,
+	PatchOp,
+} from './dsl';
+// MCP Factory Control Plane — capability registry + the Manifest write primitive.
+export type { CapabilityDomain, CapabilityClass, CapabilityDescriptor, CapabilityQuery } from './capability';
+export type {
+	FactoryFieldSpec,
+	FactoryCollectionSpec,
+	FactoryPageSpec,
+	FactoryRoleSpec,
+	FactoryPermissionSpec,
+	FactoryWorkflowSpec,
+	FactoryMenuSpec,
+	FactoryKpiSpec,
+	FactoryServerFunctionSpec,
+	FactoryApiKeySpec,
+	FactoryManifest,
+	ManifestActionKind,
+	ManifestAction,
+	ManifestPlan,
+} from './factory';

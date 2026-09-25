@@ -1,5 +1,5 @@
 import { m2mIds } from './record-label';
-import type { LinkageCondition, ValidationRule } from '@mmbix/types';
+import type { BlockNode, LinkageCondition, PatchOp, ProposalStatus, SchemaProposal, ValidationRule } from '@mmbix/types';
 import { SYSTEM_FIELD_NAMES as ENGINE_SYSTEM_FIELD_NAMES } from '@mmbix/ui-views';
 
 const BASE = '';
@@ -1367,19 +1367,23 @@ export interface ApiKeyInfo {
 	name: string;
 	user_id: string;
 	role_id: string | null;
+	/** PoLP scope — read (default) | write | admin; null on legacy keys. */
+	scope?: string | null;
 	is_active: number;
 	created_at: string;
 	last_used_at: string | null;
 }
 
+export type ApiKeyScope = 'read' | 'write' | 'admin';
+
 export async function listApiKeys(token: string) {
 	return api<ApiKeyInfo[]>(token, '/api/api-keys');
 }
 
-export async function createApiKey(token: string, name: string, userId: string, roleId?: string | null) {
-	return api<{ id: string; name: string; key: string; user_id: string }>(token, '/api/api-keys', {
+export async function createApiKey(token: string, name: string, userId: string, roleId?: string | null, scope: ApiKeyScope = 'read') {
+	return api<{ id: string; name: string; key: string; user_id: string; scope: ApiKeyScope }>(token, '/api/api-keys', {
 		method: 'POST',
-		body: JSON.stringify({ name, user_id: userId, role_id: roleId ?? null }),
+		body: JSON.stringify({ name, user_id: userId, role_id: roleId ?? null, scope }),
 	});
 }
 
@@ -1393,6 +1397,51 @@ export async function importRecords(token: string, slug: string, format: 'json' 
 		method: 'POST',
 		body: JSON.stringify({ format, data }),
 	});
+}
+
+/* ── Governed generation (/api/generation) ─────────────────────
+ * The pipeline PROPOSES; the human gate WRITES. The Studio renders the
+ * proposal (visible inference) and drives the state machine. */
+
+/** A persisted proposal record — mirrors the backend `GenerationRecord`. */
+export interface GenerationProposalRecord {
+	id: string;
+	name: string;
+	collection_slug: string;
+	status: ProposalStatus;
+	require_review: boolean;
+	proposal: SchemaProposal;
+	dna_source: string | null;
+	applied_slug: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export async function listGenerationProposals(token: string, limit = 50) {
+	return api<GenerationProposalRecord[]>(token, `/api/generation?limit=${limit}`);
+}
+
+/** Map a DesignDNA to a DRAFT proposal. Never writes a schema. */
+export async function proposeGeneration(
+	token: string,
+	body: { collection?: { name?: string; slug?: string }; dna?: unknown; prompt?: string },
+) {
+	return api<GenerationProposalRecord>(token, '/api/generation/propose', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** Advance the human gate: submit | approve | reject | apply. */
+export async function transitionGeneration(token: string, id: string, action: 'submit' | 'approve' | 'reject' | 'apply') {
+	return api<GenerationProposalRecord>(token, `/api/generation/${id}/${action}`, { method: 'POST' });
+}
+
+/** Edit proposed field types during review — a type change feeds the learning loop. */
+export async function updateGenerationFields(token: string, id: string, fields: Array<{ name: string; type: string; required?: boolean }>) {
+	return api<GenerationProposalRecord>(token, `/api/generation/${id}/fields`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+}
+
+/** Apply structural patch ops to a tree (dry-run — no persistence). */
+export async function applyGenerationPatch(token: string, tree: BlockNode[], ops: PatchOp[]) {
+	return api<{ tree: BlockNode[] }>(token, '/api/generation/patch', { method: 'POST', body: JSON.stringify({ tree, ops }) });
 }
 
 /* ── Custom Widgets ──────────────────────────────────────────
