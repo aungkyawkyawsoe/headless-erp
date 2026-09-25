@@ -10,14 +10,14 @@
 
 ## 🚀 Start here (5 minutes)
 
-| Step                               | Doc                                                                                                 |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 1 · Understand the philosophy      | [Use Cases](getting-started/use-cases.md)                                                           |
-| 2 · Run it locally + first curl    | [Quickstart](getting-started/quickstart.md)                                                         |
-| 3 · Install & configure            | [Installation](getting-started/installation.md) · [Configuration](getting-started/configuration.md) |
-| 4 · Read the factory blueprint     | [MECE Capability Map](concepts/factory-blueprint.md)                                                |
-| 5 · Let an AI agent build on it    | [MCP Control Plane](backend-api/mcp.md) · [Local AI Sandbox](../sandbox/README.md)                  |
-| 6 · **Build an app, start to end** | [Build an app (the "boom" runbook)](getting-started/build-an-app.md)                                |
+| Step                                  | Doc                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 1 · Understand the philosophy         | [Use Cases](getting-started/use-cases.md)                                                           |
+| 2 · Run it locally + first curl       | [Quickstart](getting-started/quickstart.md)                                                         |
+| 3 · Install & configure               | [Installation](getting-started/installation.md) · [Configuration](getting-started/configuration.md) |
+| 4 · Read the factory blueprint        | [MECE Capability Map](concepts/factory-blueprint.md)                                                |
+| 5 · Let an AI agent build on it       | [MCP Control Plane](backend-api/mcp.md) · [Local AI Sandbox](../sandbox/README.md)                  |
+| 6 · **Zero → production, everything** | [Complete walkthrough (getting started)](getting-started/build-an-app.md)                           |
 
 ---
 
