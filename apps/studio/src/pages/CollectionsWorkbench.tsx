@@ -27,7 +27,7 @@ import {
 	Label,
 	SearchBox,
 } from '@mmbix/design-system';
-import { DataTable, type ColumnDef, type DataTableInstance, type FetchParams, type FetchResult } from '@mmbix/design-system/datatable';
+import { DataTable } from '@mmbix/design-system/datatable';
 import { ArchiveRestore, Braces, ChevronLeft, Database, Download, Eye, EyeOff, Gauge, Hash, Plus, Table2, Trash2, Zap } from 'lucide-react';
 import AddFieldDialog from '../components/AddFieldDialog';
 import FieldTypesPanel from '../components/FieldTypesPanel';
@@ -35,11 +35,7 @@ import PolicyPanel from '../components/PolicyPanel';
 import RecordDetailView from '../components/RecordDetailView';
 import RecordFormDialog from '../components/RecordFormDialog';
 import StudioLayout, { SideSection } from '../components/StudioLayout';
-import { InlineCellEditor } from '../components/InlineCellEditor';
 import {
-	bulkDelete,
-	bulkErrorMessage,
-	bulkRestore,
 	createCollection,
 	deleteCollection,
 	setCollectionHidden,
@@ -48,13 +44,12 @@ import {
 	SYSTEM_FIELD_NAMES,
 	namingSeriesExample,
 	type CollectionSummary,
-	type EntityListParams,
 	type EntitySchema,
 	type FieldDefinition,
 	type FieldTypeDef,
 } from '../lib/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { codeHooksQuery, collectionQuery, collectionsQuery, itemsQuery, serverHooksQuery } from '../lib/queries';
+import { codeHooksQuery, collectionQuery, collectionsQuery, serverHooksQuery } from '../lib/queries';
 import { invalidateCollectionList, invalidateRows } from '../lib/query-client';
 import { qk } from '../lib/query-keys';
 import { writeLockOf, isRowFrozen, partitionFrozenRows, frozenRowsReason } from '../lib/write-lock';
@@ -64,17 +59,9 @@ import { messageOf } from '../lib/errors';
 import { useFieldTypes } from '../lib/use-field-types';
 import { isHiddenCollection } from '../lib/idp';
 import { popBack, useViewState } from '../lib/view-state';
-import { buildTableColumns, serializeTableFilters, useM2oSchemas } from '../lib/collection-table-filters';
-import { buildListFields } from '../lib/list-projection';
+import { useM2oSchemas } from '../lib/collection-table-filters';
+import { useCollectionRecords } from '../lib/use-collection-records';
 import ExportDialog from '../components/ExportDialog';
-import {
-	buildCsv,
-	collectAllRows,
-	fieldMapOf,
-	itemsParamsFromFetch,
-	type ExportColumnsScope,
-	type ExportRowsScope,
-} from '../lib/csv-export';
 import { CollectionsPaneToggle } from '../components/collections/workbench-parts';
 import { HooksDialog, hooksForCollection } from '../components/collections/HooksDialog';
 import { DocNoDialog } from '../components/collections/DocNoDialog';
@@ -179,6 +166,9 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			setHooksOpen(false);
 			setPolicyOpen(false);
 		},
+		// setSelectedRows is a stable useState setter (exposed by useCollectionRecords) —
+		// listing it here would be a TDZ read, since the hook is declared further down.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[updateViewState],
 	);
 
@@ -211,6 +201,10 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	// delete. See `write-lock.ts`.
 	const writeLock = useMemo(() => writeLockOf(selectedSchema), [selectedSchema]);
 	const visibleFields = useMemo(() => fields.filter((f) => !SYSTEM_FIELD_NAMES.has(f.name)), [fields]);
+	// Related schemas for the focused collection's m2o columns — typed filter metadata
+	// is derived generically from field types, and the related schemas load from the
+	// query cache (no accumulating schema map needed).
+	const m2oSchemas = useM2oSchemas(token, fields);
 
 	// ── record view state (table view) ──────────────────────────────────────
 	const [editRecord, setEditRecord] = useState<Record<string, unknown> | null>(null);
@@ -225,15 +219,38 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	// The lock for the record OPEN in the detail view — it may be a related
 	// collection, and a row can be frozen by `freeze_when` (a 403 on update/delete).
 	const openWriteLock = useMemo(() => writeLockOf(openSchema ?? selectedSchema), [openSchema, selectedSchema]);
-	const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([]);
-	// The selection split by the row-level `freeze_when` rule, so the bulk action
-	// only targets rows a generic write may touch (and reports the skipped ones).
-	const selectedPartition = useMemo(() => partitionFrozenRows(writeLock, selectedRows), [writeLock, selectedRows]);
 	// Bump to refetch the rows after a record create/edit/delete.
 	const [reloadTick, setReloadTick] = useState(0);
+	// Re-read the visible page after a row write: drop this collection's cached pages,
+	// then bump the remount tick — the ONE refresh path every row write takes.
+	const refreshRows = useCallback(
+		(slug: string | null | undefined) => {
+			if (!slug) return;
+			return invalidateRows(queryClient, slug).then(() => setReloadTick((t) => t + 1));
+		},
+		[queryClient],
+	);
 	// Trash view — soft-deleted rows stay in the table and are reachable here
 	// (the live list hides them, which can make pagination look "short").
 	const [trashMode, setTrashMode] = useState(false);
+	// The read/write surface for the focused collection's rows — columns, server fetch,
+	// selection, bulk delete/restore and CSV export — shared with the app workbench's
+	// record pane (see lib/use-collection-records.tsx).
+	const {
+		tableColumns,
+		fetchData,
+		selectedRows,
+		setSelectedRows,
+		deleteRows,
+		restoreRows,
+		exportState,
+		openExport,
+		closeExport,
+		runExport,
+	} = useCollectionRecords({ token, selected, fields, m2oSchemas, writeLock, trashMode, refreshRows, onError: setActionError });
+	// The selection split by the row-level `freeze_when` rule, so the bulk action
+	// only targets rows a generic write may touch (and reports the skipped ones).
+	const selectedPartition = useMemo(() => partitionFrozenRows(writeLock, selectedRows), [writeLock, selectedRows]);
 
 	// New Collection dialog state.
 	const [newOpen, setNewOpen] = useState(false);
@@ -284,10 +301,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	const selectedRef = useRef(selected);
 	selectedRef.current = selected;
 
-	// Table columns from the focused collection's schema — typed filter metadata is
-	// derived generically from field types (m2o columns filter on the related row's
-	// display leaf; related schemas load via useM2oSchemas from the query cache).
-	const m2oSchemas = useM2oSchemas(token, fields);
 	// Schemas the add-field dialog may look up — every m2o target plus the focused
 	// collection, taken from the query cache (no accumulating schema map needed).
 	const dialogSchemas = useMemo(() => {
@@ -295,75 +308,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 		if (selected && selectedSchema) out[selected] = selectedSchema;
 		return out;
 	}, [m2oSchemas, selected, selectedSchema]);
-	const tableColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(
-		() =>
-			buildTableColumns(fields, m2oSchemas, {
-				systemFieldNames: SYSTEM_FIELD_NAMES,
-				renderCell: (field, value, row) => {
-					const id = row?.id;
-					return (
-						<InlineCellEditor
-							field={field}
-							value={value}
-							recordId={String(id ?? '')}
-							token={token}
-							collectionSlug={selected ?? ''}
-							// The SAME write gate the record view uses — a service / append-only
-							// collection, a frozen row, a frozen column, or a row without an id
-							// keeps every cell read-only (least privilege).
-							readOnly={
-								id == null ||
-								!selected ||
-								!writeLock.canMutate ||
-								isRowFrozen(writeLock, row) ||
-								writeLock.frozenFields.includes(field.name)
-							}
-							onSaved={() => {
-								// Drop this collection's cached pages, then refetch the visible page —
-								// the same path every other row write takes.
-								if (selected) void invalidateRows(queryClient, selected).then(() => setReloadTick((t) => t + 1));
-							}}
-						/>
-					);
-				},
-			}),
-		[fields, m2oSchemas, token, selected, writeLock, queryClient],
-	);
-
-	// Server-side fetch — cursor pagination, sorting, search, filters. The read
-	// goes through Query (`queryClient.fetchQuery`), so it shares the app cache and
-	// in-flight dedup, and a row write invalidates it precisely (no remount storm).
-	//
-	// The closure stays STABLE: the DataTable re-runs its server-fetch effect when
-	// `fetchData` identity changes, and `fields`/`m2oSchemas` change as schemas load,
-	// so the latest values are read from a ref.
-	const fetchCtxRef = useRef({ token, selected, trashMode, fields, m2oSchemas });
-	fetchCtxRef.current = { token, selected, trashMode, fields, m2oSchemas };
-	// The last `FetchParams` the table asked for — replayed by "export all rows" so
-	// the "what you filtered/sorted/searching" the export walks is EXACTLY what the
-	// page is showing (the DataTable's instance does not expose filters/sorting).
-	const lastFetchParamsRef = useRef<FetchParams | null>(null);
-
-	const fetchData = useCallback(
-		async (params: FetchParams): Promise<FetchResult<Record<string, unknown>>> => {
-			lastFetchParamsRef.current = params;
-			const { token, selected, trashMode, fields, m2oSchemas } = fetchCtxRef.current;
-			if (!selected) return { rows: [], nextCursor: null, prevCursor: null };
-			// Lean table projection instead of `*.*`: own columns + m2o labels + id-only
-			// relation arrays (see lib/list-projection.ts). The DataTable only fetches
-			// once the schema is known, so `fields` is never empty here.
-			const entityParams: EntityListParams = { limit: params.pagination.pageSize, trashed: trashMode, fields: buildListFields(fields) };
-			if (params.cursor) {
-				entityParams.cursor = params.cursor;
-				entityParams.dir = params.cursorDir ?? 'after';
-			}
-			if (params.sorting) entityParams.sort = `${params.sorting.direction === 'desc' ? '-' : ''}${params.sorting.id}`;
-			if (params.globalFilter) entityParams.search = params.globalFilter;
-			entityParams.filters = serializeTableFilters(params.filters, fields, m2oSchemas);
-			return await queryClient.fetchQuery(itemsQuery(token, selected, entityParams));
-		},
-		[queryClient],
-	);
 
 	// ── handlers ────────────────────────────────────────────────────────────
 
@@ -598,117 +542,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
-
-	async function deleteRows(rows: Record<string, unknown>[]) {
-		if (!selected || rows.length === 0) return;
-		// Defensive: the DataTable hides the delete action when the collection is
-		// not generically writable, but the guard stays here too.
-		if (!writeLock.canMutate) {
-			setActionError(writeLock.reason ?? 'This collection cannot be written through the generic entity API.');
-			return;
-		}
-		// Rows frozen by `freeze_when` (e.g. a confirmed inbound) 403 a generic
-		// delete — skip them so one frozen row cannot fail the whole batch.
-		const { writable, frozen } = partitionFrozenRows(writeLock, rows);
-		if (writable.length === 0) {
-			setActionError(frozenRowsReason(writeLock, frozen.length));
-			return;
-		}
-		if (
-			!(await confirmDialog({
-				title: 'Delete records',
-				description: `Delete ${writable.length} record${writable.length === 1 ? '' : 's'}${frozen.length ? ` (${frozen.length} frozen skipped)` : ''}?`,
-				destructive: true,
-				confirmLabel: 'Delete',
-			}))
-		)
-			return;
-		try {
-			// ONE bulk request for N rows (the engine runs the per-row pipeline at
-			// bounded concurrency) instead of N sequential DELETE round trips.
-			const results = await bulkDelete(
-				token,
-				selected,
-				writable.map((r) => String(r.id)),
-			);
-			setSelectedRows([]);
-			// Refetch the visible page (the invalidated query) without reloading the schema.
-			await invalidateRows(queryClient, selected);
-			setReloadTick((t) => t + 1);
-			setActionError(
-				[bulkErrorMessage(results), frozen.length > 0 ? frozenRowsReason(writeLock, frozen.length) : ''].filter(Boolean).join(' '),
-			);
-		} catch (e) {
-			setActionError(e instanceof Error ? e.message : 'Delete failed');
-		}
-	}
-
-	// Restore one or more soft-deleted records (from trash mode).
-	async function restoreRows(rows: Record<string, unknown>[]) {
-		if (!selected || rows.length === 0) return;
-		if (!writeLock.canMutate) {
-			setActionError(writeLock.reason ?? 'This collection cannot be written through the generic entity API.');
-			return;
-		}
-		const { writable, frozen } = partitionFrozenRows(writeLock, rows);
-		if (writable.length === 0) {
-			setActionError(frozenRowsReason(writeLock, frozen.length));
-			return;
-		}
-		try {
-			const results = await bulkRestore(
-				token,
-				selected,
-				writable.map((r) => String(r.id)),
-			);
-			setSelectedRows([]);
-			await invalidateRows(queryClient, selected);
-			setReloadTick((t) => t + 1);
-			setActionError(
-				[bulkErrorMessage(results), frozen.length > 0 ? frozenRowsReason(writeLock, frozen.length) : ''].filter(Boolean).join(' '),
-			);
-		} catch (e) {
-			setActionError(e instanceof Error ? e.message : 'Restore failed');
-		}
-	}
-
-	// ── CSV export ─────────────────────────────────────────────────────────
-	// A one-shot: the Export button captures the CURRENT table snapshot (rows in
-	// memory + the params the page was fetched with), and the dialog only decides
-	// scope — page vs all rows, visible vs all columns.
-	const [exportState, setExportState] = useState<{
-		pageRows: Record<string, unknown>[];
-		visibleIds: Set<string>;
-	} | null>(null);
-
-	function openExport(tableInstance: DataTableInstance<Record<string, unknown>>) {
-		if (!selected) return;
-		const pageRows = tableInstance.table.getFilteredRowModel().rows.map((r) => r.original);
-		const visibleIds = new Set<string>();
-		const visibility = tableInstance.table.getState().columnVisibility;
-		for (const c of tableColumns) {
-			if (visibility[c.id] !== false) visibleIds.add(c.id);
-		}
-		setExportState({ pageRows, visibleIds });
-	}
-
-	function closeExport() {
-		setExportState(null);
-	}
-
-	async function runExport(scope: { rows: ExportRowsScope; columns: ExportColumnsScope }): Promise<string> {
-		if (!selected || !exportState) throw new Error('No rows to export');
-		const { token, trashMode, fields, m2oSchemas } = fetchCtxRef.current;
-		const pageParams = lastFetchParamsRef.current;
-		const fieldByName = fieldMapOf(fields);
-		const allColumns = tableColumns.filter((c) => c.enableHiding !== false);
-		const columns = scope.columns === 'visible' ? allColumns.filter((c) => exportState.visibleIds.has(c.id)) : allColumns;
-		const rows =
-			scope.rows === 'page'
-				? exportState.pageRows
-				: await collectAllRows(token, selected, itemsParamsFromFetch(fields, m2oSchemas, pageParams ?? undefined, { trashed: trashMode }));
-		return buildCsv(rows, columns, fieldByName);
-	}
 
 	function openRecordView(rec: Record<string, unknown>, schema: EntitySchema | undefined) {
 		setOpenRecord(rec);

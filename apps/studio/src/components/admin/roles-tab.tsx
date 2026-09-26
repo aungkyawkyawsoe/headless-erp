@@ -1,46 +1,151 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Checkbox, Input, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@mmbix/design-system';
-import { Plus, Save, Search, ShieldCheck } from 'lucide-react';
-import { createRole, updateRole, getRolePermissions, setPermission, type RolePermission } from '../../lib/api';
+import { Button, Checkbox, Input, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@mmbix/design-system';
+import { Check, Minus, Plus, Save, Search, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { createRole, updateRole, getRolePermissions, setPermission, type RolePermission, type RoleRecord } from '../../lib/api';
 import { appRequiredCollections } from '../../lib/app-collections';
 import { collectionsQuery, modulesQuery, rolesQuery } from '../../lib/queries';
 import { invalidateRoles } from '../../lib/query-client';
+import {
+	FLAG_KEYS,
+	FLAG_LABEL,
+	columnState,
+	columnToggleValue,
+	emptyPermission,
+	governanceBadges,
+	hasGrant,
+	isPermDirty,
+	matrixStats,
+	type FlagKey,
+} from '../../lib/role-matrix';
 
 /**
- * The launcher/app boards a role may open. These are the module slugs from the
- * DB module registry (`_modules`, served by `GET /api/modules`) — `_roles.app_access`
- * stores exactly those ids, and a checkbox here writes that id array
- * (null = every module). Deriving the catalog from the registry means a module
- * added in the Studio appears here with no code change and no drift.
+ * Roles & Access — the RBAC admin surface (Studio Admin → Settings → Roles, and
+ * the IDP portal → Roles & Access, the SAME component).
+ *
+ * Layout: a role rail on the left, and for the selected role a governance profile
+ * (summary tiles + mini-app board) over a per-collection permission MATRIX on the
+ * right. The matrix columns are `_role_permissions` flags; each column header is a
+ * tri-state MASTER TOGGLE that acts on the rows the operator has filtered to, and
+ * the last column surfaces the row's field-whitelist / row-level rule so a
+ * restricted grant is visible at a glance rather than hidden in a panel.
+ *
+ * Every derivation (summary tiles, column tri-state, dirty diff, governance note)
+ * is pure and lives in `lib/role-matrix.ts`; this component only renders it.
  */
 
-/** CRUD/special flags on a `_role_permissions` row (record access per collection). */
-const FLAG_KEYS = ['can_read', 'can_write', 'can_create', 'can_delete', 'can_approve', 'can_submit'] as const;
-type FlagKey = (typeof FLAG_KEYS)[number];
-const FLAG_LABEL: Record<FlagKey, string> = {
-	can_read: 'read',
-	can_write: 'write',
-	can_create: 'create',
-	can_delete: 'delete',
-	can_approve: 'approve',
-	can_submit: 'submit',
-};
-
-const EMPTY_PERMS = { can_read: false, can_write: false, can_create: false, can_delete: false, can_approve: false, can_submit: false };
-
-const sectionTitle = {
-	fontSize: '0.66rem',
+const sectionTitle: React.CSSProperties = {
+	fontSize: '0.62rem',
 	fontWeight: 700,
-	textTransform: 'uppercase' as const,
-	letterSpacing: '0.05em',
+	textTransform: 'uppercase',
+	letterSpacing: '0.07em',
 	color: 'var(--mmbix-muted-foreground, #64748b)',
 };
-const note = { fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: 0 };
+const note: React.CSSProperties = { fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: 0 };
+const card: React.CSSProperties = {
+	border: '1px solid var(--mmbix-border, #e5e7eb)',
+	borderRadius: 12,
+	background: 'var(--mmbix-card, #fff)',
+	padding: '0.75rem 0.85rem',
+	display: 'flex',
+	flexDirection: 'column',
+	gap: 10,
+	boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(15, 23, 42, 0.03)',
+};
+const statTile: React.CSSProperties = {
+	border: '1px solid var(--mmbix-border, #eef2f6)',
+	borderRadius: 10,
+	background: 'var(--mmbix-muted, #f8fafc)',
+	padding: '0.45rem 0.55rem',
+	display: 'flex',
+	flexDirection: 'column',
+	gap: 1,
+	minWidth: 0,
+};
+const statValue: React.CSSProperties = {
+	fontSize: '1.05rem',
+	fontWeight: 700,
+	lineHeight: 1.1,
+	fontVariantNumeric: 'tabular-nums',
+	color: 'var(--mmbix-foreground, #0f172a)',
+	whiteSpace: 'nowrap',
+};
+const statLabel: React.CSSProperties = {
+	fontSize: '0.58rem',
+	fontWeight: 700,
+	textTransform: 'uppercase',
+	letterSpacing: '0.05em',
+	color: 'var(--mmbix-muted-foreground, #94a3b8)',
+	whiteSpace: 'nowrap',
+	overflow: 'hidden',
+	textOverflow: 'ellipsis',
+};
+const tinyPill: React.CSSProperties = {
+	display: 'inline-flex',
+	alignItems: 'center',
+	gap: 3,
+	padding: '1px 7px',
+	borderRadius: 999,
+	fontSize: '0.6rem',
+	fontWeight: 700,
+	textTransform: 'uppercase',
+	letterSpacing: '0.04em',
+	whiteSpace: 'nowrap',
+};
 
-/** A collection already has a `_role_permissions` grant row for this role. */
-function isGranted(p: RolePermission) {
-	return Boolean(p.id) || FLAG_KEYS.some((k) => Boolean(p[k]));
+/** A governance summary tile — one number with a label. */
+function Stat({ value, label, tone }: { value: string | number; label: string; tone?: 'warn' | 'good' }) {
+	return (
+		<div style={statTile}>
+			<span
+				style={{
+					...statValue,
+					color:
+						tone === 'warn'
+							? 'var(--mmbix-tone-warning-fg, #d97706)'
+							: tone === 'good'
+								? 'var(--mmbix-tone-positive-fg, #059669)'
+								: statValue.color,
+				}}
+			>
+				{value}
+			</span>
+			<span style={statLabel}>{label}</span>
+		</div>
+	);
+}
+
+/** One state inside the current session. */
+function RoleRailItem({ role, active, onSelect }: { role: RoleRecord; active: boolean; onSelect: () => void }) {
+	return (
+		<button
+			type="button"
+			onClick={onSelect}
+			title={role.name}
+			aria-current={active ? 'true' : undefined}
+			style={{
+				display: 'flex',
+				alignItems: 'center',
+				justifyContent: 'space-between',
+				gap: 6,
+				width: '100%',
+				borderRadius: 8,
+				border: active ? '1px solid var(--mmbix-primary, #2563eb)' : '1px solid var(--mmbix-border, #e5e7eb)',
+				background: active ? 'color-mix(in srgb, var(--mmbix-primary, #2563eb) 8%, transparent)' : 'var(--mmbix-card, #fff)',
+				color: active ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-foreground, #374151)',
+				padding: '0.35rem 0.5rem',
+				fontSize: '0.74rem',
+				fontWeight: 600,
+				cursor: 'pointer',
+				textAlign: 'left',
+			}}
+		>
+			<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{role.name}</span>
+			{role.is_system === 1 && (
+				<span style={{ ...tinyPill, background: 'var(--mmbix-muted, #f1f5f9)', color: 'var(--mmbix-muted-foreground, #64748b)' }}>sys</span>
+			)}
+		</button>
+	);
 }
 
 export function RolesTab({ token }: { token: string }) {
@@ -70,6 +175,8 @@ export function RolesTab({ token }: { token: string }) {
 	// Key every collection in `library`; existing `_role_permissions` rows seed their
 	// flags, unset collections default to no access (deny) so every collection is visible.
 	const [permBy, setPermBy] = useState<Record<string, RolePermission>>({});
+	// The persisted baseline the drafts are diffed against — what makes "unsaved" real.
+	const [permBaseline, setPermBaseline] = useState<Record<string, RolePermission>>({});
 
 	// New-role dialog.
 	const [newOpen, setNewOpen] = useState(false);
@@ -83,13 +190,15 @@ export function RolesTab({ token }: { token: string }) {
 					const map: Record<string, RolePermission> = {};
 					for (const slug of collections) {
 						const found = rows.find((r) => r.collection_slug === slug);
-						map[slug] = found
-							? found
-							: { id: '', role_id: rid, collection_slug: slug, ...EMPTY_PERMS, field_restrictions: null, row_filters: null };
+						map[slug] = found ?? emptyPermission(rid, slug);
 					}
 					setPermBy(map);
+					setPermBaseline(map);
 				})
-				.catch(() => setPermBy({}));
+				.catch(() => {
+					setPermBy({});
+					setPermBaseline({});
+				});
 		},
 		[token],
 	);
@@ -111,6 +220,7 @@ export function RolesTab({ token }: { token: string }) {
 			setDraftApps(null);
 			setAppsAll(true);
 			setPermBy({});
+			setPermBaseline({});
 			return;
 		}
 		const target = roles.find((r) => r.id === roleId);
@@ -178,7 +288,7 @@ export function RolesTab({ token }: { token: string }) {
 		});
 	};
 
-	// Persist an existing per-row field whitelist / row filter as-is (wide open when unset).
+	/** Persist an existing per-row field whitelist / row filter as-is (wide open when unset). */
 	const forwardFieldRestrictions = (raw?: string | null): string[] | '*' => {
 		if (!raw || raw === '*') return '*';
 		try {
@@ -227,7 +337,7 @@ export function RolesTab({ token }: { token: string }) {
 		const rid = role?.id;
 		const draft = permBy[slug];
 		if (!rid || !draft) return;
-		if (!isGranted(draft) && !FLAG_KEYS.some((k) => Boolean(draft[k]))) return; // untouched + deny → no row to write
+		if (!hasGrant(draft)) return; // untouched + deny → no row to write
 		setBusy(true);
 		setMsg(null);
 		try {
@@ -275,8 +385,8 @@ export function RolesTab({ token }: { token: string }) {
 
 	const sorted = useMemo(() => {
 		// Granted (has at least read or write) first, then the unset list — still alphabetical.
-		const granted = allRows.filter((r) => isGranted(r) || FLAG_KEYS.some((k) => Boolean(r[k])));
-		const unset = allRows.filter((r) => !isGranted(r) && !FLAG_KEYS.some((k) => Boolean(r[k])));
+		const granted = allRows.filter(hasGrant);
+		const unset = allRows.filter((r) => !hasGrant(r));
 		const byName = (arr: RolePermission[]) => [...arr].sort((a, b) => a.collection_slug.localeCompare(b.collection_slug));
 		return [...byName(granted), ...byName(unset)];
 	}, [allRows]);
@@ -287,28 +397,51 @@ export function RolesTab({ token }: { token: string }) {
 		return sorted.filter((r) => r.collection_slug.includes(q));
 	}, [sorted, permQuery]);
 
-	const btnPrimary: React.CSSProperties = {
-		boxSizing: 'border-box',
-		borderRadius: 6,
-		border: '1px solid var(--mmbix-border, #e5e7eb)',
-		padding: '0.35rem 0.6rem',
-		fontSize: '0.72rem',
-		fontWeight: 600,
-		background: 'var(--mmbix-card, #fff)',
-		color: 'var(--mmbix-foreground, #374151)',
-		cursor: 'pointer',
-		display: 'inline-flex',
-		alignItems: 'center',
-		gap: 4,
+	// Governance summary + tri-state per flag column, over the rows ON SCREEN so the
+	// master toggles and the tiles always agree with the grid.
+	const stats = useMemo(() => matrixStats(allRows, permBaseline), [allRows, permBaseline]);
+	const colStates = useMemo(
+		() => Object.fromEntries(FLAG_KEYS.map((k) => [k, columnState(filtered, k)])) as Record<FlagKey, ReturnType<typeof columnState>>,
+		[filtered],
+	);
+
+	/** Flip one flag across every row the operator has filtered to. */
+	const toggleColumn = (flag: FlagKey) => {
+		const value = columnToggleValue(colStates[flag]);
+		const slugs = new Set(filtered.map((p) => p.collection_slug));
+		setPermBy((prev) => {
+			const next = { ...prev };
+			for (const slug of slugs) if (next[slug]) next[slug] = { ...next[slug], [flag]: value };
+			return next;
+		});
+	};
+	const setFiltered = (patch: Partial<Record<FlagKey, boolean>>) => {
+		const slugs = new Set(filtered.map((p) => p.collection_slug));
+		setPermBy((prev) => {
+			const next = { ...prev };
+			for (const slug of slugs) if (next[slug]) next[slug] = { ...next[slug], ...patch };
+			return next;
+		});
+	};
+
+	const thStyle: React.CSSProperties = {
+		height: 'auto',
+		padding: '0.25rem 0.3rem',
+		color: 'var(--mmbix-muted-foreground, #94a3b8)',
+		fontWeight: 700,
+		fontSize: '0.6rem',
+		textTransform: 'uppercase',
+		letterSpacing: '0.05em',
+		whiteSpace: 'nowrap',
 	};
 
 	return (
 		<div style={{ display: 'flex', gap: 12, padding: '0.75rem 0.9rem', alignItems: 'flex-start' }}>
-			{/* ── Left: role list ─────────────────────────────── */}
+			{/* ── Left: role rail ─────────────────────────────── */}
 			<aside style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
 				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
 					<span style={sectionTitle}>Roles</span>
-					<span style={{ fontSize: '0.6rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{roles.length}</span>
+					<span style={{ ...statValue, fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #94a3b8)' }}>{roles.length}</span>
 				</div>
 				<div style={{ marginTop: 2 }}>
 					<Button
@@ -326,30 +459,17 @@ export function RolesTab({ token }: { token: string }) {
 					</Button>
 				</div>
 				<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-					{roles.map((r) => {
-						const active = r.id === roleId;
-						return (
-							<button
-								key={r.id}
-								type="button"
-								onClick={() => {
-									setRoleId(r.id);
-									setMsg(null);
-								}}
-								title={r.name}
-								style={{
-									...btnPrimary,
-									justifyContent: 'space-between',
-									border: active ? '1px solid var(--mmbix-primary, #2563eb)' : '1px solid var(--mmbix-border, #e5e7eb)',
-									background: active ? 'rgba(37,99,235,0.08)' : 'var(--mmbix-card, #fff)',
-									color: active ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-foreground, #374151)',
-								}}
-							>
-								<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-								{r.is_system === 1 && <Badge variant="outline">system</Badge>}
-							</button>
-						);
-					})}
+					{roles.map((r) => (
+						<RoleRailItem
+							key={r.id}
+							role={r}
+							active={r.id === roleId}
+							onSelect={() => {
+								setRoleId(r.id);
+								setMsg(null);
+							}}
+						/>
+					))}
 				</div>
 			</aside>
 
@@ -371,26 +491,48 @@ export function RolesTab({ token }: { token: string }) {
 					</div>
 				) : (
 					<>
-						{/* Header row: name + description */}
-						<div
-							style={{
-								border: '1px solid var(--mmbix-border, #e5e7eb)',
-								borderRadius: 10,
-								background: 'var(--mmbix-card, #fff)',
-								padding: '0.7rem 0.8rem',
-								display: 'flex',
-								flexDirection: 'column',
-								gap: 8,
-							}}
-						>
-							<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-								<span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--mmbix-foreground, #0f172a)' }}>{role.name}</span>
-								{role.is_system === 1 && <Badge variant="outline">system role</Badge>}
-							</div>
-							<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-								<span style={{ fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', whiteSpace: 'nowrap' }}>
-									Description
+						{/* ── Role profile — identity + governance summary ─────────── */}
+						<div style={card}>
+							<div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+								<span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--mmbix-foreground, #0f172a)' }}>{role.name}</span>
+								<span
+									style={{
+										...tinyPill,
+										background: 'var(--mmbix-muted, #f1f5f9)',
+										color: 'var(--mmbix-muted-foreground, #64748b)',
+									}}
+								>
+									{role.is_system === 1 ? 'System role' : 'Custom role'}
 								</span>
+								{/* Sync state — the operator sees unsaved work without hunting for it. */}
+								{stats.dirty > 0 ? (
+									<span
+										style={{
+											...tinyPill,
+											background: 'color-mix(in srgb, var(--mmbix-tone-warning-fg, #d97706) 14%, transparent)',
+											color: 'var(--mmbix-tone-warning-fg, #d97706)',
+										}}
+									>
+										<ShieldAlert size={10} /> {stats.dirty} unsaved
+									</span>
+								) : (
+									<span
+										style={{
+											...tinyPill,
+											background: 'color-mix(in srgb, var(--mmbix-tone-positive-fg, #059669) 14%, transparent)',
+											color: 'var(--mmbix-tone-positive-fg, #059669)',
+										}}
+									>
+										<Check size={10} /> In sync
+									</span>
+								)}
+								<Button size="sm" style={{ marginLeft: 'auto' }} onClick={() => void saveRole()} disabled={busy}>
+									<Save size={12} /> Save role
+								</Button>
+							</div>
+
+							<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+								<span style={{ ...statLabel, flexShrink: 0 }}>Description</span>
 								<Input
 									value={draftDesc}
 									onChange={(e) => setDraftDesc(e.target.value)}
@@ -398,28 +540,24 @@ export function RolesTab({ token }: { token: string }) {
 									style={{ flex: 1, minWidth: 0 }}
 								/>
 							</div>
+
+							{/* Governance summary — the tiles that answer "how much access is this?". */}
+							<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 6 }}>
+								<Stat value={`${stats.granted} / ${stats.total}`} label="Collections granted" />
+								<Stat value={stats.flags} label="Flag grants" />
+								<Stat value={stats.rowRules} label="Row rules" />
+								<Stat value={stats.fieldLocks} label="Field locks" />
+								<Stat value={appsAll ? 'All' : (draftApps?.length ?? 0)} label="Apps open" />
+							</div>
 						</div>
 
-						{/* App board */}
-						<section
-							style={{
-								border: '1px solid var(--mmbix-border, #e5e7eb)',
-								borderRadius: 10,
-								background: 'var(--mmbix-card, #fff)',
-								padding: '0.7rem 0.8rem',
-								display: 'flex',
-								flexDirection: 'column',
-								gap: 8,
-							}}
-						>
-							<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+						{/* ── Mini-app board ─────────── */}
+						<section style={card}>
+							<div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
 								<span style={sectionTitle}>Mini-app board</span>
 								<span style={{ ...note, marginLeft: 4, flex: 1 }}>
 									Which launcher apps this role opens (null = every app). Ticking an app also grants read on the collections it needs.
 								</span>
-								<Button size="sm" onClick={() => void saveRole()} disabled={busy}>
-									<Save size={12} /> Save role
-								</Button>
 							</div>
 							<label
 								style={{
@@ -456,7 +594,7 @@ export function RolesTab({ token }: { token: string }) {
 													gap: 4,
 													padding: '0.15rem 0.4rem',
 													borderRadius: 6,
-													background: on ? 'rgba(37,99,235,0.08)' : 'transparent',
+													background: on ? 'color-mix(in srgb, var(--mmbix-primary, #2563eb) 8%, transparent)' : 'transparent',
 													fontSize: '0.72rem',
 													color: 'var(--mmbix-foreground, #374151)',
 													cursor: 'pointer',
@@ -471,21 +609,41 @@ export function RolesTab({ token }: { token: string }) {
 							)}
 						</section>
 
-						{/* Collection permissions — one row per collection (granted + unset) */}
-						<section
-							style={{
-								border: '1px solid var(--mmbix-border, #e5e7eb)',
-								borderRadius: 10,
-								background: 'var(--mmbix-card, #fff)',
-								padding: '0.7rem 0.8rem',
-								display: 'flex',
-								flexDirection: 'column',
-								gap: 8,
-							}}
-						>
-							<div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+						{/* ── Collection permission matrix ─────────── */}
+						<section style={card}>
+							<div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
 								<span style={sectionTitle}>Collection permissions</span>
-								<span style={{ ...note, marginLeft: 4, flex: 1 }}>Every collection shown; check flags and Save to grant access.</span>
+								<span style={note}>
+									{filtered.length === library.length ? `${library.length} collections` : `${filtered.length} of ${library.length} shown`}
+								</span>
+								{/* Bulk ops act on exactly the rows on screen. */}
+								<div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+									<Button
+										size="sm"
+										variant="outline"
+										title="Grant Read on every shown collection"
+										onClick={() => setFiltered({ can_read: true })}
+									>
+										Read all
+									</Button>
+									<Button
+										size="sm"
+										variant="outline"
+										title="Clear every flag on every shown collection"
+										onClick={() =>
+											setFiltered({
+												can_read: false,
+												can_write: false,
+												can_create: false,
+												can_delete: false,
+												can_approve: false,
+												can_submit: false,
+											})
+										}
+									>
+										Clear
+									</Button>
+								</div>
 							</div>
 							<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
 								<Search size={13} style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)' }} />
@@ -500,41 +658,56 @@ export function RolesTab({ token }: { token: string }) {
 							{filtered.length === 0 ? (
 								<p style={note}>{library.length === 0 ? 'Loading collections…' : `No collection matches “${permQuery}”.`}</p>
 							) : (
-								<div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+								<div style={{ overflowX: 'auto', maxHeight: 440, overflowY: 'auto' }}>
 									<Table style={{ width: '100%', fontSize: '0.72rem' }}>
 										<TableHeader style={{ position: 'sticky', top: 0, background: 'var(--mmbix-card, #fff)', zIndex: 1 }}>
 											<TableRow>
-												<TableHead
-													style={{
-														height: 'auto',
-														textAlign: 'left',
-														padding: '0.2rem 0.4rem',
-														color: 'var(--mmbix-muted-foreground, #9ca3af)',
-														fontWeight: 600,
-													}}
-												>
-													Collection
-												</TableHead>
-												{FLAG_KEYS.map((k) => (
-													<TableHead
-														key={k}
-														style={{
-															height: 'auto',
-															textAlign: 'center',
-															padding: '0.2rem 0.3rem',
-															color: 'var(--mmbix-muted-foreground, #9ca3af)',
-															fontWeight: 600,
-														}}
-													>
-														{FLAG_LABEL[k]}
-													</TableHead>
-												))}
-												<TableHead style={{ height: 'auto', textAlign: 'right', padding: '0.2rem 0.3rem' }} />
+												<TableHead style={{ ...thStyle, textAlign: 'left', padding: '0.25rem 0.4rem' }}>Collection</TableHead>
+												{FLAG_KEYS.map((k) => {
+													const state = colStates[k];
+													const tone =
+														state === 'all'
+															? 'var(--mmbix-tone-info-fg, #1d4ed8)'
+															: state === 'some'
+																? 'var(--mmbix-tone-warning-fg, #d97706)'
+																: 'var(--mmbix-muted-foreground, #94a3b8)';
+													return (
+														<TableHead key={k} style={{ ...thStyle, textAlign: 'center' }}>
+															{/* Column master toggle — flips this flag across the rows on screen. */}
+															<button
+																type="button"
+																onClick={() => toggleColumn(k)}
+																title={`${state === 'all' ? 'Clear' : 'Set'} ${FLAG_LABEL[k]} on all ${filtered.length} shown`}
+																style={{
+																	display: 'inline-flex',
+																	alignItems: 'center',
+																	gap: 3,
+																	border: 'none',
+																	background: 'transparent',
+																	padding: 0,
+																	cursor: 'pointer',
+																	color: tone,
+																	fontWeight: 700,
+																	fontSize: '0.6rem',
+																	textTransform: 'uppercase',
+																	letterSpacing: '0.05em',
+																}}
+															>
+																{FLAG_LABEL[k]}
+																{state === 'all' ? <Check size={11} /> : state === 'some' ? <Minus size={11} /> : null}
+															</button>
+														</TableHead>
+													);
+												})}
+												<TableHead style={{ ...thStyle, textAlign: 'left' }}>Attributes &amp; RLS</TableHead>
+												<TableHead style={{ ...thStyle, textAlign: 'right' }} />
 											</TableRow>
 										</TableHeader>
 										<TableBody>
 											{filtered.map((p) => {
-												const hasGrant = FLAG_KEYS.some((k) => Boolean(p[k]));
+												const hasAny = hasGrant(p);
+												const dirty = isPermDirty(p, permBaseline[p.collection_slug]);
+												const badges = governanceBadges(p);
 												return (
 													<TableRow key={p.collection_slug}>
 														<TableCell
@@ -543,9 +716,25 @@ export function RolesTab({ token }: { token: string }) {
 																fontWeight: 600,
 																fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
 																fontSize: '0.68rem',
-																color: hasGrant ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-muted-foreground, #9ca3af)',
+																color: hasAny ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-muted-foreground, #9ca3af)',
+																whiteSpace: 'nowrap',
 															}}
 														>
+															{/* A dot marks an unsaved edit on this row. */}
+															{dirty && (
+																<span
+																	title="Unsaved changes"
+																	style={{
+																		display: 'inline-block',
+																		width: 6,
+																		height: 6,
+																		borderRadius: 999,
+																		marginRight: 5,
+																		background: 'var(--mmbix-tone-warning-fg, #d97706)',
+																		verticalAlign: 'middle',
+																	}}
+																/>
+															)}
 															{p.collection_slug}
 														</TableCell>
 														{FLAG_KEYS.map((k) => (
@@ -553,13 +742,36 @@ export function RolesTab({ token }: { token: string }) {
 																<Checkbox checked={Boolean(p[k])} onCheckedChange={() => togglePerm(p.collection_slug, k)} />
 															</TableCell>
 														))}
+														{/* Governance note — the row's field whitelist / row-level rule. */}
+														<TableCell style={{ padding: '0.3rem 0.4rem' }}>
+															{badges.length === 0 ? (
+																<span style={{ fontSize: '0.62rem', color: 'var(--mmbix-muted-foreground, #cbd5e1)' }}>Unrestricted</span>
+															) : (
+																<div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+																	{badges.map((b) => (
+																		<span
+																			key={b}
+																			style={{
+																				...tinyPill,
+																				background: 'color-mix(in srgb, var(--mmbix-tone-info-fg, #1d4ed8) 10%, transparent)',
+																				color: 'var(--mmbix-tone-info-fg, #1d4ed8)',
+																				textTransform: 'none',
+																				letterSpacing: 0,
+																			}}
+																		>
+																			{b}
+																		</span>
+																	))}
+																</div>
+															)}
+														</TableCell>
 														<TableCell style={{ textAlign: 'right', padding: '0.25rem 0.3rem', whiteSpace: 'nowrap' }}>
 															<Button
 																size="sm"
 																variant="outline"
-																disabled={busy}
+																disabled={busy || !dirty}
 																onClick={() => void savePerm(p.collection_slug)}
-																title="Save full flag set for this collection"
+																title={dirty ? 'Save this collection’s flags' : 'No changes to save'}
 															>
 																<Save size={12} /> Save
 															</Button>

@@ -10,12 +10,11 @@ import { useNavigate } from 'react-router-dom';
 import { appColor } from '@mmbix/ui-views';
 import { isIdpManagedModule } from '../../lib/idp';
 import { popBack } from '../../lib/view-state';
+import { APP_SECTIONS, type AppSection } from '../../lib/app-sections';
 import type { ModuleDetail } from '../../lib/api';
 import AppIcon from '../AppIcon';
+import ThemeToggle from '../ThemeToggle';
 import { BuilderSaveButton } from './builder-parts';
-
-/** Valid Studio sections — the AppDetailPage left/center/right panes. */
-export type AppSection = 'collection' | 'menu' | 'builder';
 
 export function AppWorkbenchHeader({
 	mod,
@@ -71,11 +70,12 @@ export function AppWorkbenchHeader({
 					flexWrap: 'wrap',
 				}}
 			>
-				{(['collection', 'menu', 'builder'] as const).map((v) => (
+				{APP_SECTIONS.map((v) => (
 					<Button
 						key={v}
 						variant={section === v ? 'default' : 'ghost'}
 						size="sm"
+						aria-current={section === v ? 'page' : undefined}
 						onClick={() => onSectionChange(v)}
 						style={{ textTransform: 'capitalize' }}
 					>
@@ -87,7 +87,7 @@ export function AppWorkbenchHeader({
 			 * grouped flush against the right edge (single margin-left:auto). */}
 			<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
 				{/* Table / Schema view toggle — icon-only, appears when a collection is focused */}
-				{section === 'collection' && hasSelectedModel && (
+				{section === 'models' && hasSelectedModel && (
 					<div
 						style={{
 							display: 'flex',
@@ -101,6 +101,8 @@ export function AppWorkbenchHeader({
 							variant={view === 'table' ? 'default' : 'ghost'}
 							size="sm"
 							title="Table view"
+							aria-label="Table view"
+							aria-pressed={view === 'table'}
 							onClick={() => onViewChange('table')}
 							style={{ width: 28, padding: 0 }}
 						>
@@ -110,6 +112,8 @@ export function AppWorkbenchHeader({
 							variant={view === 'schema' ? 'default' : 'ghost'}
 							size="sm"
 							title="Schema view"
+							aria-label="Schema view"
+							aria-pressed={view === 'schema'}
 							onClick={() => onViewChange('schema')}
 							style={{ width: 28, padding: 0 }}
 						>
@@ -118,12 +122,15 @@ export function AppWorkbenchHeader({
 					</div>
 				)}
 				{/* Builder save — page drafts persist from the app bar */}
-				{section === 'builder' && <BuilderSaveButton />}
+				{section === 'pages' && <BuilderSaveButton />}
 				{/* Manage app — rename / icon / colours for THIS module (same dialog the
 				 * Apps grid uses, preloaded with the current module). */}
 				<Button variant="ghost" size="sm" title="Manage app" onClick={onManage} style={{ gap: 6 }}>
 					<Settings size={14} /> Manage
 				</Button>
+				{/* Light/dark rides the workbench header — the workbench does not render the
+				 * AppShell, so its account menu (which carries theme) is not on screen here. */}
+				<ThemeToggle />
 			</div>
 		</div>
 	);

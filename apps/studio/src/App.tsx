@@ -26,11 +26,9 @@ const IdpAuditPage = lazy(() => import('./pages/IdpAuditPage'));
 const IdpAppDetailPage = lazy(() => import('./pages/IdpAppDetailPage'));
 const IdpAccessPage = lazy(() => import('./pages/IdpAccessPage'));
 const IdpUsersPage = lazy(() => import('./pages/IdpUsersPage'));
-import ThemeToggle from './components/ThemeToggle';
 import { CommandPalette } from './components/CommandPalette';
 import { ConfirmDialogHost } from '@mmbix/design-system';
 import { useTenantTheme } from './lib/tenant-theme';
-import { useTranslation } from './lib/i18n';
 
 /** Suspense fallback for a lazy route chunk. */
 const RouteFallback = () => (
@@ -67,8 +65,9 @@ function readStoredSession(): Session | null {
 }
 
 /** Full-viewport builder route — the App workbench renders its own StudioLayout shell
- *  (header + 3 panes + footer) and must NOT be wrapped in the App chrome. */
-const STUDIO_ROUTE = /^\/apps\/[^/]+$/;
+ *  (header + 3 panes + footer) and must NOT be wrapped in the App chrome. The workbench
+ *  owns mode sub-routes (/apps/:slug/models|menus|pages), so the match allows a suffix. */
+const STUDIO_ROUTE = /^\/apps\/[^/]+(\/.*)?$/;
 
 // IDP portal (catalog + app detail) is a full-bleed read surface — it renders
 // its own header/back-nav and must NOT be wrapped in the plain app bar.
@@ -78,8 +77,6 @@ function AppInner({ token, user, onLogout }: { token: string; user: { email: str
 	const location = useLocation();
 	// White-label: apply the deployment's effective design tokens as CSS variables.
 	useTenantTheme(token);
-	// i18n: a missing key falls back to the literal (English), never a raw key.
-	const { t } = useTranslation(token, 'en', 'studio');
 	const isStudio = STUDIO_ROUTE.test(location.pathname);
 	const isStudioAdmin = location.pathname.startsWith('/studio') || location.pathname.startsWith('/api-docs');
 	const isIdp = IDP_ROUTE.test(location.pathname);
@@ -96,7 +93,7 @@ function AppInner({ token, user, onLogout }: { token: string; user: { email: str
 						<Suspense fallback={<RouteFallback />}>
 							<Routes>
 								<Route
-									path="/apps/:slug"
+									path="/apps/:slug/*"
 									element={
 										<StudioMetaProvider>
 											<AppDetailPage token={token} />
@@ -140,24 +137,6 @@ function AppInner({ token, user, onLogout }: { token: string; user: { email: str
 						</main>
 					</>
 				)}
-				{/* Thin studio toolbar — one small bar under every authed surface. The
-				 * theme control rides its right edge so light/dark is one click away. */}
-				<div
-					style={{
-						flexShrink: 0,
-						height: 30,
-						display: 'flex',
-						alignItems: 'center',
-						justifyContent: 'flex-end',
-						gap: '0.5rem',
-						padding: '0 0.6rem',
-						borderTop: '1px solid var(--mmbix-border, #e5e7eb)',
-						background: 'var(--mmbix-card, #ffffff)',
-					}}
-				>
-					<span style={{ fontSize: '0.68rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>{t('studio.shell.theme', 'Theme')}</span>
-					<ThemeToggle />
-				</div>
 			</div>
 			{/* Command palette — mounted once, available on every authed surface. */}
 			<CommandPalette token={token} />

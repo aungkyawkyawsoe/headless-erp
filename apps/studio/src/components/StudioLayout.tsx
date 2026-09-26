@@ -18,7 +18,7 @@
  * when collapsed it shrinks to a slim strip with an expand button.
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@mmbix/design-system';
+import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@mmbix/design-system';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import PaneBoundary from './PaneBoundary';
 import { useIsNarrow } from '../lib/use-media-query';
@@ -106,26 +106,17 @@ export default function StudioLayout({ header, left, right, footer, storageKey, 
 								justifyContent: 'center',
 							}}
 						>
-							<button
+							<Button
 								type="button"
+								variant="outline"
+								size="icon"
 								title="Expand panel"
+								aria-label="Expand left panel"
 								onClick={() => setLeftCollapsed(false)}
-								style={{
-									width: 22,
-									height: 40,
-									borderRadius: 6,
-									border: '1px solid var(--mmbix-border, #e5e7eb)',
-									background: 'var(--mmbix-card, #ffffff)',
-									cursor: 'pointer',
-									display: 'inline-flex',
-									alignItems: 'center',
-									justifyContent: 'center',
-									color: '#6b7280',
-									padding: 0,
-								}}
+								style={{ width: 22, height: 40 }}
 							>
 								<ChevronsRight size={14} />
-							</button>
+							</Button>
 						</div>
 					) : left ? (
 						<aside
@@ -163,26 +154,17 @@ export default function StudioLayout({ header, left, right, footer, storageKey, 
 									justifyContent: 'center',
 								}}
 							>
-								<button
+								<Button
 									type="button"
+									variant="outline"
+									size="icon"
 									title="Expand properties"
+									aria-label="Expand properties panel"
 									onClick={() => setRightCollapsed(false)}
-									style={{
-										width: 22,
-										height: 40,
-										borderRadius: 6,
-										border: '1px solid var(--mmbix-border, #e5e7eb)',
-										background: 'var(--mmbix-card, #ffffff)',
-										cursor: 'pointer',
-										display: 'inline-flex',
-										alignItems: 'center',
-										justifyContent: 'center',
-										color: '#6b7280',
-										padding: 0,
-									}}
+									style={{ width: 22, height: 40 }}
 								>
 									<ChevronsLeft size={14} />
-								</button>
+								</Button>
 							</div>
 						) : right ? (
 							<>

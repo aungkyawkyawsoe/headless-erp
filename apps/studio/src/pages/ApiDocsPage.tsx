@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@mmbix/design-system';
 import { popBack } from '../lib/view-state';
+import ThemeToggle from '../components/ThemeToggle';
 
 // Lazy-loaded — Scalar is heavy and only needed when the API docs page is opened.
 const ApiDocsTab = lazy(() => import('../components/ApiDocsTab'));
@@ -27,6 +28,10 @@ export default function ApiDocsPage({ token }: { token: string }) {
 					<ArrowLeft size={16} />
 				</Button>
 				<h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>API Docs</h1>
+				{/* Theme rides the header: this page renders no AppShell/account menu. */}
+				<div style={{ marginLeft: 'auto' }}>
+					<ThemeToggle />
+				</div>
 			</div>
 			<div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
 				<Suspense fallback={<p style={{ padding: '1rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Loading API docs…</p>}>
