@@ -2,6 +2,7 @@ dist/
 .wrangler/
 .DS_Store
 .playwright-mcp/
+.qoder/
 *.log
 *.tsbuildinfo
 node_modules/
@@ -53,3 +54,6 @@ nohup.out
 apps/tgapp/nohup.out
 apps/studio/test-results/
 apps/studio/playwright-report/
+
+# Workspace-local Dart pub cache (sandbox-safe PUB_CACHE for packages/mex-flutter-sdk)
+.pub-cache/

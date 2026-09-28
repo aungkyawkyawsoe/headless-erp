@@ -36,18 +36,19 @@
 
 ### Backend API — the REST + tRPC surface (`apps/api`)
 
-| Doc                                                                                                 | What It Covers                                                             |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| [API Reference Index](backend-api/README.md)                                                        | Every API reference in one place                                           |
-| [Authentication](backend-api/authentication.md)                                                     | Login, JWT, RBAC, rate limits, dev token                                   |
-| [Entities API](backend-api/entities.md)                                                             | Collection + item CRUD, filters, pagination, **read batch (`/api/query`)** |
-| [Client SDK](backend-api/sdk.md)                                                                    | `@mmbix/sdk` — typed client, `mmbix-typegen`, offline queue, React hooks   |
-| [Users, Roles & Permissions](backend-api/users-roles-permissions.md)                                | User management + RBAC                                                     |
-| [Search](backend-api/search.md) · [Audit](backend-api/audit.md) · [Reports](backend-api/reports.md) | Discovery & governance                                                     |
-| [Webhooks](backend-api/webhooks.md) · [Scheduler](backend-api/scheduler.md)                         | Events & automation                                                        |
-| [tRPC Layer](backend-api/trpc.md)                                                                   | Type-safe RPC with end-to-end types                                        |
-| [Governed Generation](backend-api/generation.md)                                                    | DesignDNA → schema proposal → human gate → live; DSL codec; read-only MCP  |
-| [MCP Control Plane](backend-api/mcp.md)                                                             | Few-tool MCP server: capability registry + Manifest plan/apply; scoped     |
+| Doc                                                                                                 | What It Covers                                                                |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [API Reference Index](backend-api/README.md)                                                        | Every API reference in one place                                              |
+| [Authentication](backend-api/authentication.md)                                                     | Login, JWT, RBAC, rate limits, dev token                                      |
+| [Entities API](backend-api/entities.md)                                                             | Collection + item CRUD, filters, pagination, **read batch (`/api/query`)**    |
+| [Client SDK](backend-api/sdk.md)                                                                    | `@mmbix/sdk` — typed client, `mmbix-typegen`, offline queue, React hooks      |
+| [Flutter SDK](backend-api/sdk-dart.md)                                                              | `mex_flutter_sdk` — Dart client, offline queue/reads, `--target dart` typegen |
+| [Users, Roles & Permissions](backend-api/users-roles-permissions.md)                                | User management + RBAC                                                        |
+| [Search](backend-api/search.md) · [Audit](backend-api/audit.md) · [Reports](backend-api/reports.md) | Discovery & governance                                                        |
+| [Webhooks](backend-api/webhooks.md) · [Scheduler](backend-api/scheduler.md)                         | Events & automation                                                           |
+| [tRPC Layer](backend-api/trpc.md)                                                                   | Type-safe RPC with end-to-end types                                           |
+| [Governed Generation](backend-api/generation.md)                                                    | DesignDNA → schema proposal → human gate → live; DSL codec; read-only MCP     |
+| [MCP Control Plane](backend-api/mcp.md)                                                             | Few-tool MCP server: capability registry + Manifest plan/apply; scoped        |
 
 ### Backend Plugins — declarative enterprise features (`apps/api`)
 

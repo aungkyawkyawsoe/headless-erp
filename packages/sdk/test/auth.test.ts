@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { isTokenExpired, memoryTokenStorage, tokenExpiryMs, tokenSubjectOf } from '../src/auth';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isTokenExpired, localStorageTokenStorage, memoryTokenStorage, tokenExpiryMs, tokenSubjectOf } from '../src/auth';
 
 /** Build a token in the server's exact format: btoa(payload + '.' + sig). */
 function makeToken(exp: number): string {
@@ -63,5 +63,57 @@ describe('memoryTokenStorage', () => {
 		expect(storage.get()).toBe('tok');
 		storage.clear();
 		expect(storage.get()).toBeNull();
+	});
+
+	it('keeps the refresh token in its own slot — clear() ends the whole session', () => {
+		const storage = memoryTokenStorage();
+		storage.set('tok');
+		storage.setRefresh?.('refresh-1');
+		expect(storage.getRefresh?.()).toBe('refresh-1');
+		storage.clear();
+		expect(storage.get()).toBeNull();
+		expect(storage.getRefresh?.()).toBeNull();
+	});
+});
+
+describe('localStorageTokenStorage', () => {
+	/** Minimal localStorage stub — the module only touches get/set/removeItem. */
+	function stubLocalStorage(): Map<string, string> {
+		const values = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => values.get(k) ?? null,
+			setItem: (k: string, v: string) => void values.set(k, v),
+			removeItem: (k: string) => void values.delete(k),
+		});
+		return values;
+	}
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('persists the token and the refresh token under separate keys', () => {
+		const values = stubLocalStorage();
+		const storage = localStorageTokenStorage('mmbix-token');
+		storage.set('tok');
+		storage.setRefresh?.('refresh-1');
+		expect(values.get('mmbix-token')).toBe('tok');
+		expect(values.get('mmbix-token:refresh')).toBe('refresh-1');
+		expect(storage.get()).toBe('tok');
+		expect(storage.getRefresh?.()).toBe('refresh-1');
+	});
+
+	it('setRefresh(null) removes the refresh key; clear() drops both slots', () => {
+		const values = stubLocalStorage();
+		const storage = localStorageTokenStorage('mmbix-token');
+		storage.set('tok');
+		storage.setRefresh?.('refresh-1');
+		storage.setRefresh?.(null);
+		expect(values.has('mmbix-token:refresh')).toBe(false);
+		expect(storage.getRefresh?.()).toBeNull();
+		storage.setRefresh?.('refresh-2');
+		storage.clear();
+		expect(values.has('mmbix-token')).toBe(false);
+		expect(values.has('mmbix-token:refresh')).toBe(false);
 	});
 });

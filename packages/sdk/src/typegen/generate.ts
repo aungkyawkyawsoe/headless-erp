@@ -67,6 +67,19 @@ const TS_KIND: Record<FieldType, TsKind> = {
 	formula: 'virtual', // special-cased by store/result_type
 };
 
+/** Row-storage kind for a field type — the shared classification every emitter
+ *  uses (the TS Zod emitter HERE and the `--target dart` model emitter). */
+export type FieldKind = 'string' | 'number' | 'boolean' | 'virtual';
+
+/**
+ * The Dart/TS row kind for a field — single lookup so the two emitters can
+ * never disagree about what a field IS. Unknown wire types fall back to
+ * `'string'` (the same default `tsTypeFor` applies).
+ */
+export function fieldKind(field: RawField): FieldKind {
+	return (TS_KIND as Record<string, FieldKind>)[field.type] ?? 'string';
+}
+
 /**
  * Formula `result_type` → generated TS type — derived from the canonical
  * `FormulaResultType` union in `@mmbix/types` (an exhaustive Record, mirroring
@@ -231,7 +244,7 @@ const SLUG_RE = /^[a-zA-Z0-9_-]+$/;
 const FIELD_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const TS_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-function assertSafeSlug(slug: string): void {
+export function assertSafeSlug(slug: string): void {
 	if (!SLUG_RE.test(slug)) {
 		throw new Error(
 			`Typegen: collection slug "${slug}" is not a safe identifier (expected /^[a-zA-Z0-9_-]+$/) — refusing to generate code for it`,
@@ -239,7 +252,7 @@ function assertSafeSlug(slug: string): void {
 	}
 }
 
-function assertSafeFieldName(name: string, slug: string): void {
+export function assertSafeFieldName(name: string, slug: string): void {
 	if (!FIELD_NAME_RE.test(name)) {
 		throw new Error(
 			`Typegen: field name "${name}" in collection "${slug}" is not a safe identifier (expected /^[a-zA-Z_][a-zA-Z0-9_]*$/) — refusing to generate code for it`,
@@ -253,7 +266,7 @@ function assertSafeTypeName(name: string, slug: string): void {
 	}
 }
 
-function fieldList(collection: RawCollection): { field: RawField; system: boolean }[] {
+export function fieldList(collection: RawCollection): { field: RawField; system: boolean }[] {
 	// Generated collections may arrive with schema_json still as a string
 	// (normalizeCollection is applied by the CLI, but direct callers can pass
 	// raw API shapes) — treat non-object values as empty.

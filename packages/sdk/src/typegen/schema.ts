@@ -80,3 +80,28 @@ export async function fetchCollections(source: TypegenSource): Promise<RawCollec
 	);
 	return detailed;
 }
+
+/**
+ * Fetch the deployment's canonical error codes (`GET /api/meta → error_codes`).
+ *
+ * Fail-soft by design: returns null when the API is unreachable or the payload
+ * is unrecognizable. The error-codes section is ADDITIVE to the generated
+ * models — a meta hiccup must never block model generation; the CLI falls back
+ * to the bundled `@mmbix/types` catalog (the same constant `/api/meta` serves).
+ */
+export async function fetchErrorCodes(source: TypegenSource): Promise<string[] | null> {
+	if (!source.url || !source.token) return null;
+	const fetchImpl = source.fetchImpl ?? fetch;
+	const base = source.url.replace(/\/+$/, '');
+	try {
+		const res = await fetchImpl(`${base}/meta`, {
+			headers: { Authorization: `Bearer ${source.token}` },
+		});
+		if (!res.ok) return null;
+		const env = (await res.json()) as { data?: { error_codes?: unknown } } | null;
+		const codes = env?.data?.error_codes;
+		return Array.isArray(codes) ? codes.filter((c): c is string => typeof c === 'string') : null;
+	} catch {
+		return null;
+	}
+}

@@ -6,19 +6,28 @@
  * Cloudflare Worker (BFF), or Node.
  *
  * Expiry awareness: the server issues 24h JWTs (`exp` claim). The client
- * treats an already-expired token as absent — it re-authenticates up front
- * instead of paying a doomed request + 401 + retry.
+ * treats an already-expired token as absent — it rotates the stored refresh
+ * token (when the storage provides one) or re-authenticates up front instead
+ * of paying a doomed request + 401 + retry.
  */
 
 export interface TokenStorage {
 	get(): string | null;
 	set(token: string): void;
 	clear(): void;
+	/** The stored refresh token, or null. OPTIONAL: a storage that omits the two
+	 *  refresh methods runs token-only (no rotation — the client falls back to
+	 *  the legacy 401 `refreshSession` hook). */
+	getRefresh?(): string | null;
+	/** Store the rotated refresh token; `null` clears the slot. OPTIONAL — see
+	 *  [getRefresh]. `clear()` ends the WHOLE session (both slots). */
+	setRefresh?(refresh: string | null): void;
 }
 
 /** In-memory storage — the default; survives SPA navigation, dies on reload. */
 export function memoryTokenStorage(): TokenStorage {
 	let token: string | null = null;
+	let refresh: string | null = null;
 	return {
 		get: () => token,
 		set: (t) => {
@@ -26,6 +35,11 @@ export function memoryTokenStorage(): TokenStorage {
 		},
 		clear: () => {
 			token = null;
+			refresh = null;
+		},
+		getRefresh: () => refresh,
+		setRefresh: (r) => {
+			refresh = r;
 		},
 	};
 }
@@ -36,6 +50,9 @@ export function memoryTokenStorage(): TokenStorage {
  * runtimes without a DOM (worker/node).
  */
 export function localStorageTokenStorage(key = 'mmbix-sdk-token'): TokenStorage {
+	// The refresh token lives in its own slot — a rotation replaces it without
+	// touching the JWT, and `clear()` drops the whole session in one move.
+	const refreshKey = `${key}:refresh`;
 	const store = () =>
 		(
 			globalThis as {
@@ -57,9 +74,25 @@ export function localStorageTokenStorage(key = 'mmbix-sdk-token'): TokenStorage 
 				/* storage unavailable — memory-only session */
 			}
 		},
+		getRefresh() {
+			try {
+				return store()?.getItem(refreshKey) ?? null;
+			} catch {
+				return null;
+			}
+		},
+		setRefresh(r) {
+			try {
+				if (r === null) store()?.removeItem(refreshKey);
+				else store()?.setItem(refreshKey, r);
+			} catch {
+				/* storage unavailable — memory-only session */
+			}
+		},
 		clear() {
 			try {
 				store()?.removeItem(key);
+				store()?.removeItem(refreshKey);
 			} catch {
 				/* ignore */
 			}

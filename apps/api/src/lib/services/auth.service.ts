@@ -601,6 +601,32 @@ export class AuthService {
 		return { token, user: AuthService._sanitizeUser(user) as unknown as UserRecord };
 	}
 
+	/**
+	 * Mint a fresh JWT for an EXISTING session — the `/auth/refresh` path.
+	 *
+	 * The exact re-validation `login` performs, minus the password: the account
+	 * must still be active and, when it carries an employee link, that employee
+	 * must still be live in the directory. The UNcached read is deliberate — a
+	 * refresh is the moment a revocation must land (a disable or an offboard
+	 * between two 24h windows is exactly what this catches), so paying one fresh
+	 * `_users` read here is the point, not a regression.
+	 *
+	 * A refusal NAMES its reason (`inactive` | `unlinked`) so the caller can
+	 * revoke the refresh chain too: offboarding must end the bearer AND the
+	 * chain (design §7.3).
+	 */
+	async reissueToken(
+		userId: string,
+		jwtSecret: string,
+	): Promise<{ ok: true; token: string; user: UserRecord } | { ok: false; reason: 'inactive' | 'unlinked' }> {
+		const user = await this.users.findOne({ id: userId });
+		if (!user || user.status !== 'active') return { ok: false, reason: 'inactive' };
+		const linked = user.employee_id ?? null;
+		if (linked && !(await findLiveEmployeeById(this.db, linked))) return { ok: false, reason: 'unlinked' };
+		const token = await this.generateToken(user.id, jwtSecret, linked);
+		return { ok: true, token, user: AuthService._sanitizeUser(user) as unknown as UserRecord };
+	}
+
 	// ── Role Management ───────────────────────────────
 
 	async createRole(input: CreateRoleInput): Promise<RoleRecord> {

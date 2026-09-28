@@ -19,10 +19,14 @@ Get a JWT token. In dev mode, login rate limits are skipped.
 	"success": true,
 	"data": {
 		"token": "eyJqdGkiOiJlN2I4YzY5NS0...",
+		"refresh_token": "9f2c... (64 hex chars — store it; it is shown only here)",
 		"user": { "id": "59ed5c0a-...", "email": "admin", "full_name": "Administrator" }
 	}
 }
 ```
+
+`refresh_token` is the long-lived companion credential — see _Refresh Tokens & Logout_
+below. An optional `device_id` in the login request is stored on the token's row.
 
 **Errors:**
 
@@ -70,6 +74,66 @@ user.employee_id)` — exactly as a Telegram login embeds its directory row. Eve
   link answers `401 Your account is no longer linked to an active employee —
 contact HR to restore access`, which is actionable instead of a lie about the
   password.
+
+## Refresh Tokens & Logout
+
+The JWT expires after 24 hours. It is a _session pointer_ (every request re-validates
+the account and its employee link), but it cannot outlive that window — so "stay
+signed in" for a standalone app needs a second credential: the **refresh token**,
+minted at every login and rotated at `POST /api/auth/refresh` (design §7.3).
+
+- **Storage** — only the SHA-256 hash is kept (`_refresh_tokens.token_hash`, the
+  `_api_keys` precedent). The plaintext (256-bit random, 64 hex chars) appears once
+  in the login/refresh response and is never logged.
+- **Single-use rotation** — each successful refresh revokes the presented token and
+  issues a successor (`rotated_from` names it); the `device_id` binding and the
+  sliding **30-day** TTL carry over.
+- **Theft detection** — replaying an already-rotated token is treated as theft: the
+  whole descendant chain is revoked (attacker and victim are logged out together —
+  the victim re-authenticates, the thief cannot) and a `securityAudit` row with
+  `reason: "refresh_token_reuse"` records it.
+- **Full re-validation** — a refresh re-runs the login gate (account
+  `status: 'active'` AND the employee link still live). A refusal revokes the entire
+  chain, so offboarding ends the bearer AND the refresh chain.
+
+`POST /api/auth/refresh`
+
+```json
+{ "refresh_token": "9f2c...64-hex" }
+```
+
+**Response (`200`)** — a token pair, exactly like login; always store the NEW
+`refresh_token` and drop the old one:
+
+```json
+{
+	"success": true,
+	"data": {
+		"token": "eyJqdGkiOi...",
+		"refresh_token": "b71e...64-hex",
+		"user": { "id": "59ed5c0a-...", "email": "admin", "full_name": "Administrator" }
+	}
+}
+```
+
+Every failure — unknown, expired, already-rotated, account disabled, employee
+unlinked — answers the SAME generic `401 Invalid refresh token` (no oracle); a
+missing/empty token is `400 refresh_token required`.
+
+`POST /api/auth/logout`
+
+```json
+{ "refresh_token": "9f2c...64-hex", "all": false }
+```
+
+Revokes the presented token's chain; `all: true` revokes every live chain of the
+user (sign out everywhere). Idempotent and oracle-free — an unknown or missing
+token still answers `200 {"success":true,"data":{"revoked":0}}`. A `securityAudit`
+`logout` row names the user and `{ all, revoked }`.
+
+> Pinned by `apps/api/test/refresh-token.spec.ts`: rotation + device/TTL continuity,
+> reuse → family revoke + audit, raw-seeded expiry, logout (chain only / all /
+> idempotent), and the offboard/disable refusals that kill the chain.
 
 ## client app Login (approval-gated)
 
@@ -247,13 +311,14 @@ If the built-in JWT fails, each configured provider is tried in order until one 
 
 ## Rate Limits
 
-| Tier          | Requests/min (production) | Applies To                               |
-| ------------- | ------------------------- | ---------------------------------------- |
-| Anonymous     | 100                       | Requests without a valid token           |
-| Authenticated | 300                       | Requests with a valid token              |
-| Admin         | 1000                      | Requests from admin users                |
-| Login         | 5/min                     | `POST /api/auth/login` (production only) |
-| Bulk          | 10/min                    | `POST /api/bulk/*`                       |
+| Tier           | Requests/min (production) | Applies To                                                          |
+| -------------- | ------------------------- | ------------------------------------------------------------------- |
+| Anonymous      | 100                       | Requests without a valid token                                      |
+| Authenticated  | 300                       | Requests with a valid token                                         |
+| Admin          | 1000                      | Requests from admin users                                           |
+| Login          | 5/min                     | `POST /api/auth/login` (production only)                            |
+| Refresh/Logout | 10/min                    | `POST /api/auth/refresh`, `POST /api/auth/logout` (production only) |
+| Bulk           | 10/min                    | `POST /api/bulk/*`                                                  |
 
 > In dev mode (`IS_DEV=true`), anonymous/authenticated tiers are raised to 10000/min to avoid interfering with local testing.
 

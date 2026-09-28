@@ -15,6 +15,7 @@ import { findDirectoryEmployee, tgIdFromEmail } from '@/lib/services/telegram-ga
 import { ensureProvisionedTelegramRole, syncDirectoryRole } from '@/lib/services/telegram-role.service';
 import { initConfig } from '@mmbix/config';
 import { sha256Hex } from '@/lib/services/api-key.service';
+import { RefreshTokenService } from '@/lib/services/refresh-token.service';
 import { createMiddleware } from 'hono/factory';
 import { MigrationRunner } from '@mmbix/core';
 import { rateLimiter } from '@/middleware/rate-limiter';
@@ -173,10 +174,29 @@ app.use(
 	}),
 );
 
+// Refresh / logout rate limit: 10/min (production), per IP + tier — the
+// credential rides in the BODY, not the bearer, so the limiter cannot key by
+// user; the global limiter still fronts every other /api route. Dev skips,
+// mirroring login.
+const sessionLimiter = rateLimiter({
+	defaults: { anonymous: { max: 10, window: 60 }, authenticated: { max: 10, window: 60 }, admin: { max: 10, window: 60 } },
+});
+
+const skipSessionLimitInDev = createMiddleware(async (c, next) => {
+	if ((c.env.IS_DEV as string) === 'true') {
+		await next();
+		return;
+	}
+	await sessionLimiter(c, next);
+});
+
+app.use('/refresh', skipSessionLimitInDev);
+app.use('/logout', skipSessionLimitInDev);
+
 app.post('/login', async (c) => {
 	const auth = getAuth(c);
 	await new MigrationRunner(new D1Client(c.env.DB)).runPending();
-	const { email, password } = await c.req.json();
+	const { email, password, device_id } = await c.req.json();
 	if (!email || !password) {
 		return fail(c, 'Email and password required', 400);
 	}
@@ -229,8 +249,101 @@ app.post('/login', async (c) => {
 	});
 	return success(c, {
 		token: result.token,
+		// The long-lived companion credential — what makes "stay signed in"
+		// possible beyond the 24h JWT. Rotated at /auth/refresh, revoked at
+		// /auth/logout; only its SHA-256 hash is stored server-side.
+		refresh_token: await new RefreshTokenService(new D1Client(c.env.DB)).issue(
+			result.user.id,
+			typeof device_id === 'string' && device_id ? device_id : null,
+		),
 		user: { id: result.user.id, email: result.user.email, full_name: result.user.full_name },
 	});
+});
+
+// ─── POST /api/auth/refresh ─────────────────────────
+// Single-use rotation: a valid refresh token is revoked and replaced by a
+// successor. Presenting an already-rotated token is a THEFT signal — the whole
+// descendant chain is revoked and a `securityAudit` event names it. Every
+// failure answers the SAME generic 401, so the route is never an oracle.
+
+app.post('/refresh', async (c) => {
+	await new MigrationRunner(new D1Client(c.env.DB)).runPending();
+	let body: { refresh_token?: unknown } = {};
+	try {
+		body = await c.req.json();
+	} catch {
+		/* empty body — handled as a missing token below */
+	}
+	const presented = typeof body.refresh_token === 'string' ? body.refresh_token : '';
+	if (!presented) return fail(c, 'refresh_token required', 400);
+
+	let jwtSecret: string;
+	try {
+		jwtSecret = AuthService.resolveJwtSecret(c.env);
+	} catch (err) {
+		return fail(c, err instanceof Error ? err.message : 'Server misconfigured: set JWT_SECRET environment variable', 500);
+	}
+
+	const service = new RefreshTokenService(new D1Client(c.env.DB));
+	const outcome = await service.rotate(presented);
+	if (outcome.status === 'reuse') {
+		securityAudit(c, {
+			collection: SECURITY_COLLECTIONS.auth,
+			action: 'revoke',
+			document_id: outcome.userId,
+			changes: { reason: 'refresh_token_reuse', revoked: outcome.revokedCount },
+		});
+		return fail(c, 'Invalid refresh token', 401);
+	}
+	if (outcome.status === 'invalid') return fail(c, 'Invalid refresh token', 401);
+
+	const session = await getAuth(c).reissueToken(outcome.userId, jwtSecret);
+	if (!session.ok) {
+		// The account died between two JWT windows (disabled, or its employee was
+		// offboarded) — end the whole chain too: offboarding must kill the bearer
+		// AND the refresh chain (design §7.3). The fresh, UNcached read in
+		// `reissueToken` is what makes this land on the very next refresh.
+		await service.revokeAllForUser(outcome.userId);
+		securityAudit(c, {
+			collection: SECURITY_COLLECTIONS.auth,
+			action: 'revoke',
+			document_id: outcome.userId,
+			changes: { reason: 'refresh_session_refused', because: session.reason },
+		});
+		return fail(c, 'Invalid refresh token', 401);
+	}
+	return success(c, {
+		token: session.token,
+		refresh_token: outcome.token,
+		user: { id: session.user.id, email: session.user.email, full_name: session.user.full_name },
+	});
+});
+
+// ─── POST /api/auth/logout ───────────────────────────
+// Revoke the presented refresh token (`all: true` → every live chain of the
+// user). Idempotent and oracle-free: an unknown or missing token still answers
+// 200 — the caller learns nothing beyond "the request was processed".
+
+app.post('/logout', async (c) => {
+	await new MigrationRunner(new D1Client(c.env.DB)).runPending();
+	let body: { refresh_token?: unknown; all?: unknown } = {};
+	try {
+		body = await c.req.json();
+	} catch {
+		/* empty body — a no-op logout */
+	}
+	const presented = typeof body.refresh_token === 'string' ? body.refresh_token : '';
+	const all = body.all === true;
+	const result = await new RefreshTokenService(new D1Client(c.env.DB)).revoke(presented, all);
+	if (presented && result.userId) {
+		securityAudit(c, {
+			collection: SECURITY_COLLECTIONS.auth,
+			action: 'logout',
+			document_id: result.userId,
+			changes: { all, revoked: result.revoked },
+		});
+	}
+	return success(c, { revoked: result.revoked });
 });
 
 // ─── GET /api/auth/me ─────────────────────────────────

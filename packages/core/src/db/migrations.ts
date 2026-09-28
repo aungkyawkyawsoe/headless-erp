@@ -682,6 +682,37 @@ const MIGRATIONS: Migration[] = [
 			QueryBuilder.raw('ALTER TABLE _media ADD COLUMN uploaded_by TEXT DEFAULT NULL'),
 		],
 	},
+	{
+		name: '048_refresh_tokens',
+		up: [
+			// Refresh tokens — the "stay signed in" credential the 24h JWT cannot
+			// provide by itself. MODELLED ON `_api_keys`: only the SHA-256 hash is
+			// stored (`token_hash`), the plaintext token is handed to the client once
+			// and never logged. Rotation is the contract: `POST /auth/refresh` revokes
+			// the presented row and issues a successor whose `rotated_from` names it —
+			// presenting an ALREADY-ROTATED token again is a theft signal, and the
+			// service revokes its whole descendant chain (`revoked_at` on every hop).
+			// A logged-out or killed chain simply carries `revoked_at`; expiry rides
+			// `expires_at` (ISO, sliding — each rotation extends it). `device_id` is
+			// bound at login so a future `_devices` registry can show/revoke one device.
+			sb.createTable('_refresh_tokens', (t) => {
+				t.uuid('id');
+				t.text('user_id');
+				t.text('token_hash');
+				t.text('device_id').nullable();
+				t.timestamp('created_at').defaultRaw('CURRENT_TIMESTAMP');
+				t.text('expires_at');
+				t.text('rotated_from').nullable();
+				t.text('revoked_at').nullable();
+			}),
+			// The lookup is by hash ONLY (the presented plaintext is hashed then matched) —
+			// unique so a hash collision is impossible by construction.
+			QueryBuilder.raw('CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON _refresh_tokens (token_hash)'),
+			// `revokeAllForUser` (logout-all, offboarding, account disable) filters by the
+			// owner; the `revoked_at` component serves the `revoked_at IS NULL` guard.
+			QueryBuilder.raw('CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON _refresh_tokens (user_id, revoked_at)'),
+		],
+	},
 ];
 
 /** Source-of-truth migration names — the CLI imports these instead of keeping a stale copy. */

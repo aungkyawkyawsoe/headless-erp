@@ -595,3 +595,313 @@ describe('auth helpers', () => {
 		expect(storage.get()).toBeNull();
 	});
 });
+
+describe('refresh tokens & logout', () => {
+	/** A token the client considers expired (exp 1h ago). */
+	function expiredToken(): string {
+		return btoa(JSON.stringify({ jti: 'x', user_id: 'u', exp: Date.now() - 3_600_000 }) + '.sig');
+	}
+
+	/** A successful /auth/refresh payload. */
+	function refreshEnvelope(token = 'fresh', refresh = 'refresh-2') {
+		return envelope({ token, refresh_token: refresh, user: { id: 'u', email: 'a@b.c', full_name: 'A' } });
+	}
+
+	const authOf = (init?: RequestInit) => new Headers(init?.headers ?? {}).get('Authorization');
+
+	it('rotates an expired token up front (no doomed request) and sends the fresh bearer', async () => {
+		const calls: Array<{ path: string; auth: string | null; idem: string | null }> = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				const path = new URL(String(url), 'http://x').pathname;
+				calls.push({ path, auth: authOf(init), idem: new Headers(init?.headers ?? {}).get('Idempotency-Key') });
+				return path === '/api/auth/refresh' ? refreshEnvelope() : envelope({ ok: true });
+			}),
+		);
+		const storage = memoryTokenStorage();
+		storage.set(expiredToken());
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await expect(client.request('/entities/x')).resolves.toEqual({ ok: true });
+		expect(calls).toEqual([
+			// The rotation authenticates by the token itself — no bearer, no key.
+			{ path: '/api/auth/refresh', auth: null, idem: null },
+			{ path: '/api/entities/x', auth: 'Bearer fresh', idem: null },
+		]);
+		expect(storage.get()).toBe('fresh');
+		expect(storage.getRefresh?.()).toBe('refresh-2');
+	});
+
+	it('rotates ONCE when concurrent requests race the same expired token', async () => {
+		let refreshCalls = 0;
+		const entityAuth: Array<string | null> = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				const path = new URL(String(url), 'http://x').pathname;
+				if (path === '/api/auth/refresh') {
+					refreshCalls++;
+					await Promise.resolve(); // widen the window so a second caller overlaps
+					return refreshEnvelope();
+				}
+				entityAuth.push(authOf(init));
+				return envelope({ ok: true });
+			}),
+		);
+		const storage = memoryTokenStorage();
+		storage.set(expiredToken());
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await Promise.all([client.request('/entities/a'), client.request('/entities/b')]);
+		// A second rotation would present an already-rotated token — theft to the
+		// server, which revokes the whole chain. Single-flight is a correctness
+		// requirement, not an optimization.
+		expect(refreshCalls).toBe(1);
+		expect(entityAuth).toEqual(['Bearer fresh', 'Bearer fresh']);
+	});
+
+	it('a refused rotation (401) ends the session and the request surfaces the 401', async () => {
+		const calls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) => {
+				const path = new URL(String(url), 'http://x').pathname;
+				if (path === '/api/auth/refresh') {
+					calls.push('refresh');
+					return errorEnvelope(401, 'Invalid refresh token');
+				}
+				calls.push('request');
+				return errorEnvelope(401, 'Invalid or expired token');
+			}),
+		);
+		const storage = memoryTokenStorage();
+		storage.set(expiredToken());
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await expect(client.request('/entities/x')).rejects.toMatchObject({ status: 401 });
+		expect(calls).toEqual(['refresh', 'request']); // rotation first, then the tokenless request
+		expect(storage.get()).toBeNull();
+		expect(storage.getRefresh?.()).toBeNull();
+	});
+
+	it('401 → rotates the refresh token once → retries with the fresh bearer', async () => {
+		const calls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init?: RequestInit) => {
+				const path = new URL(String(url), 'http://x').pathname;
+				if (path === '/api/auth/refresh') {
+					calls.push(`refresh:${authOf(init) ?? 'anon'}`);
+					return refreshEnvelope();
+				}
+				const auth = authOf(init) ?? 'anon';
+				calls.push(auth);
+				return auth === 'Bearer fresh' ? envelope({ ok: true }) : errorEnvelope(401, 'Invalid or expired token');
+			}),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('stale'); // unparseable → sent as-is until the server rejects it
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await expect(client.request('/entities/x')).resolves.toEqual({ ok: true });
+		expect(calls).toEqual(['Bearer stale', 'refresh:anon', 'Bearer fresh']);
+		expect(storage.get()).toBe('fresh');
+		expect(storage.getRefresh?.()).toBe('refresh-2');
+	});
+
+	it('prefers the refresh token over the refreshSession hook', async () => {
+		const hook = vi.fn(async () => 'hooked');
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) =>
+				new URL(String(url), 'http://x').pathname === '/api/auth/refresh' ? refreshEnvelope() : envelope({ ok: true }),
+			),
+		);
+		const storage = memoryTokenStorage();
+		storage.set(expiredToken());
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage, refreshSession: hook });
+		await client.request('/entities/x');
+		expect(hook).not.toHaveBeenCalled();
+	});
+
+	it('auth.refresh() rotates the chain and stores the successor', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => refreshEnvelope()),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('old');
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await expect(client.auth.refresh()).resolves.toBe(true);
+		expect(storage.get()).toBe('fresh');
+		expect(storage.getRefresh?.()).toBe('refresh-2');
+	});
+
+	it('auth.refresh() resolves false without a stored token — no network call', async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal('fetch', fetchSpy);
+		const client = createClient({ tokenStorage: memoryTokenStorage() });
+		await expect(client.auth.refresh()).resolves.toBe(false);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it('auth.refresh() ends the session on a 401 refusal', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => errorEnvelope(401, 'Invalid refresh token')),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('old');
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await expect(client.auth.refresh()).resolves.toBe(false);
+		expect(storage.get()).toBeNull();
+		expect(storage.getRefresh?.()).toBeNull();
+	});
+
+	it('a network failure during rotation keeps the session (a later try may succeed)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new TypeError('network down');
+			}),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('old');
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await expect(client.auth.refresh()).resolves.toBe(false);
+		expect(storage.get()).toBe('old');
+		expect(storage.getRefresh?.()).toBe('refresh-1');
+	});
+
+	it('logout() clears locally FIRST, then revokes the chain server-side', async () => {
+		const bodies: Array<Record<string, unknown>> = [];
+		let sawClearedStorage: boolean | null = null;
+		const storage = memoryTokenStorage();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init?: RequestInit) => {
+				sawClearedStorage = storage.get() === null && storage.getRefresh?.() === null;
+				bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+				return envelope({ revoked: 1 });
+			}),
+		);
+		storage.set('tok');
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await client.auth.logout();
+		expect(sawClearedStorage).toBe(true); // local state is gone when the revoke leaves
+		expect(bodies).toEqual([{ refresh_token: 'refresh-1', all: false }]);
+	});
+
+	it('logout({ all: true }) asks for every chain of the user to be revoked', async () => {
+		const bodies: Array<Record<string, unknown>> = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init?: RequestInit) => {
+				bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+				return envelope({ revoked: 3 });
+			}),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('tok');
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await client.auth.logout({ all: true });
+		expect(bodies).toEqual([{ refresh_token: 'refresh-1', all: true }]);
+	});
+
+	it('logout() resolves even when the revoke call fails', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new TypeError('network down');
+			}),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('tok');
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await expect(client.auth.logout()).resolves.toBeUndefined();
+		expect(storage.get()).toBeNull();
+		expect(storage.getRefresh?.()).toBeNull();
+	});
+
+	it('logout() without a stored refresh token never calls the server', async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal('fetch', fetchSpy);
+		const storage = memoryTokenStorage();
+		storage.set('tok');
+		const client = createClient({ tokenStorage: storage });
+		await client.auth.logout();
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(storage.get()).toBeNull();
+	});
+
+	it('loginPassword forwards device_id and stores the issued chain', async () => {
+		const bodies: Array<Record<string, unknown>> = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_url: string, init?: RequestInit) => {
+				bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+				return envelope({ token: 'jwt-1', refresh_token: 'refresh-1', user: { id: '1', email: 'a@b.c', full_name: 'A' } });
+			}),
+		);
+		const storage = memoryTokenStorage();
+		const client = createClient({ tokenStorage: storage });
+		await client.auth.loginPassword('a@b.c', 'pw', 'device-7');
+		expect(bodies).toEqual([{ email: 'a@b.c', password: 'pw', device_id: 'device-7' }]);
+		expect(storage.get()).toBe('jwt-1');
+		expect(storage.getRefresh?.()).toBe('refresh-1');
+	});
+
+	it('a sign-in replaces the prior chain — or clears it when the server issued none', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => envelope({ token: 'jwt-2', user: { id: '2', email: 'b@c.d', full_name: 'B' } })),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('jwt-1');
+		storage.setRefresh?.('refresh-from-account-1');
+		const client = createClient({ tokenStorage: storage });
+		await client.auth.loginPassword('b@c.d', 'pw');
+		expect(storage.get()).toBe('jwt-2');
+		expect(storage.getRefresh?.()).toBeNull(); // never carry a previous session's chain
+	});
+
+	it('a Telegram sign-in clears any prior refresh chain (the route issues none)', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => envelope({ status: 'approved', token: 'jwt-t', user: { id: '1', email: 'a@b.c', full_name: 'A' } })),
+		);
+		const storage = memoryTokenStorage();
+		storage.set('jwt-old');
+		storage.setRefresh?.('refresh-old');
+		const client = createClient({ tokenStorage: storage });
+		await client.auth.login('init-data');
+		expect(storage.get()).toBe('jwt-t');
+		expect(storage.getRefresh?.()).toBeNull();
+	});
+
+	it('an auth-path request never rotates, clears or grafts the session', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => envelope({ revoked: 0 })),
+		);
+		const storage = memoryTokenStorage();
+		storage.set(expiredToken());
+		storage.setRefresh?.('refresh-1');
+		const client = createClient({ tokenStorage: storage });
+		await client.request('/auth/logout', { method: 'POST', body: { refresh_token: 'refresh-1' } });
+		const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers ?? {});
+		expect(headers.get('Authorization')).toBeNull();
+		expect(headers.get('Idempotency-Key')).toBeNull();
+		expect(storage.get()).not.toBeNull(); // the refresh token must survive for logout()/refresh()
+		expect(storage.getRefresh?.()).toBe('refresh-1');
+		expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1); // no rotation recursion
+	});
+});

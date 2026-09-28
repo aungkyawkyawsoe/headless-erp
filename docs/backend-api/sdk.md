@@ -3,8 +3,9 @@
 The typed client layer for the headless entity engine — **zero-waste by
 construction**: typed queries (no hand-rolled URLs), expired-token awareness,
 401 self-heal, transient retry, replay-safe writes, a schema typegen that
-produces **one file** with both TypeScript types and Zod schemas (zero drift),
-and an offline queue with idempotent replay for flaky networks.
+produces **one file** with both TypeScript types and Zod schemas (zero drift)
+— or plain-Dart models for Flutter (`--target dart`) — and an offline queue
+with idempotent replay for flaky networks.
 
 | Package            | Role                                                               | Docs                                                                 |
 | ------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
@@ -13,6 +14,10 @@ and an offline queue with idempotent replay for flaky networks.
 
 Runtime: **browser, Cloudflare Worker (BFF), Node** — `fetch`-based, token
 storage injected, no `window`/`localStorage` at module scope.
+
+Flutter apps use the 1:1 Dart port — [`mex_flutter_sdk`](sdk-dart.md): same
+contracts, Flutter platform wiring (secure storage, lifecycle, connectivity)
+merged into one package.
 
 ---
 
@@ -45,6 +50,11 @@ export const Schemas = { 'records': HrAttendanceSchema, ... };
   (D1 returns raw 0/1), `string`/`json` → `z.string()`. **Virtual** formulas
   (computed on read) are omitted from the row shape like o2m/m2m fields — they
   appear only when expanded.
+- **Dart/Flutter** — `--target dart` emits plain-Dart row models
+  (`fromJson`/`toJson`), `<Collection>Fields` constants for the `F.*` filter
+  factories, and `ApiErrorCodes` from `/api/meta → error_codes`. A committed,
+  CI-verified example + byte-exact drift gate live in `packages/mex-flutter-sdk`
+  ([CLI reference](../cli/typegen.md)).
 - Full CLI reference: [mmbix-typegen](../cli/typegen.md).
 
 ## 3. Typed client
@@ -100,6 +110,59 @@ await client.pruneFields('records', ['id', 'salary']); // -> ['id'] when salary 
 Schemas.records.parse(row);
 ```
 
+### Sessions & refresh tokens
+
+A sign-in returns `{ token, refresh_token, user }`: the 24h JWT plus a rotating
+refresh chain — `loginPassword(email, password, deviceId?)` binds the chain to
+the device. `memoryTokenStorage()` / `localStorageTokenStorage()` persist both
+slots; a **custom `TokenStorage` opts in by implementing
+`getRefresh()`/`setRefresh()`** — omitting them runs token-only mode, where the
+`refreshSession` hook below is the only 401 self-heal.
+
+- Expired stored token → the client **rotates it up front** (no doomed request);
+  with no refresh token it is cleared and the 401 flow takes over.
+- 401 on a call → **one rotation** (single-flight: concurrent 401s share ONE
+  `/auth/refresh` POST) then one retry. A refused rotation (401) ends the local
+  session; a network/5xx failure keeps it (the token may rotate later).
+- `await client.auth.refresh()` — explicit rotation; resolves `false` instead
+  of throwing (a 401 refusal ends the session first).
+- `await client.auth.logout({ all? })` — local state (token, refresh token,
+  device-persisted reads) is dropped FIRST, then the chain is revoked
+  best-effort server-side (`all: true` → every device). Never throws; works
+  offline.
+- Login replaces the whole session: the issued chain is stored, or the slot is
+  cleared when the route issued none — never carry a previous account's chain.
+
+### Files (media)
+
+Uploads into the engine's R2 library — `client.files`, three paths MECE:
+
+```ts
+// Direct upload — the session bearer rides along; a 401 heals like any call.
+const asset = await client.files.upload(photoFile, { visibility: 'private' });
+// -> { key, url, filename, size, mime_type }
+
+// Delegated upload — mint a single-use, user-bound token (15 min)...
+const presigned = await client.files.presign();
+// -> { token, expires_at, upload_url, max_bytes }
+// ...then redeem it with NO bearer (background isolate, upload worker, kiosk):
+await client.files.uploadWithToken(photoFile, presigned.token);
+```
+
+- `visibility: 'private'` restricts serving to the uploader/admin; omitted ⇒
+  the server default `'public'` (a capability URL — a stored value renders as
+  `<img src>`, which cannot carry a bearer). The declared MIME must be in the
+  server's allowlist and its magic bytes must match — see [media.md](./media.md).
+- The delegated route is **self-authenticating**: the client attaches no
+  bearer, never heals a 401, and **redacts the token from every hook/log**
+  (`/media/upload/<token>`) — a token that reached an error listener would be
+  a leaked credential.
+- Uploads are exempt from `Idempotency-Key` and the offline queue by shape
+  (binary bodies are unreplayable); `presign()` opts out of the queue too,
+  since a replayed presign would mint a token nobody consumes.
+- Default upload timeout 120 s (`UPLOAD_TIMEOUT_MS`); override per call via
+  `timeoutMs`.
+
 ## 4. Composable client (Directus-style `.with()`)
 
 Compose only what you need, in any order, with the return type updated per feature:
@@ -121,15 +184,15 @@ const client = createClient<Schema>({ baseUrl: 'https://api.example.com' })
 
 ## 5. Zero-waste guarantees
 
-| Concern             | Mechanism                                                             |
-| ------------------- | --------------------------------------------------------------------- |
-| No hand-rolled URLs | typed `ListQuery` → `serializeQuery` (filters, fields, cursor, count) |
-| Expired token waste | `isTokenExpired` — re-auth up front, no doomed request + 401          |
-| 401 churn           | `refreshSession` — one refresh, one retry                             |
-| Transient failures  | automatic retry with backoff (408/429/502/503)                        |
-| Duplicate writes    | client-generated UUID + `Idempotency-Key`                             |
-| Stale overwrites    | `If-Match` optimistic concurrency                                     |
-| Type/runtime drift  | typegen emits types AND Zod from the same schema                      |
+| Concern             | Mechanism                                                                      |
+| ------------------- | ------------------------------------------------------------------------------ |
+| No hand-rolled URLs | typed `ListQuery` → `serializeQuery` (filters, fields, cursor, count)          |
+| Expired token waste | `isTokenExpired` — rotate (or re-auth) up front, no doomed request + 401       |
+| 401 churn           | refresh-token rotation — single-flight, one rotate + one retry (hook fallback) |
+| Transient failures  | automatic retry with backoff (408/429/502/503)                                 |
+| Duplicate writes    | client-generated UUID + `Idempotency-Key`                                      |
+| Stale overwrites    | `If-Match` optimistic concurrency                                              |
+| Type/runtime drift  | typegen emits types AND Zod from the same schema                               |
 
 ## 6. Page-size policy (one contract everywhere)
 
@@ -140,7 +203,7 @@ client-facing endpoint clamps to it. The SDK mirrors + discovers it:
 | Constant                        | Value   | Where                                              |
 | ------------------------------- | ------- | -------------------------------------------------- |
 | `DEFAULT_PAGE_SIZE`             | **25**  | a `list()`/`queryMany` spec with no `limit`        |
-| `MAX_PAGE_SIZE`                 | **100** | any `limit` above 100 is clamped server-side       |
+| `MAX_PAGE_SIZE`                 | **500** | any `limit` above 500 is clamped server-side       |
 | `client.limits`                 | —       | active policy (defaults until `loadLimits()` runs) |
 | `normalizePageSize(n, policy?)` | —       | exported helper for custom transports              |
 
@@ -286,10 +349,10 @@ connectivity hooks. `SdkProvider` in `src/app/App.tsx` wires the hooks. The
 legacy REST client exists only for dynamic MVE collections and bespoke caches.
 
 **When to reach for which hook (new views):** `useView` when a view renders
-several small list reads (≤ 100 rows each) — one `/api/query` round trip;
+several small list reads (≤ 500 rows each) — one `/api/query` round trip;
 `useItems`/`useInfiniteItems` for cached/paginated lists; `useItem` for
 single-row loads; the mutation hooks for writes with zero-stale invalidation.
-Cursor-walks (> 100 rows) and custom business endpoints (`/reports/*`,
+Cursor-walks (> 500 rows) and custom business endpoints (`/reports/*`,
 `attendanceSummary`) can't batch into `queryMany` — call `sdk.request` directly.
 
 ## 11. Scripts
@@ -302,6 +365,7 @@ pnpm --filter @mmbix/sdk build       # bundles bin/typegen.js (node CLI)
 
 ## See also
 
+- [Dart/Flutter SDK](sdk-dart.md) — the 1:1 Dart port (`mex_flutter_sdk`)
 - [mmbix-typegen CLI](../cli/typegen.md) — the generator reference
 - [Entities API](entities.md) — the REST surface the SDK wraps (filters, cursor, `POST /api/query`)
 - [Computed Fields](../backend-plugins/computed-fields.md) — stored formulas are typed by `result_type`

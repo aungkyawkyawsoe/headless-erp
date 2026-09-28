@@ -20,12 +20,12 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+var __toESM = (mod, isNodeMode, target2) => (target2 = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
   // If the importer is in node compatibility mode or this is not an ESM
   // file that has been converted to a CommonJS file using a Babel-
   // compatible transform (i.e. "__esModule" has not been set), then set
   // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target2, "default", { value: mod, enumerable: true }) : target2,
   mod
 ));
 
@@ -108,6 +108,168 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+// ../utils/src/time.ts
+var MMT_OFFSET_MS = 6.5 * 60 * 60 * 1e3;
+
+// ../utils/src/field-types.ts
+var FIELD_TYPE_NAMES = [
+  "text",
+  "longtext",
+  "slug",
+  "password",
+  "integer",
+  "number",
+  "bigint",
+  "currency",
+  "percent",
+  "rating",
+  "boolean",
+  "timestamp",
+  "date",
+  "time",
+  "json",
+  "csv",
+  "location",
+  "color",
+  "m2o",
+  "o2m",
+  "m2m",
+  "m2a",
+  "file",
+  "image",
+  "select",
+  "uuid",
+  "table",
+  "formula",
+  "text_editor",
+  "code",
+  "markdown",
+  "signature",
+  "duration",
+  "barcode",
+  "datetime",
+  "phone",
+  "email",
+  "url",
+  "icon",
+  "tags",
+  "progress"
+];
+var VALID_FIELD_TYPES = new Set(FIELD_TYPE_NAMES);
+
+// ../utils/src/errors/codes.ts
+var ERROR_CODES = [
+  // ── 4xx — client / resource ──────────────────────────
+  "VALIDATION_ERROR",
+  // 400 — invalid input / failed declarative validation
+  "INVALID_JSON",
+  // 400 — malformed request body
+  "UNAUTHORIZED",
+  // 401 — missing/invalid credentials
+  "FORBIDDEN",
+  // 403 — authenticated but denied (role / row / field)
+  "NOT_FOUND",
+  // 404 — collection or item missing
+  "CONFLICT",
+  // 409 — duplicate / state conflict / optimistic-concurrency
+  "PAYLOAD_TOO_LARGE",
+  // 413 — body exceeds the upload/body limit
+  "UNSUPPORTED_MEDIA_TYPE",
+  // 415 — bad Content-Type
+  "RATE_LIMIT_EXCEEDED",
+  // 429 — per-role quota exhausted
+  // ── 5xx — server ─────────────────────────────────────
+  "NOT_CONFIGURED",
+  // 501 — a required provider/integration is not configured
+  "DATABASE_ERROR",
+  // 502 — D1 failed (never leaks raw internals)
+  "INTERNAL_ERROR",
+  // 500 — unexpected failure
+  // ── SDK-side (never emitted by the API) ──────────────
+  "NETWORK_ERROR",
+  // the request never reached the server
+  "SDK_ERROR",
+  // generic client-side failure
+  "API_ERROR",
+  // unclassified API failure
+  "BAD_ENVELOPE"
+  // the server responded but with an unrecognized envelope
+];
+var API_ERROR_CODES = ERROR_CODES.filter(
+  (c) => c !== "NETWORK_ERROR" && c !== "SDK_ERROR" && c !== "API_ERROR" && c !== "BAD_ENVELOPE"
+);
+
+// ../utils/src/validation.ts
+var RESERVED_SQL_WORDS = new Set(
+  [
+    // Core statement keywords
+    "select",
+    "from",
+    "where",
+    "insert",
+    "into",
+    "values",
+    "update",
+    "set",
+    "delete",
+    "create",
+    "drop",
+    "alter",
+    "table",
+    "index",
+    "view",
+    "trigger",
+    // Clauses / operators (verified against sqlite3: these FAIL as unquoted column names)
+    "in",
+    "on",
+    "as",
+    "and",
+    "or",
+    "not",
+    "null",
+    "is",
+    "between",
+    "exists",
+    "escape",
+    "collate",
+    "case",
+    "when",
+    "then",
+    "else",
+    "union",
+    "all",
+    "distinct",
+    "group",
+    "order",
+    "having",
+    "limit",
+    "using",
+    "join",
+    "returning",
+    "nothing",
+    "add",
+    // Constraint keywords
+    "primary",
+    "foreign",
+    "references",
+    "check",
+    "unique",
+    "default",
+    "constraint",
+    "autoincrement",
+    // Transactions / misc
+    "commit",
+    "transaction",
+    "to",
+    "current_date",
+    "current_time",
+    "current_timestamp",
+    "rowid",
+    "oid"
+    // usable unquoted, but shadowing rowid is never what you want
+  ].map((w) => w.toLowerCase())
+);
+
 // src/typegen/schema.ts
 function normalizeCollection(raw) {
   const schemaJson = typeof raw.schema_json === "string" ? safeParse(raw.schema_json) : raw.schema_json;
@@ -151,6 +313,22 @@ async function fetchCollections(source) {
     })
   );
   return detailed;
+}
+async function fetchErrorCodes(source) {
+  if (!source.url || !source.token) return null;
+  const fetchImpl = source.fetchImpl ?? fetch;
+  const base = source.url.replace(/\/+$/, "");
+  try {
+    const res = await fetchImpl(`${base}/meta`, {
+      headers: { Authorization: `Bearer ${source.token}` }
+    });
+    if (!res.ok) return null;
+    const env = await res.json();
+    const codes = env?.data?.error_codes;
+    return Array.isArray(codes) ? codes.filter((c) => typeof c === "string") : null;
+  } catch {
+    return null;
+  }
 }
 
 // src/typegen/generate.ts
@@ -199,6 +377,9 @@ var TS_KIND = {
   formula: "virtual"
   // special-cased by store/result_type
 };
+function fieldKind(field) {
+  return TS_KIND[field.type] ?? "string";
+}
 var FORMULA_TS_TYPE = {
   number: "number",
   boolean: "boolean | number",
@@ -404,6 +585,258 @@ ${ordered.map((c) => `	${c.slug}: ${pascalName(c.slug)}Schema,`).join("\n")}
   };
 }
 
+// src/typegen/generate-dart.ts
+var DART_TYPE = {
+  string: { type: "String?", decode: (key) => `json[${key}] as String?` },
+  number: { type: "num?", decode: (key) => `json[${key}] as num?` },
+  boolean: { type: "bool?", decode: (key) => `_dbBool(json[${key}])` }
+};
+var FORMULA_KIND = {
+  number: "number",
+  boolean: "boolean",
+  // decoded through `_dbBool` (D1 stores 0/1)
+  string: "string",
+  json: "string"
+};
+function dartKindOf(field) {
+  if (field.type === "formula") {
+    if (field.store !== true) return null;
+    const rt = field.result_type ?? "number";
+    return FORMULA_KIND[rt] ?? "number";
+  }
+  switch (fieldKind(field)) {
+    case "number":
+      return "number";
+    case "boolean":
+      return "boolean";
+    case "virtual":
+      return null;
+    default:
+      return "string";
+  }
+}
+var DART_KEYWORDS = /* @__PURE__ */ new Set([
+  "abstract",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "base",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "covariant",
+  "default",
+  "deferred",
+  "do",
+  "dynamic",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "extension",
+  "external",
+  "factory",
+  "false",
+  "final",
+  "finally",
+  "for",
+  "get",
+  "hide",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "interface",
+  "is",
+  "late",
+  "library",
+  "mixin",
+  "new",
+  "null",
+  "of",
+  "on",
+  "operator",
+  "part",
+  "required",
+  "rethrow",
+  "return",
+  "sealed",
+  "set",
+  "show",
+  "static",
+  "super",
+  "switch",
+  "sync",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "type",
+  "typedef",
+  "var",
+  "void",
+  "when",
+  "while",
+  "with",
+  "yield"
+]);
+function camelMemberName(wire, slug) {
+  const parts = wire.split("_").filter(Boolean).map((p) => p.toLowerCase());
+  let name = parts.map((p, i) => i === 0 ? p : p.charAt(0).toUpperCase() + p.slice(1)).join("");
+  if (!/^[a-z][a-zA-Z0-9]*$/.test(name)) {
+    throw new Error(`Typegen(dart): field name "${wire}" in collection "${slug}" does not map to an identifier-safe Dart member name`);
+  }
+  if (DART_KEYWORDS.has(name)) name = `${name}_`;
+  return name;
+}
+function assertSafeErrorCode(code) {
+  if (!/^[A-Z][A-Z0-9_]*$/.test(code)) {
+    throw new Error(`Typegen(dart): error code "${code}" is not identifier-safe (expected /^[A-Z][A-Z0-9_]*$/) \u2014 refusing to emit it`);
+  }
+}
+function dartStringLiteral(value) {
+  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\$/g, "\\$")}'`;
+}
+function headerFor2(meta) {
+  const markers = meta?.sourceHash ? [`// source-hash: ${meta.sourceHash}`] : [];
+  return [
+    `// AUTO-GENERATED by @mmbix/sdk typegen (--target dart) \u2014 DO NOT EDIT.`,
+    ...markers,
+    `//`,
+    `// Row models for the entity schema \u2014 one plain-Dart class per collection`,
+    `// (fromJson/toJson, no build_runner), field-name constants for the F.* filter`,
+    `// factories, and the canonical API error codes this deployment emits.`,
+    `// Re-run the generator after any schema change; everything updates together.`
+  ].join("\n");
+}
+var DB_BOOL_HELPER = [
+  `/// D1 stores booleans as INTEGER 0/1 (JSON \`number\`) \u2014 normalize to \`bool\`.`,
+  `bool? _dbBool(Object? value) {`,
+  `	if (value is bool) return value;`,
+  `	if (value is num) return value != 0;`,
+  `	return null;`,
+  `}`
+].join("\n");
+function generateDartModels(collections, options) {
+  const ordered = [...collections].sort((a, b) => a.slug.localeCompare(b.slug));
+  const models = [];
+  const constants = [];
+  const usedClassNames = /* @__PURE__ */ new Map();
+  let fieldCount = 0;
+  let usesDbBool = false;
+  for (const collection of ordered) {
+    assertSafeSlug(collection.slug);
+    const name = pascalName(collection.slug);
+    const fieldsName = `${name}Fields`;
+    for (const candidate of [name, fieldsName]) {
+      const previous = usedClassNames.get(candidate);
+      if (previous !== void 0) {
+        throw new Error(
+          `Typegen(dart): collections "${previous}" and "${collection.slug}" both emit the class name "${candidate}" \u2014 rename one slug`
+        );
+      }
+      usedClassNames.set(candidate, collection.slug);
+    }
+    const rows = [];
+    const members = /* @__PURE__ */ new Map();
+    for (const { field } of fieldList(collection)) {
+      const kind = dartKindOf(field);
+      if (kind === null || field.name === "id") continue;
+      assertSafeFieldName(field.name, collection.slug);
+      const member = camelMemberName(field.name, collection.slug);
+      const clash = members.get(member);
+      if (clash !== void 0) {
+        throw new Error(
+          `Typegen(dart): fields "${clash}" and "${field.name}" in collection "${collection.slug}" both map to member "${member}" \u2014 rename one field`
+        );
+      }
+      members.set(member, field.name);
+      rows.push({ member, wire: field.name, kind });
+      fieldCount++;
+    }
+    if (rows.some((r) => r.kind === "boolean")) usesDbBool = true;
+    const model = [];
+    model.push(`/// Row model for the \`${collection.slug}\` collection.`);
+    model.push(`class ${name} {`);
+    model.push(`	const ${name}({`);
+    model.push(`		required this.id,`);
+    for (const r of rows) model.push(`		this.${r.member},`);
+    model.push(`	});`);
+    model.push(``);
+    model.push(`	final String id;`);
+    for (const r of rows) model.push(`	final ${DART_TYPE[r.kind].type} ${r.member};`);
+    model.push(``);
+    model.push(`	factory ${name}.fromJson(Map<String, Object?> json) => ${name}(`);
+    model.push(`		id: json['id'] as String,`);
+    for (const r of rows) model.push(`		${r.member}: ${DART_TYPE[r.kind].decode(dartStringLiteral(r.wire))},`);
+    model.push(`	);`);
+    model.push(``);
+    model.push(`	/// PATCH-style payload \u2014 null fields are OMITTED (absent \u2260 explicit`);
+    model.push(`	/// null), so a round-tripped row never silently clears a column.`);
+    model.push(`	Map<String, Object?> toJson() => {`);
+    model.push(`		'id': id,`);
+    for (const r of rows) model.push(`		if (${r.member} != null) ${dartStringLiteral(r.wire)}: ${r.member},`);
+    model.push(`	};`);
+    model.push(`}`);
+    models.push(model.join("\n"));
+    const block = [];
+    const exampleMember = rows.length > 0 ? rows[0].member : "id";
+    block.push(`/// Field-name constants for the \`${collection.slug}\` collection \u2014 pass them to`);
+    block.push(`/// the \`F.*\` filter factories (\`F.eq(${fieldsName}.${exampleMember}, \u2026)\`); a misspelled`);
+    block.push(`/// field is a compile error.`);
+    block.push(`abstract final class ${fieldsName} {`);
+    block.push(`	static const id = 'id';`);
+    for (const r of rows) block.push(`	static const ${r.member} = ${dartStringLiteral(r.wire)};`);
+    block.push(`}`);
+    constants.push(block.join("\n"));
+  }
+  let codesBlock = null;
+  const errorCodes = options?.errorCodes ?? [];
+  if (errorCodes.length > 0) {
+    const seenCodes = /* @__PURE__ */ new Set();
+    const seenMembers = /* @__PURE__ */ new Set();
+    const codeRows = [];
+    for (const code of errorCodes) {
+      assertSafeErrorCode(code);
+      if (seenCodes.has(code)) throw new Error(`Typegen(dart): duplicate error code "${code}"`);
+      seenCodes.add(code);
+      const member = camelMemberName(code, "error_codes");
+      if (seenMembers.has(member)) throw new Error(`Typegen(dart): error codes collide on member "${member}" \u2014 refusing to emit`);
+      seenMembers.add(member);
+      codeRows.push({ member, code });
+    }
+    const lines = [];
+    lines.push(`/// Canonical API error codes this deployment emits \u2014 \`GET /api/meta\` \u2192`);
+    lines.push(`/// \`error_codes\`. Compare against \`ErpHttpException.apiCode\`.`);
+    lines.push(`abstract final class ApiErrorCodes {`);
+    for (const r of codeRows) lines.push(`	static const ${r.member} = ${dartStringLiteral(r.code)};`);
+    lines.push(``);
+    lines.push(`	/// Every code, in catalog order.`);
+    lines.push(`	static const List<String> all = [`);
+    for (const r of codeRows) lines.push(`		${r.member},`);
+    lines.push(`	];`);
+    lines.push(`}`);
+    codesBlock = lines.join("\n");
+  }
+  const sections = [headerFor2(options?.meta)];
+  if (models.length > 0) sections.push(``, `// \u2500\u2500 Row models \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500`, ``, models.join("\n\n"));
+  if (constants.length > 0) {
+    sections.push(``, `// \u2500\u2500 Field constants (F.* factories) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500`, ``, constants.join("\n\n"));
+  }
+  if (codesBlock) sections.push(``, `// \u2500\u2500 Canonical API error codes \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500`, ``, codesBlock);
+  if (usesDbBool) sections.push(``, `// \u2500\u2500 Internals \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500`, ``, DB_BOOL_HELPER);
+  sections.push(``);
+  const codeSummary = codesBlock ? `, ${errorCodes.length} error codes` : "";
+  return {
+    content: sections.join("\n"),
+    summary: `${collections.length} collections \u2192 ${fieldCount} fields${codeSummary}`
+  };
+}
+
 // bin/typegen.ts
 var { values } = parseArgs({
   options: {
@@ -411,26 +844,38 @@ var { values } = parseArgs({
     token: { type: "string" },
     schema: { type: "string" },
     out: { type: "string", default: "./src/generated" },
-    name: { type: "string", default: "schema.ts" },
+    name: { type: "string" },
+    target: { type: "string" },
     help: { type: "boolean", short: "h" }
   }
 });
+var target = (values.target ?? "ts").toLowerCase();
+if (target !== "ts" && target !== "dart") {
+  console.error(import_picocolors.default.red(`Unknown --target "${values.target}" \u2014 use "ts" (default) or "dart".`));
+  process.exit(1);
+}
+var outName = values.name ?? (target === "dart" ? "schema.dart" : "schema.ts");
 if (values.help) {
-  console.log(`mmbix-typegen \u2014 generate typed schema (TS types + Zod) from the Mmbix entity schema.
+  console.log(`mmbix-typegen \u2014 generate typed client code from the Mmbix entity schema.
 
 Usage:
   --schema <path>  Canonical schema JSON file (array of collections) \u2014 OFFLINE,
                    no API needed; records source-hash in the generated header
   --url <base>     API base URL, e.g. http://localhost:8788/api (live mode)
   --token <token>  Admin/dev token (prefer the MMBIX_TOKEN env var \u2014 it is not visible in process listings)
+  --target <lang>  Output language: "ts" (default) | "dart"
+                   ts   \u2192 schema.ts \u2014 TS types + Zod (single source of truth)
+                   dart \u2192 schema.dart \u2014 plain-Dart models (fromJson/toJson) + field
+                          constants for the F.* factories + ApiErrorCodes
+                          (GET /api/meta in live mode; bundled catalog offline)
   --out <dir>      Output directory (default ./src/generated)
-  --name <file>    Output file name (default schema.ts)
+  --name <file>    Output file name (default schema.ts \u2014 schema.dart for dart)
 
 Examples:
   mmbix-typegen --schema ./schema.source.json --out ./src/generated   # offline (CI-safe)
   mmbix-typegen --url http://localhost:8788/api --token dev-token
   MMBIX_TOKEN=\u2026 mmbix-typegen --url https://api.example.com/api
-  mmbix-typegen --schema ./schema.json --out ./src/generated`);
+  mmbix-typegen --schema ./schema.json --out ./lib/generated --target dart`);
   process.exit(0);
 }
 var token = values.token ?? process.env.MMBIX_TOKEN;
@@ -450,9 +895,24 @@ try {
     console.error(import_picocolors.default.red("No collections found \u2014 is the API reachable / schema file valid?"));
     process.exit(1);
   }
-  const { content, summary } = generateTypes(collections, meta);
+  let errorCodes;
+  if (target === "dart") {
+    const live = values.schema ? null : await fetchErrorCodes({ url: values.url, token });
+    if (live && live.length > 0) {
+      errorCodes = live;
+      if (JSON.stringify(live) !== JSON.stringify([...API_ERROR_CODES])) {
+        console.warn(
+          import_picocolors.default.dim(`note: the server advertises a different error-code set than this CLI build \u2014 emitted the server's ${live.length}.`)
+        );
+      }
+    } else {
+      errorCodes = API_ERROR_CODES;
+      if (!values.schema) console.warn(import_picocolors.default.dim("note: /api/meta was unreachable \u2014 emitted the bundled @mmbix/types error catalog."));
+    }
+  }
+  const { content, summary } = target === "dart" ? generateDartModels(collections, { meta, errorCodes }) : generateTypes(collections, meta);
   const outDir = values.out;
-  const outFile = path.join(outDir, values.name);
+  const outFile = path.join(outDir, outName);
   mkdirSync(outDir, { recursive: true });
   let unchanged = false;
   try {

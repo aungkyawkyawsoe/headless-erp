@@ -37,6 +37,12 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
+      # Flutter toolchain (bundles Dart) — @mmbix/mex-flutter-sdk runs in the turbo `test`/`lint` slots.
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
       - run: pnpm install --frozen-lockfile
       - name: Infra env drift check (infra/env.* ↔ committed wrangler configs)
         run: pnpm check:infra

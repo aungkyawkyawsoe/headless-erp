@@ -1,0 +1,10 @@
+{
+	"name": "@mmbix/mex-flutter-sdk",
+	"version": "0.1.0",
+	"private": true,
+	"description": "MEX Flutter SDK (mex_flutter_sdk) — the merged Dart port of @mmbix/sdk plus the Flutter platform adapters. Runs in the turbo `test` slot via the Flutter toolchain.",
+	"scripts": {
+		"test": "flutter pub get && flutter test",
+		"lint": "flutter pub get && flutter analyze"
+	}
+}

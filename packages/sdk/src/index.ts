@@ -28,6 +28,8 @@ export type { AggregateMeasure, AggregateOp, Filter, FilterCondition, ListQuery,
 export { fieldsToArray, restrictFields } from './permissions';
 export { createItemsApi, uuid } from './items';
 export type { ItemsApi, MutateOptions, RequestFn, RequestOptionsLike } from './items';
+export { createFilesApi, UPLOAD_TIMEOUT_MS } from './files';
+export type { FileUploadOptions, FilesApi, MediaAsset, MediaVisibility, PresignedUpload } from './files';
 export { createOfflineQueue, memoryQueueStorage, localStorageQueueStorage, fingerprint } from './offline';
 export type { OfflineQueue, OfflineQueueOptions, QueuedMutation, QueueStorage } from './offline';
 export { ConditionalResponseCache, memoryResponseCacheStorage, localStorageResponseStorage } from './conditional-cache';

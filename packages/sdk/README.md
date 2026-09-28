@@ -56,6 +56,13 @@ if (login.status === 'approved') {
 	// 'pending' — show the approval-wait screen (tg_id/full_name available)
 }
 await client.auth.loginPassword(email, password);
+await client.auth.refresh(); // rotate the stored chain on demand (the pipeline also rotates up front / on 401)
+await client.auth.logout(); // local-first logout; the chain is revoked server-side best-effort
+
+// Files (media) — direct upload, or delegate with a single-use token
+const asset = await client.files.upload(photoFile, { visibility: 'private' }); // 201 { key, url, size, mime_type }
+const { token } = await client.files.presign(); // hand to an uploader that holds no session (15 min, single-use)
+const redeemed = await client.files.uploadWithToken(photoFile, token); // no bearer — the token IS the credential
 
 // Typed CRUD — compile-time checked against the generated Schema
 const page = await client.items('records').list({
@@ -129,8 +136,8 @@ are an optional DX layer, not a replacement.
 | Concern                          | Mechanism                                                                                    |
 | -------------------------------- | -------------------------------------------------------------------------------------------- |
 | No hand-rolled URLs              | typed `ListQuery` → `serializeQuery` (filters, fields, cursor, count)                        |
-| Expired token waste              | `isTokenExpired` — re-auth up front, no doomed request + 401                                 |
-| 401 churn                        | `refreshSession` — one refresh, one retry                                                    |
+| Expired token waste              | `isTokenExpired` — rotate (or re-auth) up front, no doomed request + 401                     |
+| 401 churn                        | refresh-token rotation — single-flight rotate + one retry (`refreshSession` hook fallback)   |
 | Transient failures               | automatic retry with backoff (408/429/502/503)                                               |
 | Duplicate writes                 | client-generated UUID + `Idempotency-Key`                                                    |
 | Stale overwrites                 | `If-Match` optimistic concurrency                                                            |

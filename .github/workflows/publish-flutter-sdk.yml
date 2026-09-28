@@ -1,0 +1,88 @@
+name: Publish Flutter SDK
+
+# Publishes @mmbix/mex-flutter-sdk to the private pub registry.
+#
+# One-time setup (repo admin):
+#   1. Repository variable PUB_REGISTRY_URL — the private registry host, e.g. https://pub.example.com
+#   2. Repository secret PUB_TOKEN — a credential for that host
+# Then dispatch this workflow from the Actions tab: leave dry_run=true to validate,
+# set dry_run=false to release.
+#
+# Poka-Yoke: the committed pubspec keeps `publish_to: 'none'`, so a stray local
+# `dart pub publish` can NEVER reach pub.dev. This workflow is the only publish
+# path, and it re-points the field at PUB_REGISTRY_URL at publish time only.
+# PUB_HOSTED_URL is deliberately NOT set: dependency fetch keeps resolving from
+# pub.dev; only the token/publish steps talk to the private registry.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate the package (dart pub publish --dry-run) without uploading
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-flutter-sdk
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/mex-flutter-sdk
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - name: Gate — resolve, analyze, test
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Point pubspec at the private registry
+        env:
+          PUB_REGISTRY_URL: ${{ vars.PUB_REGISTRY_URL }}
+        run: |
+          if [ -z "${PUB_REGISTRY_URL}" ]; then
+            echo "::error::Repository variable PUB_REGISTRY_URL is not set (Settings → Secrets and variables → Actions → Variables)."
+            exit 1
+          fi
+          case "${PUB_REGISTRY_URL}" in
+            http://* | https://*) ;;
+            *)
+              echo "::error::PUB_REGISTRY_URL must start with http:// or https://."
+              exit 1
+              ;;
+          esac
+          sed -i "s|^publish_to:.*|publish_to: '${PUB_REGISTRY_URL}'|" pubspec.yaml
+          grep -n '^publish_to:' pubspec.yaml
+      - name: Authorize the registry credential
+        env:
+          PUB_REGISTRY_URL: ${{ vars.PUB_REGISTRY_URL }}
+          PUB_TOKEN: ${{ secrets.PUB_TOKEN }}
+        run: |
+          if [ -z "${PUB_TOKEN}" ]; then
+            echo "::error::Repository secret PUB_TOKEN is not set (Settings → Secrets and variables → Actions → Secrets)."
+            exit 1
+          fi
+          dart pub token add "${PUB_REGISTRY_URL}" --env-var PUB_TOKEN
+      - name: Dry-run validation
+        if: ${{ inputs.dry_run }}
+        env:
+          PUB_REGISTRY_URL: ${{ vars.PUB_REGISTRY_URL }}
+          PUB_TOKEN: ${{ secrets.PUB_TOKEN }}
+        run: dart pub publish --dry-run
+      - name: Publish to the private registry
+        if: ${{ !inputs.dry_run }}
+        env:
+          PUB_REGISTRY_URL: ${{ vars.PUB_REGISTRY_URL }}
+          PUB_TOKEN: ${{ secrets.PUB_TOKEN }}
+        run: dart pub publish --force

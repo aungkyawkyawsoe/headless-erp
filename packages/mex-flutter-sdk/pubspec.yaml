@@ -1,0 +1,35 @@
+name: mex_flutter_sdk
+description: >-
+  MEX Flutter SDK — the single-package client for the Headless ERP entity
+  engine (a 1:1 port of @mmbix/sdk): typed query DSL, auth with single-flight
+  refresh-token rotation, offline write queue, ETag/304 revalidation, media
+  uploads, plus the Flutter platform wiring — secure token storage, resume
+  revalidation, connectivity-triggered queue flush, app-support-dir stores.
+version: 0.1.0
+repository: https://github.com/aungkyawkyawsoe/headless-erp
+# Private-registry package: `publish_to: 'none'` keeps a stray local
+# `dart pub publish` from EVER reaching pub.dev. Releases go through
+# .github/workflows/publish-flutter-sdk.yml, which re-points this field at
+# the private registry (PUB_REGISTRY_URL) at publish time only.
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.24.0'
+
+dependencies:
+  connectivity_plus: ^7.3.1
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.4.3
+  flutter_secure_storage: ^11.2.0
+  path_provider: ^2.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_secure_storage_platform_interface: ^2.1.1
+  path_provider_platform_interface: ^2.1.3
+
+flutter:

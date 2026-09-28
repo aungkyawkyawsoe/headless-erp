@@ -2,10 +2,11 @@
  * Mmbix client — the typed face of the headless entity engine.
  *
  * Pipeline (zero-waste by construction):
- *   1. Expired stored token → cleared and re-authenticated up front (no doomed
- *      request + 401 + retry on every expiry).
+ *   1. Expired stored token → rotated through the stored refresh token when
+ *      one exists, else cleared — never a doomed request + 401 + retry.
  *   2. Transient failures (408/429/502/503) → automatic retry with backoff.
- *   3. 401 on a non-login call → `refreshSession()` once, then retry.
+ *   3. 401 on an authenticated call → refresh-token rotation once (or the
+ *      `refreshSession()` hook when no refresh token is stored), then retry.
  *   4. Success envelope `{ success, data }` unwrapped; errors become typed
  *      `HttpError`/`NetworkError` instances.
  *
@@ -15,12 +16,31 @@
 import { isTokenExpired, memoryTokenStorage, tokenSubjectOf, type TokenStorage } from './auth';
 import { ConditionalResponseCache } from './conditional-cache';
 import { HttpError, NetworkError } from './errors';
+import { createFilesApi, type FilesApi } from './files';
 import { createItemsApi, type ItemsApi, uuid } from './items';
 import { fingerprint, type OfflineQueue, type QueuedMutation } from './offline';
 import { fieldsToArray, restrictFields } from './permissions';
 import { DEFAULT_PAGE_SIZE_POLICY, MAX_QUERIES_PER_BATCH, normalizePageSize, type PageSizePolicy } from './query';
 
-const LOGIN_PATHS = new Set(['/auth/telegram', '/auth/login']);
+/** The auth endpoints themselves — never carry a stale bearer, an
+ *  Idempotency-Key, offline queuing, or 401 self-heal recursion. */
+const AUTH_PATHS = new Set(['/auth/telegram', '/auth/login', '/auth/refresh', '/auth/logout']);
+
+/** Paths that carry their OWN credential: the auth endpoints plus the
+ *  delegated media-upload redemption route — `/media/upload/<token>`, where
+ *  the signed single-use token IS the credential. Shaped like `AUTH_PATHS` in
+ *  every gate: no bearer, no pre-flight rotation, no 401 heal recursion. */
+function isSelfAuthPath(path: string): boolean {
+	return AUTH_PATHS.has(path) || path.startsWith('/media/upload/');
+}
+
+/** Hook/log-safe label — a delegated upload path EMBEDS its credential, so it
+ *  must never reach listeners or logs (the same rule that redacts the
+ *  `Authorization` header). */
+function redactPath(path: string): string {
+	return path.startsWith('/media/upload/') ? '/media/upload/<token>' : path;
+}
+
 const TRANSIENT_STATUS = new Set([408, 429, 502, 503]);
 
 /** Log a warning for any request slower than this — with the browser's own
@@ -110,17 +130,19 @@ export interface ClientOptions {
 	baseUrl?: string;
 	tokenStorage?: TokenStorage;
 	fetchImpl?: typeof fetch;
-	/** Called once on a 401 to mint a fresh token; return null to surface the 401. */
+	/** Fallback 401 heal when NO refresh token is stored: called once to mint a
+	 *  fresh token; return null to surface the 401. With a refresh token the
+	 *  client rotates it instead (`auth.refresh`). */
 	refreshSession?: () => Promise<string | null>;
 	/** Transient-failure retry. */
 	retry?: { attempts?: number; delayMs?: number };
-	/** Per-request timeout (ms). Default: 10s for login calls, none otherwise. */
+	/** Per-request timeout (ms). Default: 10s for auth calls, none otherwise. */
 	timeoutMs?: number;
 	/** Offline write queue — a write that fails at the network level is enqueued
-	 *  for replay instead of surfacing as a plain network error. Reads and login
+	 *  for replay instead of surfacing as a plain network error. Reads and auth
 	 *  calls never queue. FormData bodies (media uploads) never queue. */
 	offlineQueue?: OfflineQueue;
-	/** Fired after a successful non-login write — the app invalidates caches and
+	/** Fired after a successful non-auth write — the app invalidates caches and
 	 *  broadcasts change events from here. */
 	onWrite?: (path: string, method: string) => void;
 	/** Fired when a response carries a change ENVELOPE (`meta.changed`) — the exact
@@ -181,6 +203,10 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 		return this._baseUrl;
 	}
 	private _refreshSession?: ClientOptions['refreshSession'];
+	/** Single-flight refresh rotation — racing rotations would present the SAME
+	 *  token twice, which the server treats as theft and answers by revoking the
+	 *  whole descendant chain. Concurrent callers must share ONE rotation. */
+	private _refreshInflight: Promise<boolean> | null = null;
 	private readonly retry: { attempts: number; delayMs: number };
 	private readonly timeoutMs?: number;
 	private readonly offlineQueue?: OfflineQueue;
@@ -220,12 +246,25 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 	auth!: {
 		login(initData: string): Promise<TelegramLoginResult>;
 		devLogin(user: { id: number; first_name: string }): Promise<TelegramLoginResult>;
-		loginPassword(email: string, password: string): Promise<SessionUser>;
-		logout(): void;
+		loginPassword(email: string, password: string, deviceId?: string): Promise<SessionUser>;
+		/** Rotate the stored refresh token into a fresh JWT + successor token
+		 *  (single-flight). True on success; false — never a throw — when the
+		 *  rotation was refused (the local session is ended first) or the
+		 *  network failed (the session is kept: a later try may succeed). */
+		refresh(): Promise<boolean>;
+		/** End the session. Local state (token, refresh token, device-persisted
+		 *  reads) goes first, so logout is effective the moment it returns and
+		 *  works offline; the server-side chain is revoked best-effort —
+		 *  `all: true` kills every chain of the user, all devices included.
+		 *  Never throws. */
+		logout(options?: { all?: boolean }): Promise<void>;
 		readonly token: string | null;
 		getToken(): string | null;
 		setToken(token: string): void;
 	};
+
+	/** Files (media) sub-object — built in the constructor (see below). */
+	files!: FilesApi;
 
 	constructor(options: ClientOptions = {}) {
 		this._baseUrl = (options.baseUrl ?? '/api').replace(/\/+$/, '');
@@ -264,6 +303,9 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 				});
 				if (res.status === 'approved') {
 					self.tokenStorage.set(res.token);
+					// The Telegram route issues no refresh chain — a fresh sign-in must
+					// never carry a previous one.
+					self.tokenStorage.setRefresh?.(null);
 				}
 				return res;
 			},
@@ -277,28 +319,52 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 				});
 				if (res.status === 'approved') {
 					self.tokenStorage.set(res.token);
+					// Dev mirror of `login` — same session-replacement rule.
+					self.tokenStorage.setRefresh?.(null);
 				}
 				return res;
 			},
 
-			/** Browser (non-Telegram) login — email + password. */
-			loginPassword: async (email: string, password: string): Promise<SessionUser> => {
-				const res = await self.request<{ token: string; user: SessionUser }>('/auth/login', {
+			/** Browser (non-Telegram) login — email + password. `deviceId` names
+			 *  the device the refresh chain is bound to (server-side). */
+			loginPassword: async (email: string, password: string, deviceId?: string): Promise<SessionUser> => {
+				const res = await self.request<{ token: string; refresh_token?: string; user: SessionUser }>('/auth/login', {
 					method: 'POST',
-					body: { email, password },
+					body: deviceId ? { email, password, device_id: deviceId } : { email, password },
 					timeoutMs: 10_000,
 				});
 				self.tokenStorage.set(res.token);
+				// A sign-in replaces the WHOLE session: store the issued chain, or
+				// clear the slot when none was issued — a stale chain must never
+				// outlive the session that carried it.
+				self.tokenStorage.setRefresh?.(typeof res.refresh_token === 'string' && res.refresh_token ? res.refresh_token : null);
 				return res.user;
 			},
 
-			/** Drop the stored token (client-side logout) and any device-persisted
-			 *  reads — a body kept for offline use must not outlive the session that
-			 *  was allowed to see it. */
-			logout: (): void => {
-				self.tokenStorage.clear();
-				self.conditionalCache?.clear();
+			/** End the session. Local state goes FIRST — token, refresh token and
+			 *  device-persisted reads (a body kept for offline use must not outlive
+			 *  the session that was allowed to see it) — so logout is effective the
+			 *  moment it returns and works offline. The server-side chain is then
+			 *  revoked best-effort (`all: true` → every chain of the user, all
+			 *  devices included). Never throws. */
+			logout: async (options?: { all?: boolean }): Promise<void> => {
+				const refresh = self.tokenStorage.getRefresh?.() ?? null;
+				self._endSession();
+				if (!refresh) return; // nothing to revoke server-side — no network call
+				try {
+					await self.request('/auth/logout', {
+						method: 'POST',
+						body: { refresh_token: refresh, all: options?.all === true },
+						timeoutMs: 10_000,
+					});
+				} catch {
+					/* best-effort — the local session is already gone */
+				}
 			},
+
+			/** Rotate the stored refresh token (single-flight) — see the `auth` type
+			 *  docs for the resolve semantics. */
+			refresh: (): Promise<boolean> => self.rotateRefreshToken(),
 
 			/** The currently stored (unexpired) token, if any. */
 			get token(): string | null {
@@ -313,6 +379,62 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 				self._tokenStorage.set(token);
 			},
 		};
+
+		// Files sub-object — no state of its own; uploads ride the same request
+		// pipeline (bearer, 401 heal, slow-call telemetry). The delegated
+		// `uploadWithToken` route is self-authenticating — see `isSelfAuthPath`.
+		this.files = createFilesApi(<T>(path: string, options?: RequestOptions) => this.request<T>(path, options));
+	}
+
+	// ── Refresh-token rotation ───────────────────────────────
+
+	/** End the local session — token + refresh token + device-persisted reads.
+	 *  The server-side chain is left to `auth.logout` (or to its own expiry). */
+	private _endSession(): void {
+		this._tokenStorage.clear();
+		this.conditionalCache?.clear();
+	}
+
+	/** Rotate the stored refresh token into a fresh JWT + successor token.
+	 *  SINGLE-FLIGHT: concurrent callers share one POST — a correctness
+	 *  requirement, not an optimization, because the server reads a second use
+	 *  of an already-rotated token as theft and revokes the descendant chain.
+	 *  Resolves false (never throws) when no token is stored, the rotation was
+	 *  refused (401 — the local session is ended first), or the network failed
+	 *  (the session is KEPT: the token may still be valid on a later try). */
+	private rotateRefreshToken(): Promise<boolean> {
+		if (this._refreshInflight) return this._refreshInflight;
+		const run = this._rotateRefreshTokenInner().finally(() => {
+			this._refreshInflight = null;
+		});
+		this._refreshInflight = run;
+		return run;
+	}
+
+	private async _rotateRefreshTokenInner(): Promise<boolean> {
+		const storage = this._tokenStorage;
+		const refresh = storage.getRefresh?.() ?? null;
+		if (!refresh) return false;
+		try {
+			// `/auth/refresh` is an auth path: no bearer (it authenticates by the
+			// token itself), no Idempotency-Key, no offline queue, no self-heal
+			// recursion — and the pre-flight never rotates on it: this call IS
+			// the rotation.
+			const res = await this.request<{ token: string; refresh_token?: string }>('/auth/refresh', {
+				method: 'POST',
+				body: { refresh_token: refresh },
+				timeoutMs: 10_000,
+			});
+			storage.set(res.token);
+			storage.setRefresh?.(typeof res.refresh_token === 'string' && res.refresh_token ? res.refresh_token : null);
+			return true;
+		} catch (err) {
+			// A 401 is the server's VERDICT (expired, revoked, reused, dead
+			// account) — end the local session. Anything else (network, 5xx) is
+			// not: keep the session, the token may still rotate later.
+			if (err instanceof HttpError && err.status === 401) this._endSession();
+			return false;
+		}
 	}
 
 	// ── Typed CRUD ───────────────────────────────────────────
@@ -470,7 +592,9 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 		conditional = true,
 	): Promise<{ data: T; meta?: Record<string, unknown> }> {
 		const method = (options.method ?? 'GET').toUpperCase();
-		const isLogin = LOGIN_PATHS.has(path);
+		const isAuthPath = isSelfAuthPath(path);
+		/** Hook/log-facing label — never the raw path when it embeds a token. */
+		const hookPath = redactPath(path);
 		const query = toSearchParams(options.query);
 		const qs = query.toString();
 		const target = `${this.baseUrl}${path}${qs ? `?${qs}` : ''}`;
@@ -480,9 +604,9 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 		// Auto Idempotency-Key: every mutating request (POST/PUT/DELETE/PATCH) gets a
 		// stable key so network retries / offline replays can never duplicate server
 		// side effects (the backend's Stripe-style middleware dedupes on the key).
-		// Login calls and FormData bodies (media uploads) are exempt.
+		// Auth calls and FormData bodies (media uploads) are exempt.
 		const isMutation = method !== 'GET' && method !== 'HEAD';
-		const shouldKey = isMutation && !isLogin && !(body instanceof FormData);
+		const shouldKey = isMutation && !isAuthPath && !(body instanceof FormData);
 		const effectiveIdemKey = idemKey ?? options.idempotencyKey ?? (shouldKey ? uuid() : undefined);
 		if (body !== undefined && !(body instanceof FormData) && !headers['Content-Type']) {
 			headers['Content-Type'] = 'application/json';
@@ -490,10 +614,22 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 		if (effectiveIdemKey) headers['Idempotency-Key'] = effectiveIdemKey;
 		if (options.ifMatch) headers['If-Match'] = options.ifMatch;
 
-		// Expired token → skip the doomed request entirely; re-auth first.
-		const stored = this.tokenStorage.get();
-		const usable = stored && !isTokenExpired(stored) ? stored : stored ? ((this.tokenStorage.clear(), null) as string | null) : null;
-		if (usable && !isLogin) headers['Authorization'] = `Bearer ${usable}`;
+		// Expired token → never pay the doomed request: rotate the stored refresh
+		// token first when one exists, else drop the dead token (legacy). Auth
+		// paths are exempt from BOTH — `/auth/refresh` and `/auth/logout` must
+		// still read the refresh token, and `/auth/login` replaces the session.
+		let stored = this.tokenStorage.get();
+		let usable = stored && !isTokenExpired(stored) ? stored : null;
+		if (stored && !usable && !isAuthPath) {
+			if (this.tokenStorage.getRefresh?.() ?? null) {
+				await this.rotateRefreshToken();
+				stored = this.tokenStorage.get();
+				usable = stored && !isTokenExpired(stored) ? stored : null;
+			} else {
+				this.tokenStorage.clear();
+			}
+		}
+		if (usable && !isAuthPath) headers['Authorization'] = `Bearer ${usable}`;
 
 		// Offline reads: adopt device-persisted bodies for THIS account before the
 		// lookup, so a cold start with no server can still serve what it holds. The
@@ -524,11 +660,11 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 		} catch (err) {
 			// Network-level failure — report connectivity, then serve a persisted read
 			// if the server blessed one (offline reads), else queue replayable writes.
-			this.onSettled?.(path, method, false);
+			this.onSettled?.(hookPath, method, false);
 			if (isRead && cached && this.conditionalCache?.isFresh(cached)) {
 				return { data: cached.data as T, meta: cached.meta };
 			}
-			if (this.offlineQueue && !isLogin && !options.noQueue && method !== 'GET' && method !== 'HEAD' && !(body instanceof FormData)) {
+			if (this.offlineQueue && !isAuthPath && !options.noQueue && method !== 'GET' && method !== 'HEAD' && !(body instanceof FormData)) {
 				const item = this.offlineQueue.enqueue(method as 'POST' | 'PUT' | 'DELETE', path, body, options.ifMatch ?? null, effectiveIdemKey);
 				this.onQueued?.(item);
 			}
@@ -536,26 +672,34 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 		}
 		// A resolved response proves the API answers — connectivity is up even if
 		// the machine's internet link is down (localhost dev). Idempotent.
-		this.onSettled?.(path, method, true);
+		this.onSettled?.(hookPath, method, true);
 
 		// Slow-call telemetry: name the cost so a laggy screen is never a mystery.
 		const elapsedMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt;
-		if (elapsedMs >= SLOW_REQUEST_WARN_MS) logSlowRequest(method, path, target, elapsedMs, startedAt);
+		if (elapsedMs >= SLOW_REQUEST_WARN_MS) logSlowRequest(method, hookPath, target, elapsedMs, startedAt);
 
-		// Transient failures — retry with backoff (but never auth/refresh paths).
+		// Transient failures — retry with backoff.
 		if (TRANSIENT_STATUS.has(res.status) && attempt < this.retry.attempts) {
 			const backoff = this.retry.delayMs * 2 ** attempt;
 			await new Promise((r) => setTimeout(r, backoff));
 			return this.requestMeta<T>(path, options, attempt + 1, effectiveIdemKey);
 		}
 
-		// 401 self-heal — one refresh attempt, then surface the error.
-		if (res.status === 401 && !isLogin && attempt === 0 && this._refreshSession) {
-			this.tokenStorage.clear();
-			const fresh = await this._refreshSession();
-			if (fresh) {
-				this.tokenStorage.set(fresh);
-				return this.requestMeta<T>(path, options, attempt + 1, effectiveIdemKey);
+		// 401 self-heal — one refresh attempt, then surface the error. The
+		// rotating refresh token is the session's own mechanism and wins; the
+		// `refreshSession` hook stays as the fallback for token-only storages.
+		if (res.status === 401 && !isAuthPath && attempt === 0) {
+			if (this.tokenStorage.getRefresh?.() ?? null) {
+				if (await this.rotateRefreshToken()) {
+					return this.requestMeta<T>(path, options, attempt + 1, effectiveIdemKey);
+				}
+			} else if (this._refreshSession) {
+				this.tokenStorage.clear();
+				const fresh = await this._refreshSession();
+				if (fresh) {
+					this.tokenStorage.set(fresh);
+					return this.requestMeta<T>(path, options, attempt + 1, effectiveIdemKey);
+				}
 			}
 		}
 
@@ -583,27 +727,27 @@ export class MmbixClient<Schema extends Record<string, Record<string, unknown>> 
 
 		if (!res.ok) {
 			const message = errorMessageFrom(json, res.statusText);
-			this.onError?.(path, method, res.status, message);
+			this.onError?.(hookPath, method, res.status, message);
 			throw HttpError.fromResponse(res, json);
 		}
 		if (!json || json.success === false) {
 			const message = json
 				? JSON.stringify(json.error ?? 'The API returned an invalid response envelope')
 				: 'The API returned an invalid response envelope';
-			this.onError?.(path, method, res.status, message);
+			this.onError?.(hookPath, method, res.status, message);
 			throw new HttpError('The API returned an invalid response envelope', res.status, 'BAD_ENVELOPE', json);
 		}
 
 		const data = json.data;
 		// A successful write changed server state — the app invalidates its caches
 		// and broadcasts change events (list reads, attendance, DATA_CHANGED).
-		if (!isLogin && method !== 'GET' && method !== 'HEAD') this.onWrite?.(path, method);
+		if (!isAuthPath && method !== 'GET' && method !== 'HEAD') this.onWrite?.(hookPath, method);
 
 		// The precise change set, when the server attached one — the write's response
 		// names every collection it touched, so the app can invalidate exactly those.
-		if (!isLogin) {
+		if (!isAuthPath) {
 			const change = parseChangeEnvelope(json.meta);
-			if (change) this.onChange?.(change, path, method);
+			if (change) this.onChange?.(change, hookPath, method);
 		}
 		const result = options.validate && data !== undefined ? (options.validate.parse(data) as T) : (data as T);
 		// Remember the tag WITH the body it described, so a later 304 is servable
