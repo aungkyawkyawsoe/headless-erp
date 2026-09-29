@@ -1,7 +1,8 @@
 # Studio ⇄ Scalar parity — font, theme, accent
 
 **Date:** 2026-09-29
-**Status:** approved (design) — implementation plan pending
+**Status:** approved (design) — plan:
+[`docs/superpowers/plans/2026-09-29-studio-scalar-parity-plan.md`](../plans/2026-09-29-studio-scalar-parity-plan.md)
 **Scope:** `apps/studio` (the only place Scalar is embedded) + one additive change to
 `packages/design-system`'s theme provider.
 
@@ -14,7 +15,7 @@ The two surfaces do not read as one system. Three separate causes, two of them m
 |---|---|---|
 | 1 | Different typeface | Scalar asks for `"Inter"` / `"JetBrains Mono"` and **ships no font files** (0 `@font-face` in its CSS and library JS builds). Our app ships `Inter Variable` / `Geist Mono` only. Live DOM measurement (16px, 55-char string): Scalar's stack renders **420.95px = exactly `system-ui`** (i.e. SF Pro on macOS); bare `"Inter"` renders **376.38px = identical to a nonexistent family** (not installed). Our stack renders **438.96px**. Two typefaces, ~4.3% width delta. |
 | 2 | Theme toggle does not reach Scalar | Scalar's `useColorMode` writes `dark-mode`/`light-mode` on **`document.body`** and resolves mode as `overrideColorMode → localStorage['colorMode'] → initialColorMode`. With no override it follows **the OS**, never our `<html class="dark">`. Verified by reading `@scalar/use-hooks/dist/useColorMode/useColorMode.js` and live probing. |
-| 3 | "Our buttons are still green" | **Premise correction.** Scalar's primary button is `--scalar-button-1: #fff` (dark) / `#000` (light) — a high-contrast *neutral*, not blue; its blue `#09f` is for links/active states only. The real defect is **accent area**: 15 segmented controls in the Studio render their *active state* as a teal (`--primary`) fill, so teal means "you are here" and "this is the action" at the same time, and the chrome looks saturated next to a nearly accent-free docs page. |
+| 3 | "Our buttons are still green" | **Premise correction.** Scalar's primary button is `--scalar-button-1: #fff` (dark) / `#000` (light) — a high-contrast *neutral*, not blue; its blue `#09f` is for links/active states only. The real defect is **accent area**: 15 sites in the Studio paint their *active state* with a teal (`--primary`) fill, so teal means "you are here" and "this is the action" at the same time, and the chrome looks saturated next to a nearly accent-free docs page. |
 
 **Decisions (user, 2026-09-29):**
 
@@ -114,13 +115,8 @@ the teal focus ring and rail. Our teal stays.
 
 Inventory (scanned from `apps/studio/src`):
 
-- **15 hand-rolled active-state toggles** — `variant={active ? 'default' : 'ghost'}` on
-  `Button`, i.e. the *active* segment is painted `--primary`:
-  `builder/AppWorkbenchHeader.tsx` (74, 100, 111), `pages/CollectionsWorkbench.tsx`
-  (662, 757, 766), `builder/NewCollectionDialog.tsx` (136, 139),
-  `app/AppDataPane.tsx` (320), `GenerationPanel.tsx` (202), `ImageEditorDialog.tsx` (419),
-  `MenuInspector.tsx` (226), `PageCanvas.tsx` (984), `PageInspector.tsx` (1002),
-  `admin/addons-tab.tsx` (108). (≈11 groups; 100/111, 136/139 and 757/766 are pairs.)
+- **15 sites whose *active* branch is painted `--primary`** (`variant={… ? 'default' : …}` on
+  `Button`) — classified by shape in the table below; 13 of them are real toggles.
 - **44 true CTAs** with a teal fill (`variant` omitted or literal `"default"`) — almost all
   exactly one per dialog/surface, which is correct and stays. Six files hold more than one
   (`IdpDeploymentsPage.tsx` 3, `NewCollectionDialog.tsx` 2, `MenuBuilder.tsx` 2,
@@ -129,60 +125,57 @@ Inventory (scanned from `apps/studio/src`):
   so two CTAs that never render together both stay; two that do render together are resolved
   by keeping the submit teal and demoting the other to `outline`.
 
-**The 15 toggles migrate to the DS component that already exists.** The DS ships
-`ToggleGroup` / `ToggleGroupItem` (Base UI) whose pressed state is a **neutral `bg-muted`**
-(not `--primary`) — and the Studio already wraps it once, locally, in
-`components/formlayout/properties.tsx` (a generic `Segmented` over `ToggleGroup`). Promote
-that wrapper to `apps/studio/src/components/Segmented.tsx` (same typed API:
-`{ value, options: [{ value, label, title }], onChange, label }`) and migrate the 15 sites.
-One implementation of "segmented control", and the active state stops being teal everywhere
-at once.
+**The 13 real toggles are three different shapes — so the change is a token swap, not a new
+component.** Every one of them is a two-branch `variant` ternary whose *active* branch is
+`'default'` (i.e. `--primary`); the fix is the one word in that branch.
 
-**Token decision inside `Segmented`** (a segmented *track* needs the pill to differ from the
-track, which the DS default does not give):
+| # | Shape | Sites | Ternary |
+|---|---|---|---|
+| A | pill on a **muted track** (`var(--mmbix-muted, …)` = `#1a1a1a` dark / `#f1f5f9` light) | `builder/AppWorkbenchHeader.tsx` 75, 100, 111 · `pages/CollectionsWorkbench.tsx` 758, 767 · `components/MenuInspector.tsx` 228 · `components/PageInspector.tsx` 1004 · `components/PageCanvas.tsx` 987 — **8** | `active ? 'default' : 'ghost'` |
+| B | trackless single-select | `builder/NewCollectionDialog.tsx` 136, 139 · `components/ImageEditorDialog.tsx` 419 — **3** | `active ? 'default' : 'outline'` |
+| C | one pressed toggle (both are the Trash switch) | `pages/CollectionsWorkbench.tsx` 664 · `app/AppDataPane.tsx` 322 — **2** | `on ? 'default' : 'outline'` |
+| D | **not toggles** — no change | `components/GenerationPanel.tsx` 205 (reject/approve CTA pair) · `admin/addons-tab.tsx` 109 (Install/Remove CTA) — 2 | `'outline' : 'default'` |
 
-- track → `--muted` (`#1a1a1a` dark / `#f1f5f9` light), as today
-- active pill → `--secondary` (`#272727` dark / `#e2e8f0` light) + `--secondary-foreground`
+**13 one-word edits (`'default'` → `'secondary'`) across 8 files.** The active state keeps its
+preattentive "you are here" role but stops also claiming to be *the action*: `--secondary` is
+the DS's already-defined raised neutral (`#272727` dark / `#e2e8f0` light) carrying its own
+`--secondary-foreground`, so a shape-A pill's delta becomes `#272727` on `#1a1a1a` — Scalar's
+raised-chip delta exactly.
 
-That is Scalar's raised-chip delta exactly (`#272727` on `#0f0f0f`). Applied as one
-unlayered rule in `studio.css` (deterministic — no dependence on Tailwind class-merge
-ordering):
+A shared `Segmented` component (promote the local `ToggleGroup` wrapper from
+`components/formlayout/properties.tsx` and migrate all 15) was **considered and rejected
+(YAGNI)**: the three shapes carry bespoke geometry (`width: 28`, `flex: 1`, `size="xs"`) and
+different option sources, so a shared component would need a `track` / `size` / `itemStyle`
+options bag existing only to serve its own callers — and it would prevent nothing, because the
+defect is a *token*, not a missing abstraction. The swap reaches the same end with a
+13-character diff and no geometry risk, and the token stays single-sourced in
+`buttonVariants`. (It is also the Studio's first `variant="secondary"` — the DS variant
+existed with no consumer; the live check in §4 covers the new surface.)
 
-```css
-.mmbix-segmented [data-slot='toggle-group-item'][aria-pressed='true'],
-.mmbix-segmented [data-slot='toggle-group-item'][aria-pressed='true']:hover {
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-}
-```
-
-**`aria-pressed`, not `data-state`,** because Base UI's Toggle sets `aria-pressed` and a
-boolean `data-pressed` attribute (`Toggle.js:77`) — it never emits `data-state="on"`. That
-also means the DS `toggle`'s own `data-[state=on]:bg-muted` class is dead code; the pressed
-style there comes from its sibling `aria-pressed:bg-muted`, which is why the existing
-`Segmented` in `properties.tsx` looks right today.
-
-A standalone DS `Toggle` (not in a track) keeps `bg-muted` — correct there, so the shared
-component is not touched.
+Neutrality is the point: the DS `Toggle`'s own pressed token is `bg-muted`
+(`aria-pressed:bg-muted`; its `data-[state=on]:bg-muted` sibling never matches, because Base
+UI's Toggle emits `aria-pressed` + a boolean `data-pressed`, never `data-state="on"`), so the
+13 sites now agree with the one toggle component the DS already ships. That dead class is
+reported in §6, not fixed here.
 
 ## 3. Files
 
 | File | Change |
 |---|---|
-| `apps/studio/src/studio.css` | `:root` Scalar font-token override; `.mmbix-segmented` active-pill rule |
+| `apps/studio/src/studio.css` | `:root` Scalar font-token override |
 | `packages/design-system/src/components/theme-provider/theme-provider.tsx` | expose `resolvedTheme`; `applyTheme`/shortcut consume it; drop the duplicate media listener |
 | `packages/design-system/src/components/theme-provider/theme-provider.test.tsx` | **new** — `resolvedTheme` for the three `theme` values + OS-follow for `'system'` |
 | `apps/studio/src/components/ApiDocsTab.tsx` | `key` + `forceDarkModeState` + `hideDarkModeToggle` |
-| `apps/studio/src/components/Segmented.tsx` | **new** — promoted wrapper (`mmbix-segmented` class) |
-| 10 files / 15 sites | migrate hand-rolled toggles to `Segmented` |
+| 8 files / 13 sites | active branch `'default'` → `'secondary'` (shapes A/B/C in §2.3) |
 | ≤6 files | demote a second teal CTA on a shared surface to `outline` |
-| `apps/studio/src/components/Segmented.spec.tsx` | **new** — jsdom: N options render, the active one carries `aria-pressed="true"`, click fires `onChange` |
 
 ## 4. Tests & verification
 
 - **DS:** `pnpm --filter @mmbix/design-system build && pnpm --filter @mmbix/design-system test`
-  (new theme-provider spec alongside the existing 6 DS spec files).
-- **Studio:** `npx tsc --noEmit && pnpm test` (jsdom spec for `Segmented`), `npx vite build`,
+  (new `theme-provider.test.tsx` alongside the existing DS spec files).
+- **Studio:** `npx tsc --noEmit && pnpm test` (the existing jsdom specs already render the
+  swapped toolbars — `AppWorkbenchHeader.spec.tsx` and friends; the swaps add no new spec,
+  because a unit test asserting a CSS class is not the property we care about), `npx vite build`,
   `pnpm check:bundle` (entry stays ~0.02 MB — no new static import).
 - **Live (dev servers on 5174/8788, same-origin probe):**
   - `/idp/api-docs` — the computed `--scalar-font` / `--scalar-font-code` resolve to our
@@ -193,8 +186,9 @@ component is not touched.
     follows (`#fff` ⇄ `#0f0f0f`). Also: the dark/light toggle control Scalar renders inside
     `.scalar-app` before this change is gone (`hideDarkModeToggle` took effect).
   - accent — per route (`/apps/:slug`, `/idp/collections`, `/idp/catalog`), count
-    `button.bg-primary` and assert ≤1 per rendered surface, and that every migrated segmented
-    control's active pill computes to `--secondary`, not `--primary`.
+    `button.bg-primary` and assert ≤1 per rendered **surface**, and that each of the 13
+    swapped toggles' *active* branch computes to `--secondary` (`#272727` dark / `#e2e8f0`
+    light), not `--primary`.
 
 ## 5. Risks & mitigations
 
@@ -203,10 +197,14 @@ component is not touched.
 - **Remount cost on theme toggle** → only on an explicit toggle; scroll resets on that page.
   Accepted for determinism over a class-mirroring race (Scalar's `applyColorMode` re-writes
   its stale forced value whenever the OS preference changes).
-- **Toggle migration touches toolbars** → each migrated site must preserve its geometry
-  (width/height/font-size) and its `aria` semantics; `ToggleGroup` is single-select by
-  default, matching the current "one active" behaviour. Live check covers the routes that
-  render them.
+- **A filled neutral pill can read as "disabled" where there is no track to contrast against**
+  (shapes B/C: `--secondary` `#272727` sits straight on `#0f0f0f`) → the treatment is the same
+  one Scalar's own pressed chips use, and the inactive sibling stays a bordered `outline`, so
+  the pair still reads as a segmented choice; the per-route live check covers every site, and a
+  site that reads wrong can revert to `outline` + `aria-pressed` without touching the token.
+- **The swaps touch toolbars, so geometry must not move** → each is a one-word `variant`
+  change: no width/height/font-size/`aria` attribute is edited, and the sites keep their
+  existing `aria-pressed` / `aria-current`. The live check re-measures the migrated controls.
 - **`--scalar-font-normal` at 420** (a literal, since the DS token has no runtime var) is a
   deliberate deviation from Scalar's 400; magnitude is ~0.19% width (439.79px vs 438.96px on
   a 55-char run), so the live check compares families, not weights.
@@ -214,9 +212,11 @@ component is not touched.
 ## 6. Out of scope
 
 - Scalar's accent (`#09f`) and its own component shapes — untouched.
-- The DS `Toggle`'s own pressed token (stays `bg-muted`; only the Studio's segmented track
-  overrides).
+- The DS `Toggle` / `ToggleGroup`'s own pressed token — stays `bg-muted`; the Studio's 13
+  toggles are `Button`s, so the DS component is not touched at all.
 - **Observed but not changed:** the DS `toggle`'s `data-[state=on]:bg-muted` never matches
   (Base UI emits `data-pressed`), so it is dead. Harmless, out of scope for this change.
+- The local `Segmented` wrapper in `components/formlayout/properties.tsx` — it already
+  renders neutral active states, so it is left as it is.
 - Any change to the DS `--primary` / teal brand token.
 - The 44 CTAs that are already one-per-surface.
