@@ -128,6 +128,22 @@
 	--mmbix-tone-danger-border: #7f1d1d;
 }
 
+/* Studio ⇄ Scalar parity — the embedded API reference (`/idp/api-docs`) must read as the
+ * same system as the chrome around it. Scalar declares its font tokens inside
+ * `@layer scalar-base { :root { … } }`; an UNLAYERED rule beats any layered rule regardless
+ * of specificity, so this wins with no `!important` and no matter when Vite injects
+ * Scalar's lazy-loaded CSS. Theme-independent: these only alias, and both targets are
+ * theme-independent themselves. */
+:root {
+	--scalar-font: var(--font-sans);
+	--scalar-font-code: var(--font-mono);
+	/* Literal on purpose: our base weight lives in theme.css's `@theme inline`, which
+	 * Tailwind INLINES into the utility — there is no runtime `--font-weight-normal` to
+	 * reference. 420 is the DS base weight. (Scalar's `medium` 500 / `bold` 700 already
+	 * agree with ours, so they are deliberately not restated.) */
+	--scalar-font-normal: 420;
+}
+
 /* Tabs: the design-system ships prebuilt `variant="line"` underline styles
  * (after pseudo-element), so no custom active-tab styling is needed here —
  * adding one previously drew a second underline on the active tab.

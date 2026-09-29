@@ -133,10 +133,10 @@ export function NewCollectionDialog({
 				</DialogHeader>
 				{/* Mode toggle — create a fresh model vs. bind an existing system collection. */}
 				<div style={{ display: 'flex', gap: 6, marginBottom: '0.75rem' }}>
-					<Button size="sm" variant={mode === 'create' ? 'default' : 'outline'} onClick={() => setMode('create')} style={{ flex: 1 }}>
+					<Button size="sm" variant={mode === 'create' ? 'secondary' : 'outline'} onClick={() => setMode('create')} style={{ flex: 1 }}>
 						Create new
 					</Button>
-					<Button size="sm" variant={mode === 'bind' ? 'default' : 'outline'} onClick={() => setMode('bind')} style={{ flex: 1 }}>
+					<Button size="sm" variant={mode === 'bind' ? 'secondary' : 'outline'} onClick={() => setMode('bind')} style={{ flex: 1 }}>
 						Bind existing
 					</Button>
 				</div>

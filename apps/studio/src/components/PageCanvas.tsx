@@ -984,7 +984,7 @@ export function PageCanvas() {
 					<Button
 						key={m.key}
 						size="sm"
-						variant={canvasMode === m.key ? 'default' : 'ghost'}
+						variant={canvasMode === m.key ? 'secondary' : 'ghost'}
 						onClick={() => setCanvasMode(m.key)}
 						style={{ gap: 6, textTransform: 'capitalize' }}
 					>

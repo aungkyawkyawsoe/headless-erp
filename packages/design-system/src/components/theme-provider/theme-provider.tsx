@@ -14,6 +14,8 @@ type ThemeProviderProps = {
 
 type ThemeProviderState = {
 	theme: Theme;
+	/** What `theme` actually is right now — `'system'` already resolved. */
+	resolvedTheme: ResolvedTheme;
 	setTheme: (theme: Theme) => void;
 };
 
@@ -33,12 +35,26 @@ function isTheme(value: string | null): value is Theme {
 	return THEME_VALUES.includes(value as Theme);
 }
 
-function getSystemTheme(): ResolvedTheme {
+function getSystemThemeSnapshot(): ResolvedTheme {
 	if (window.matchMedia(COLOR_SCHEME_QUERY).matches) {
 		return 'dark';
 	}
 
 	return 'light';
+}
+
+function getSystemThemeServerSnapshot(): ResolvedTheme {
+	return 'light';
+}
+
+/** The OS preference as an external store, so every consumer re-renders on change. */
+function subscribeToSystemTheme(callback: () => void) {
+	const mediaQuery = window.matchMedia(COLOR_SCHEME_QUERY);
+	mediaQuery.addEventListener('change', callback);
+
+	return () => {
+		mediaQuery.removeEventListener('change', callback);
+	};
 }
 
 function disableTransitionsTemporarily() {
@@ -105,6 +121,16 @@ export function ThemeProvider({
 
 	const theme = React.useSyncExternalStore(subscribeToThemeChanges, getSnapshot, getServerSnapshot);
 
+	const systemTheme = React.useSyncExternalStore(
+		subscribeToSystemTheme,
+		getSystemThemeSnapshot,
+		getSystemThemeServerSnapshot,
+	);
+
+	// The ONE place `'system'` is resolved: consumers (e.g. an embedded Scalar API
+	// reference) read this instead of re-deriving the rule from `matchMedia`.
+	const resolvedTheme: ResolvedTheme = theme === 'system' ? systemTheme : theme;
+
 	const setTheme = React.useCallback(
 		(nextTheme: Theme) => {
 			localStorage.setItem(storageKey, nextTheme);
@@ -115,13 +141,12 @@ export function ThemeProvider({
 	);
 
 	const applyTheme = React.useCallback(
-		(nextTheme: Theme) => {
+		(nextTheme: ResolvedTheme) => {
 			const root = document.documentElement;
-			const resolvedTheme = nextTheme === 'system' ? getSystemTheme() : nextTheme;
 			const restoreTransitions = disableTransitionOnChange ? disableTransitionsTemporarily() : null;
 
 			root.classList.remove('light', 'dark');
-			root.classList.add(resolvedTheme);
+			root.classList.add(nextTheme);
 
 			if (restoreTransitions) {
 				restoreTransitions();
@@ -130,24 +155,11 @@ export function ThemeProvider({
 		[disableTransitionOnChange],
 	);
 
+	// Depends on the RESOLVED theme: an OS change re-runs this too, which is what the
+	// separate media listener used to do.
 	React.useEffect(() => {
-		applyTheme(theme);
-
-		if (theme !== 'system') {
-			return undefined;
-		}
-
-		const mediaQuery = window.matchMedia(COLOR_SCHEME_QUERY);
-		const handleChange = () => {
-			applyTheme('system');
-		};
-
-		mediaQuery.addEventListener('change', handleChange);
-
-		return () => {
-			mediaQuery.removeEventListener('change', handleChange);
-		};
-	}, [theme, applyTheme]);
+		applyTheme(resolvedTheme);
+	}, [resolvedTheme, applyTheme]);
 
 	React.useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -167,7 +179,6 @@ export function ThemeProvider({
 				return;
 			}
 
-			const resolvedTheme = theme === 'system' ? getSystemTheme() : theme;
 			setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
 		};
 
@@ -176,14 +187,15 @@ export function ThemeProvider({
 		return () => {
 			window.removeEventListener('keydown', handleKeyDown);
 		};
-	}, [theme, setTheme]);
+	}, [resolvedTheme, setTheme]);
 
 	const value = React.useMemo(
 		() => ({
 			theme,
+			resolvedTheme,
 			setTheme,
 		}),
-		[theme, setTheme],
+		[theme, resolvedTheme, setTheme],
 	);
 
 	return (

@@ -73,7 +73,7 @@ export function AppWorkbenchHeader({
 				{APP_SECTIONS.map((v) => (
 					<Button
 						key={v}
-						variant={section === v ? 'default' : 'ghost'}
+						variant={section === v ? 'secondary' : 'ghost'}
 						size="sm"
 						aria-current={section === v ? 'page' : undefined}
 						onClick={() => onSectionChange(v)}
@@ -98,7 +98,7 @@ export function AppWorkbenchHeader({
 						}}
 					>
 						<Button
-							variant={view === 'table' ? 'default' : 'ghost'}
+							variant={view === 'table' ? 'secondary' : 'ghost'}
 							size="sm"
 							title="Table view"
 							aria-label="Table view"
@@ -109,7 +109,7 @@ export function AppWorkbenchHeader({
 							<Table2 size={14} />
 						</Button>
 						<Button
-							variant={view === 'schema' ? 'default' : 'ghost'}
+							variant={view === 'schema' ? 'secondary' : 'ghost'}
 							size="sm"
 							title="Schema view"
 							aria-label="Schema view"

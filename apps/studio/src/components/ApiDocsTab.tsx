@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiReferenceReact } from '@scalar/api-reference-react';
+import { useTheme } from '@mmbix/design-system';
 import '@scalar/api-reference-react/style.css';
 
 /**
@@ -12,6 +13,7 @@ import '@scalar/api-reference-react/style.css';
  * hook — so no manual auth is ever needed.
  */
 export default function ApiDocsTab({ token }: { token: string }) {
+	const { resolvedTheme } = useTheme();
 	const [spec, setSpec] = useState<Record<string, unknown> | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -43,9 +45,17 @@ export default function ApiDocsTab({ token }: { token: string }) {
 
 	return (
 		<div style={{ height: '100%', minHeight: '70vh', overflow: 'auto' }}>
+			{/* `resolvedTheme` force-sets Scalar's colour mode (beats its localStorage and the
+			 * OS) so the docs follow OUR toggle, and its own toggle is hidden — one theme
+			 * control per app, ours. The `key` is load-bearing: `useColorMode` captures the
+			 * forced value once at Vue setup and never re-applies it, so a changed
+			 * `forceDarkModeState` alone would leave Scalar on its mount-time mode. */}
 			<ApiReferenceReact
+				key={resolvedTheme}
 				configuration={{
 					content: spec,
+					forceDarkModeState: resolvedTheme,
+					hideDarkModeToggle: true,
 					onBeforeRequest: ({ requestBuilder }) => {
 						requestBuilder?.headers?.set?.('Authorization', `Bearer ${token}`);
 					},

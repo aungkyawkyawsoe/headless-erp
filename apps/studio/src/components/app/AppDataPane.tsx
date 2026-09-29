@@ -319,7 +319,7 @@ export function AppDataPane({ token, model, schema, fields, writeLock, m2oSchema
 							</Button>
 							<Button
 								size="sm"
-								variant={trashMode ? 'default' : 'outline'}
+								variant={trashMode ? 'secondary' : 'outline'}
 								title={trashMode ? 'Showing deleted records' : 'Show deleted records'}
 								onClick={() => {
 									setTrashMode((v) => !v);
