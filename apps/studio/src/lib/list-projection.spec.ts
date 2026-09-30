@@ -102,4 +102,25 @@ describe('buildListFields', () => {
 		expect(parts.length).toBeLessThanOrEqual(MAX_FIELD_SELECTIONS);
 		expect(parts).toContain('rel_0.id');
 	});
+
+	it('projects just the displayed leaf for a relation the operator pointed at one field', () => {
+		const leaves = new Map<string, FieldDefinition>([['department', { name: 'code', type: 'text' }]]);
+		const parts = partsOf(buildListFields([{ name: 'department', type: 'm2o', related_collection: 'x' }], leaves));
+		expect(parts).toContain('department.id');
+		expect(parts).toContain('department.code');
+		// One cell reads one column — the conventional candidates are skipped.
+		expect(parts).not.toContain('department.name_mm');
+		expect(parts).not.toContain('department.plate_no');
+	});
+
+	it('leaves a relation WITHOUT a pick on the conventional candidates', () => {
+		const leaves = new Map<string, FieldDefinition>([['department', { name: 'code', type: 'text' }]]);
+		const fields: FieldDefinition[] = [
+			{ name: 'department', type: 'm2o', related_collection: 'x' },
+			{ name: 'owner', type: 'm2o', related_collection: 'y' },
+		];
+		const parts = partsOf(buildListFields(fields, leaves));
+		expect(parts).toContain('owner.name_mm');
+		expect(parts).not.toContain('department.name_mm');
+	});
 });

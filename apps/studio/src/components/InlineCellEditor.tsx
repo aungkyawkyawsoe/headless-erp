@@ -53,6 +53,9 @@ export interface InlineCellEditorProps {
 	/** Permission / write-lock gate from the page — a field the operator may not
 	 *  write stays a read-only cell (least privilege). */
 	readOnly?: boolean;
+	/** The related field a RELATION column was set to display (the header menu's
+	 *  display pick) — the read-only cell renders that instead of the auto label. */
+	displayLeaf?: FieldDefinition;
 	/** Fired after a SUCCESSFUL save so the page can refresh its rows. */
 	onSaved?: (value: unknown) => void;
 }
@@ -94,7 +97,16 @@ function storedValue(field: FieldDefinition, text: string): unknown {
 const ERROR_STYLE = { display: 'block', marginTop: 2, fontSize: '0.68rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)' };
 const HINT_STYLE = { display: 'block', marginTop: 2, fontSize: '0.68rem', color: 'var(--mmbix-muted-foreground, #6b7280)' };
 
-export function InlineCellEditor({ field, value, recordId, collectionSlug, token, readOnly = false, onSaved }: InlineCellEditorProps) {
+export function InlineCellEditor({
+	field,
+	value,
+	recordId,
+	collectionSlug,
+	token,
+	readOnly = false,
+	displayLeaf,
+	onSaved,
+}: InlineCellEditorProps) {
 	// A type we cannot edit safely, or a field the operator may not write, stays read-only.
 	const editable = !readOnly && field.read_only !== true && isInlineEditableType(field);
 
@@ -128,7 +140,7 @@ export function InlineCellEditor({ field, value, recordId, collectionSlug, token
 		if (el instanceof HTMLInputElement && el.type !== 'checkbox') el.select();
 	}, [editing]);
 
-	if (!editable) return <DataCell field={field} value={value} />;
+	if (!editable) return <DataCell field={field} value={value} displayLeaf={displayLeaf} />;
 
 	function beginEdit() {
 		if (savingRef.current) return;
@@ -320,7 +332,7 @@ export function InlineCellEditor({ field, value, recordId, collectionSlug, token
 				}}
 				style={{ display: 'block', cursor: 'text', borderRadius: 4 }}
 			>
-				<DataCell field={field} value={shown} />
+				<DataCell field={field} value={shown} displayLeaf={displayLeaf} />
 			</span>
 			{error && (
 				<span role="alert" style={ERROR_STYLE}>

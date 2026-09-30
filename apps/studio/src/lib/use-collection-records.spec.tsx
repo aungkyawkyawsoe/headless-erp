@@ -9,20 +9,21 @@
  * get a test now that a single implementation serves both surfaces.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { FetchParams } from '@mmbix/design-system/datatable';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 vi.mock('./api', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('./api')>();
-	return { ...actual, bulkDelete: vi.fn(), bulkRestore: vi.fn(), bulkErrorMessage: vi.fn(() => '') };
+	return { ...actual, bulkDelete: vi.fn(), bulkRestore: vi.fn(), bulkErrorMessage: vi.fn(() => ''), listItems: vi.fn() };
 });
 vi.mock('@mmbix/design-system', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@mmbix/design-system')>();
 	return { ...actual, confirmDialog: vi.fn(async () => true) };
 });
 
-import { bulkDelete, bulkErrorMessage, bulkRestore, type EntitySchema } from './api';
+import { bulkDelete, bulkErrorMessage, bulkRestore, listItems, type EntitySchema, type FieldDefinition } from './api';
 import { confirmDialog } from '@mmbix/design-system';
 import { useCollectionRecords } from './use-collection-records';
 import { writeLockOf, type CollectionWriteLock } from './write-lock';
@@ -31,6 +32,7 @@ const mockDelete = vi.mocked(bulkDelete) as unknown as Mock;
 const mockRestore = vi.mocked(bulkRestore) as unknown as Mock;
 const mockBulkError = vi.mocked(bulkErrorMessage) as unknown as Mock;
 const mockConfirm = vi.mocked(confirmDialog) as unknown as Mock;
+const mockListItems = vi.mocked(listItems) as unknown as Mock;
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -181,6 +183,81 @@ describe('useCollectionRecords — restore', () => {
 		click('restore');
 		await waitFor(() => expect(onError).toHaveBeenCalled());
 		expect(mockRestore).not.toHaveBeenCalled();
+	});
+});
+
+describe('useCollectionRecords — relation display picks', () => {
+	/** The DataTable always supplies a full FetchParams — the probe does too. */
+	const FETCH_PARAMS: FetchParams = {
+		sorting: null,
+		filters: [],
+		globalFilter: '',
+		pagination: { pageIndex: 0, pageSize: 25 },
+		cursor: null,
+	};
+	const fields: FieldDefinition[] = [{ name: 'department', type: 'm2o', related_collection: 'departments', label: 'Department' }];
+	const m2oSchemas = {
+		departments: {
+			id: '1',
+			name: 'Departments',
+			slug: 'departments',
+			table_name: 'cms_departments',
+			schema_json: {
+				fields: [
+					{ name: 'id', type: 'uuid' },
+					{ name: 'name_mm', type: 'text', label: 'Name (MM)' },
+					{ name: 'code', type: 'text', label: 'Code' },
+				],
+			},
+		} as unknown as EntitySchema,
+	};
+
+	/** Exposes the relation column's header-menu choices and the raw fetch. */
+	function PickProbe({ refreshRows, onError }: { refreshRows: (slug: string | null | undefined) => void | Promise<void>; onError: (m: string | null) => void }) {
+		const records = useCollectionRecords({
+			token: 'tk',
+			selected: 'employees',
+			fields,
+			m2oSchemas,
+			writeLock: OPEN_LOCK,
+			trashMode: false,
+			refreshRows,
+			onError,
+		});
+		const options = records.tableColumns.find((c) => c.id === 'department')?.menuOptions ?? [];
+		return (
+			<div>
+				<span data-testid="options">{options.map((o) => `${o.label}:${o.selected === true ? 'on' : 'off'}`).join('|')}</span>
+				<button type="button" onClick={() => options.find((o) => o.id === 'code')?.onSelect()}>
+					pick-code
+				</button>
+				<button type="button" onClick={() => void records.fetchData(FETCH_PARAMS)}>fetch</button>
+			</div>
+		);
+	}
+
+	it('stores a pick per collection, refreshes the page and projects the picked leaf', async () => {
+		localStorage.clear();
+		mockListItems.mockResolvedValue({ rows: [], meta: { limit: 25, has_more: false } } as never);
+		const refreshRows = vi.fn();
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+				<PickProbe refreshRows={refreshRows} onError={vi.fn()} />
+			</QueryClientProvider>,
+		);
+		expect(screen.getByTestId('options').textContent).toBe('Default (name_mm):on|Name (MM):off|Code:off');
+
+		click('pick-code');
+		await waitFor(() => expect(screen.getByTestId('options').textContent).toBe('Default (name_mm):off|Name (MM):off|Code:on'));
+		// The preference is per collection, and the visible page is re-read.
+		expect(JSON.parse(localStorage.getItem('studio-relation-display:employees') ?? '{}')).toEqual({ department: 'code' });
+		expect(refreshRows).toHaveBeenCalledWith('employees');
+
+		click('fetch');
+		await waitFor(() => expect(mockListItems).toHaveBeenCalled());
+		const sent = mockListItems.mock.calls[mockListItems.mock.calls.length - 1][2] as { fields?: string };
+		expect(sent.fields).toContain('department.code');
+		expect(sent.fields).not.toContain('department.name_mm');
 	});
 });
 

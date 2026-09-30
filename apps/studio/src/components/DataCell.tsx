@@ -25,9 +25,17 @@ const IMG_STYLE: CSSProperties = {
 /** A collection-table cell. `image`-typed fields preview a small thumbnail
  *  (R2 asset or external CDN URL) instead of the raw URL text; everything else
  *  keeps the existing ellipsized text rendering. Falls back to the text cell
- *  for empty/broken image values so no column ever breaks. */
-export function DataCell({ field, value }: { field: FieldDefinition; value: unknown }) {
-	const src = imageSrcOf(field, value);
+ *  for empty/broken image values so no column ever breaks.
+ *
+ *  `displayLeaf` is the related field a RELATION column was set to show — the
+ *  thumbnail then reads that field off the related row, like the label does. */
+export function DataCell({ field, value, displayLeaf }: { field: FieldDefinition; value: unknown; displayLeaf?: FieldDefinition }) {
+	const shownField = displayLeaf ?? field;
+	const shownValue =
+		displayLeaf && value && typeof value === 'object' && !Array.isArray(value)
+			? (value as Record<string, unknown>)[displayLeaf.name]
+			: value;
+	const src = imageSrcOf(shownField, shownValue);
 	if (src) {
 		return (
 			<span>
@@ -37,7 +45,7 @@ export function DataCell({ field, value }: { field: FieldDefinition; value: unkn
 	}
 	return (
 		<span style={{ display: 'block', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-			{renderCell(field, value)}
+			{renderCell(field, value, displayLeaf)}
 		</span>
 	);
 }

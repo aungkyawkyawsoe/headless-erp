@@ -27,11 +27,12 @@ import {
 	type FieldDefinition,
 } from './api';
 import { itemsQuery } from './queries';
-import { buildTableColumns, serializeTableFilters } from './collection-table-filters';
+import { buildTableColumns, relationLeafMap, serializeTableFilters } from './collection-table-filters';
 import { renderCell } from './cell-render';
 import { buildListFields } from './list-projection';
 import { buildCsv, collectAllRows, fieldMapOf, itemsParamsFromFetch, type ExportColumnsScope, type ExportRowsScope } from './csv-export';
 import { frozenRowsReason, isRowFrozen, partitionFrozenRows, type CollectionWriteLock } from './write-lock';
+import { loadRelationLeaves, saveRelationLeaves, withRelationLeaf } from './relation-display';
 import { InlineCellEditor } from '../components/InlineCellEditor';
 
 export interface CollectionRecordsOptions {
@@ -82,6 +83,28 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 	// scope — page vs all rows, visible vs all columns.
 	const [exportState, setExportState] = useState<{ pageRows: Record<string, unknown>[]; visibleIds: Set<string> } | null>(null);
 
+	// Which related field each relation column SHOWS — the header menu's per-column
+	// pick, kept per collection (a view preference like column visibility; the schema
+	// is untouched). Adopted DURING render on a collection switch so the table never
+	// mounts — and fetches — with the previous collection's picks.
+	const [leavesSlug, setLeavesSlug] = useState(selected);
+	const [displayLeaves, setDisplayLeaves] = useState<Record<string, string>>(() => loadRelationLeaves(selected));
+	if (leavesSlug !== selected) {
+		setLeavesSlug(selected);
+		setDisplayLeaves(loadRelationLeaves(selected));
+	}
+	const pickDisplayLeaf = useCallback(
+		(fieldName: string, leaf: string | null) => {
+			if (!selected) return;
+			const next = withRelationLeaf(displayLeaves, fieldName, leaf);
+			setDisplayLeaves(next);
+			saveRelationLeaves(selected, next);
+			// The projection changed — re-read the visible page so the picked column arrives.
+			void refreshRows(selected);
+		},
+		[displayLeaves, selected, refreshRows],
+	);
+
 	// Table columns built from the focused collection's schema fields — typed filter
 	// metadata is derived generically from field types (m2o columns filter on the
 	// related row's display leaf). No per-row action column — clicking a row opens
@@ -90,7 +113,9 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 		() =>
 			buildTableColumns(fields, m2oSchemas, {
 				systemFieldNames: SYSTEM_FIELD_NAMES,
-				renderCell: (field, value, row) => {
+				displayLeaves,
+				onPickDisplayLeaf: pickDisplayLeaf,
+				renderCell: (field, value, row, displayLeaf) => {
 					const id = row?.id;
 					return (
 						<InlineCellEditor
@@ -99,6 +124,7 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 							recordId={String(id ?? '')}
 							token={token}
 							collectionSlug={selected ?? ''}
+							displayLeaf={displayLeaf}
 							// The SAME write gate the record view uses — a service / append-only
 							// collection, a frozen row, a frozen column, or a row without an id
 							// keeps every cell read-only (least privilege).
@@ -114,7 +140,7 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 					);
 				},
 			}),
-		[fields, m2oSchemas, token, selected, writeLock, refreshRows],
+		[fields, m2oSchemas, token, selected, writeLock, refreshRows, displayLeaves, pickDisplayLeaf],
 	);
 
 	// Server-side fetch — cursor pagination, sorting, search, filters against the API.
@@ -123,8 +149,8 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 	// `fetchData` changes, and `fields`/`m2oSchemas` change on every schema load, so
 	// depending on them re-fetched the rows once per event. `selected` and
 	// `trashMode` are DataTable REMOUNT keys, so those still refetch.
-	const fetchCtxRef = useRef({ token, selected, trashMode, fields, m2oSchemas });
-	fetchCtxRef.current = { token, selected, trashMode, fields, m2oSchemas };
+	const fetchCtxRef = useRef({ token, selected, trashMode, fields, m2oSchemas, displayLeaves });
+	fetchCtxRef.current = { token, selected, trashMode, fields, m2oSchemas, displayLeaves };
 	// The last `FetchParams` the table asked for — replayed by "export all rows" so
 	// the export walks EXACTLY the filter/sort/search the page is showing.
 	const lastFetchParamsRef = useRef<FetchParams | null>(null);
@@ -139,7 +165,9 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 			const entityParams: EntityListParams = {
 				limit: params.pagination.pageSize,
 				trashed: ctx.trashMode,
-				fields: buildListFields(ctx.fields),
+				// The leaf map resolves the display picks against the loaded related
+				// schemas: a picked relation projects exactly its one chosen column.
+				fields: buildListFields(ctx.fields, relationLeafMap(ctx.fields, ctx.m2oSchemas, ctx.displayLeaves)),
 			};
 			if (params.cursor) {
 				entityParams.cursor = params.cursor;
@@ -147,7 +175,7 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 			}
 			if (params.sorting) entityParams.sort = `${params.sorting.direction === 'desc' ? '-' : ''}${params.sorting.id}`;
 			if (params.globalFilter) entityParams.search = params.globalFilter;
-			entityParams.filters = serializeTableFilters(params.filters, ctx.fields, ctx.m2oSchemas);
+			entityParams.filters = serializeTableFilters(params.filters, ctx.fields, ctx.m2oSchemas, ctx.displayLeaves);
 			// Through Query: shares the app cache + in-flight dedup, so a remount or a
 			// repeated page/sort/filter within staleTime costs ZERO requests.
 			return await queryClient.fetchQuery(itemsQuery(ctx.token, ctx.selected, entityParams));
@@ -265,9 +293,16 @@ export function useCollectionRecords(opts: CollectionRecordsOptions): Collection
 					: await collectAllRows(
 							ctx.token,
 							ctx.selected,
-							itemsParamsFromFetch(ctx.fields, ctx.m2oSchemas, lastFetchParamsRef.current ?? undefined, { trashed: ctx.trashMode }),
+							itemsParamsFromFetch(
+								ctx.fields,
+								ctx.m2oSchemas,
+								lastFetchParamsRef.current ?? undefined,
+								{ trashed: ctx.trashMode },
+								ctx.displayLeaves,
+							),
 						);
-			return buildCsv(rows, columns, fieldByName);
+			// The export's relation cells read the SAME picked field on screen.
+			return buildCsv(rows, columns, fieldByName, relationLeafMap(ctx.fields, ctx.m2oSchemas, ctx.displayLeaves));
 		},
 		[exportState, tableColumns],
 	);

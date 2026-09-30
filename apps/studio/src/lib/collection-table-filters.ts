@@ -23,8 +23,9 @@
 
 import { useMemo, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import type { ActiveFilter, ColumnDef, FilterDef } from '@mmbix/design-system/datatable';
+import type { ActiveFilter, ColumnDef, ColumnMenuOption, FilterDef } from '@mmbix/design-system/datatable';
 import { M2O_DISPLAY_FIELDS } from './record-label';
+import { selectableDisplayFields } from './relation-display';
 import type { EntityListFilter, EntitySchema, FieldDefinition } from './api';
 import { collectionQuery } from './queries';
 
@@ -59,9 +60,14 @@ export interface BuildColumnsOptions {
 	/** Names hidden from the table by default. System fields can still be filtered. */
 	systemFieldNames?: ReadonlySet<string>;
 	/** Cell renderer (e.g. DataCell / InlineCellEditor). `row` is the record's
-	 *  `original` — the inline editor needs its id to persist an edit. Omit for
-	 *  the DataTable's raw cell rendering. */
-	renderCell?: (field: FieldDefinition, value: unknown, row: Record<string, unknown>) => ReactNode;
+	 *  `original` — the inline editor needs its id to persist an edit; `displayLeaf`
+	 *  is the related field this relation column displays (the picker's choice).
+	 *  Omit for the DataTable's raw cell rendering. */
+	renderCell?: (field: FieldDefinition, value: unknown, row: Record<string, unknown>, displayLeaf?: FieldDefinition) => ReactNode;
+	/** relation field name → the related field it was explicitly set to display. */
+	displayLeaves?: Record<string, string>;
+	/** Receives a display-field pick (`null` = back to automatic). */
+	onPickDisplayLeaf?: (fieldName: string, leaf: string | null) => void;
 }
 
 // ── Field-type sets ──────────────────────────────────────────────────────
@@ -165,13 +171,25 @@ function templateFieldNames(template: string | undefined): string[] {
 }
 
 /**
- * Pick the related row field the table displays — used as the nested filter leaf
- * (`filter[department.name][_icontains]=…`). Prefers display_template fields, then
- * the conventional display columns; only falls back to `id` when nothing readable exists.
+ * Pick the related row field a relation column DISPLAYS — used as the cell label,
+ * the nested `?fields=` projection and the nested filter leaf
+ * (`filter[department.name][_icontains]=…`).
+ *
+ * `picked` is the operator's choice from the header menu's Columns picker: it wins
+ * outright when the related collection still has that field (a stale pick — the
+ * related field was renamed/removed — falls through to automatic, so the column
+ * never goes blank because of a choice the schema can no longer satisfy).
+ * Automatic prefers display_template fields, then the conventional display
+ * columns; only falls back to `id` when nothing readable exists.
  */
-function displayLeafField(relationField: FieldDefinition, related: EntitySchema): FieldDefinition | null {
+export function displayLeafField(relationField: FieldDefinition, related: EntitySchema, picked?: string): FieldDefinition | null {
 	const fields = related.schema_json.fields ?? [];
 	const byName = new Map(fields.map((f) => [f.name, f]));
+
+	if (picked) {
+		const chosen = byName.get(picked);
+		if (chosen) return chosen;
+	}
 
 	const templateFields = templateFieldNames(relationField.display_template).filter((n) => n !== 'id');
 	const candidates = [
@@ -191,6 +209,24 @@ function displayLeafField(relationField: FieldDefinition, related: EntitySchema)
 		if (leaf && name === 'id' && filterableField(leaf)) return leaf;
 	}
 	return null;
+}
+
+/** relation field name → the related field it displays, for the relation fields
+ *  whose target schema has loaded. */
+export function relationLeafMap(
+	fields: FieldDefinition[],
+	m2oSchemas: Record<string, EntitySchema>,
+	picks?: Record<string, string>,
+): Map<string, FieldDefinition> {
+	const out = new Map<string, FieldDefinition>();
+	for (const f of fields) {
+		if (f.type !== 'm2o' || !f.related_collection) continue;
+		const related = m2oSchemas[f.related_collection];
+		if (!related) continue;
+		const leaf = displayLeafField(f, related, picks?.[f.name]);
+		if (leaf) out.set(f.name, leaf);
+	}
+	return out;
 }
 
 // ── Related schema loading hook ──────────────────────────────────────────
@@ -251,12 +287,41 @@ export function useRelatedSchema(token: string, slug: string | undefined | null)
  * related row's display field; the filter sits on the REAL column and only the
  * serialization map targets the nested leaf (see buildFilterFieldMap).
  */
+/**
+ * The Columns-list choices a relation column offers: back to automatic first,
+ * then every field of the related collection a cell can state.
+ */
+function displayFieldOptions(
+	relationField: FieldDefinition,
+	related: EntitySchema,
+	picked: string | undefined,
+	onPick: (fieldName: string, leaf: string | null) => void,
+): ColumnMenuOption[] {
+	// Named in the "Default" entry so the operator sees what clearing a pick falls
+	// back to — the automatic rule is otherwise invisible.
+	const automatic = displayLeafField(relationField, related);
+	return [
+		{
+			id: '',
+			label: automatic ? `Default (${automatic.name})` : 'Default (automatic)',
+			selected: !picked,
+			onSelect: () => onPick(relationField.name, null),
+		},
+		...selectableDisplayFields(related.schema_json.fields ?? []).map((leaf) => ({
+			id: leaf.name,
+			label: leaf.label || leaf.name,
+			selected: picked === leaf.name,
+			onSelect: () => onPick(relationField.name, leaf.name),
+		})),
+	];
+}
+
 export function buildTableColumns(
 	fields: FieldDefinition[],
 	m2oSchemas: Record<string, EntitySchema>,
 	options: BuildColumnsOptions = {},
 ): ColumnDef<Record<string, unknown>>[] {
-	const { systemFieldNames, renderCell } = options;
+	const { systemFieldNames, renderCell, displayLeaves, onPickDisplayLeaf } = options;
 	const columns: ColumnDef<Record<string, unknown>>[] = [];
 
 	for (const f of fields) {
@@ -266,11 +331,19 @@ export function buildTableColumns(
 		// is resolved from the related schema (fetching lazily in useM2oSchemas). The
 		// filter metadata therefore appears on the REAL column once the leaf is known.
 		let kind = filterableField(f);
+		let leaf: FieldDefinition | null = null;
+		let related: EntitySchema | undefined;
+		const pickedName = displayLeaves?.[f.name];
 		if (f.type === 'm2o' && f.related_collection) {
-			const related = m2oSchemas[f.related_collection];
-			const leaf = related ? displayLeafField(f, related) : null;
+			related = m2oSchemas[f.related_collection];
+			leaf = related ? displayLeafField(f, related, pickedName) : null;
 			kind = leaf ? filterableField(leaf) : null;
 		}
+		// A pick the related schema no longer satisfies fell back to automatic — the
+		// menu must show THAT (nothing is checked on a dangling choice) and, when the
+		// operator picks again, the new choice replaces it.
+		const pickApplied = pickedName && leaf?.name === pickedName ? pickedName : undefined;
+		const menuOptions = leaf && related && onPickDisplayLeaf ? displayFieldOptions(f, related, pickApplied, onPickDisplayLeaf) : undefined;
 
 		columns.push({
 			id: f.name,
@@ -278,7 +351,8 @@ export function buildTableColumns(
 			header: f.label || f.name,
 			enableSorting: true,
 			defaultVisible: visible,
-			...(renderCell ? { cell: ({ value, row }) => renderCell(f, value, row.original) } : {}),
+			...(menuOptions ? { menuOptions } : {}),
+			...(renderCell ? { cell: ({ value, row }) => renderCell(f, value, row.original, leaf ?? undefined) } : {}),
 			...(kind ? { filter: filterDefFor(kind, f.name, f.label || f.name) } : {}),
 		});
 	}
@@ -318,7 +392,11 @@ function filterFieldMeta(field: FieldDefinition, kind: FilterableField, path = f
 }
 
 /** id → backend target metadata for every filterable field in the schema. */
-export function buildFilterFieldMap(fields: FieldDefinition[], m2oSchemas: Record<string, EntitySchema>): Map<string, FilterFieldMeta> {
+export function buildFilterFieldMap(
+	fields: FieldDefinition[],
+	m2oSchemas: Record<string, EntitySchema>,
+	picks?: Record<string, string>,
+): Map<string, FilterFieldMeta> {
 	const meta = new Map<string, FilterFieldMeta>();
 
 	for (const f of fields) {
@@ -326,7 +404,7 @@ export function buildFilterFieldMap(fields: FieldDefinition[], m2oSchemas: Recor
 		// is the related display field — `filter[department.name][_icontains]=…`.
 		if (f.type === 'm2o' && f.related_collection) {
 			const related = m2oSchemas[f.related_collection];
-			const leaf = related ? displayLeafField(f, related) : null;
+			const leaf = related ? displayLeafField(f, related, picks?.[f.name]) : null;
 			if (!leaf) continue;
 			const leafKind = filterableField(leaf);
 			if (!leafKind) continue;
@@ -352,9 +430,10 @@ export function serializeTableFilters(
 	filters: ActiveFilter[],
 	fields: FieldDefinition[],
 	m2oSchemas: Record<string, EntitySchema>,
+	picks?: Record<string, string>,
 ): Record<string, EntityListFilter> | undefined {
 	if (filters.length === 0) return undefined;
-	const metaById = buildFilterFieldMap(fields, m2oSchemas);
+	const metaById = buildFilterFieldMap(fields, m2oSchemas, picks);
 	const out: Record<string, EntityListFilter> = {};
 
 	for (const filter of filters) {

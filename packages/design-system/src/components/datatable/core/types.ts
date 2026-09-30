@@ -46,6 +46,22 @@ export interface ActiveFilter {
 	valueTo?: unknown;
 }
 
+/**
+ * An extra choice a column offers inside the header menu's Columns list.
+ *
+ * A relation column uses it to answer "which field of the related row am I
+ * showing?": the column keeps its own visibility entry, one level deeper, and
+ * the choices ride beside it. A column without `menuOptions` keeps the plain
+ * show/hide checkbox, so existing tables are unchanged.
+ */
+export interface ColumnMenuOption {
+	id: string;
+	label: string;
+	/** Marks the active choice (renders checked). */
+	selected?: boolean;
+	onSelect: () => void;
+}
+
 // ── Column Definition (TanStack-compatible) ───────────────
 
 /**
@@ -121,6 +137,12 @@ export interface ColumnDef<TData extends RowData, TValue = unknown> {
 	 * Defaults to true.
 	 */
 	enableHeaderMenu?: boolean;
+	/**
+	 * Choices offered for this column in the header menu's Columns list, as the
+	 * column's own nested submenu (show/hide, a separator, then these). Absent ⇒
+	 * the column keeps the flat show/hide checkbox.
+	 */
+	menuOptions?: ColumnMenuOption[];
 }
 
 // ── Layout variants ─────────────────────────────────────

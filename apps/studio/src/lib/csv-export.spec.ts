@@ -95,6 +95,29 @@ describe('itemsParamsFromFetch', () => {
 		expect(out.search).toBeUndefined();
 		expect(out.filters).toBeUndefined();
 	});
+
+	it('walks the export with the SAME relation display picks as the visible page', () => {
+		const department: FieldDefinition = { name: 'department', type: 'm2o', related_collection: 'departments' };
+		const schemas = {
+			departments: {
+				id: '1',
+				name: 'Departments',
+				slug: 'departments',
+				table_name: 'cms_departments',
+				schema_json: {
+					fields: [
+						{ name: 'name_mm', type: 'text' },
+						{ name: 'code', type: 'text' },
+					],
+				},
+			} as unknown as import('./api').EntitySchema,
+		};
+		const filter: ActiveFilter = { id: 'department', operator: 'contains', value: 'Mai' };
+		const out = itemsParamsFromFetch([department], schemas, fetchParams({ filters: [filter] }), {}, { department: 'code' });
+		expect(out.fields).toContain('department.code');
+		expect(out.fields).not.toContain('department.name_mm');
+		expect(out.filters).toEqual({ 'department.code': { operator: '_icontains', value: 'Mai' } });
+	});
 });
 
 describe('collectAllRows', () => {
@@ -191,5 +214,16 @@ describe('buildCsv', () => {
 	it('renders columns that are not schema fields by stringifying the raw value', () => {
 		const csv = buildCsv([{ system_col: 7 }, { system_col: null }], [col('system_col')], fieldMapOf([]));
 		expect(csv).toBe('system_col\n7\n');
+	});
+
+	it('exports a relation cell as the picked related field (the cell on screen)', () => {
+		const department: FieldDefinition = { name: 'department', type: 'm2o' };
+		const csv = buildCsv(
+			[{ department: { id: 'd1', name_mm: 'ပြင်ဆင်ရေး', code: 'D-1' } }],
+			[col('department')],
+			fieldMapOf([department]),
+			new Map([['department', { name: 'code', type: 'text' } as FieldDefinition]]),
+		);
+		expect(csv).toBe('department\nD-1');
 	});
 });

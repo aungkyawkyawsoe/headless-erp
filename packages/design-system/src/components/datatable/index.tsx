@@ -5,6 +5,7 @@ export type {
 	DataTableProps,
 	DataTableInstance,
 	ColumnDef,
+	ColumnMenuOption,
 	FilterDef,
 	ActiveFilter,
 	SortState,

@@ -2,7 +2,7 @@ import { MAX_PAGE_SIZE } from '@mmbix/config';
 import type { ColumnDef, FetchParams } from '@mmbix/design-system/datatable';
 import { listItems, type EntityListParams, type EntitySchema, type FieldDefinition } from './api';
 import { renderCell } from './cell-render';
-import { serializeTableFilters } from './collection-table-filters';
+import { relationLeafMap, serializeTableFilters } from './collection-table-filters';
 import { buildListFields } from './list-projection';
 
 export type ExportRowsScope = 'page' | 'all';
@@ -50,15 +50,20 @@ export function itemsParamsFromFetch(
 	m2oSchemas: Record<string, EntitySchema>,
 	params: FetchParams = EMPTY_FETCH_PARAMS,
 	base: EntityListParams = {},
+	picks?: Record<string, string>,
 ): EntityListParams {
-	const out: EntityListParams = { ...base, limit: params.pagination.pageSize, fields: buildListFields(fields) };
+	const out: EntityListParams = {
+		...base,
+		limit: params.pagination.pageSize,
+		fields: buildListFields(fields, relationLeafMap(fields, m2oSchemas, picks)),
+	};
 	if (params.cursor) {
 		out.cursor = params.cursor;
 		out.dir = 'after';
 	}
 	if (params.sorting) out.sort = `${params.sorting.direction === 'desc' ? '-' : ''}${params.sorting.id}`;
 	if (params.globalFilter) out.search = params.globalFilter;
-	out.filters = serializeTableFilters(params.filters, fields, m2oSchemas);
+	out.filters = serializeTableFilters(params.filters, fields, m2oSchemas, picks);
 	return out;
 }
 
@@ -105,11 +110,16 @@ export async function collectAllRows(token: string, slug: string, params: Entity
 	return rows;
 }
 
-/** Render rows × columns as CSV text (headers from `header`, cells via `renderCell`). */
+/**
+ * Render rows × columns as CSV text (headers from `header`, cells via `renderCell`).
+ * `leaves` names the related field each relation column displays, so an exported
+ * cell reads exactly like the cell on screen.
+ */
 export function buildCsv(
 	rows: Record<string, unknown>[],
 	columns: ColumnDef<Record<string, unknown>>[],
 	fieldByName: Map<string, FieldDefinition>,
+	leaves?: ReadonlyMap<string, FieldDefinition>,
 ): string {
 	const headers = columns.map((c) => (typeof c.header === 'string' ? c.header : c.id));
 	const lines = [headers.join(',')];
@@ -117,7 +127,7 @@ export function buildCsv(
 		const cells = columns.map((c) => {
 			const field = fieldByName.get(c.id);
 			const value = row[c.id];
-			const text = field ? renderCell(field, value) : value == null ? '' : String(value);
+			const text = field ? renderCell(field, value, leaves?.get(c.id)) : value == null ? '' : String(value);
 			return escapeCsvCell(text);
 		});
 		lines.push(cells.join(','));

@@ -158,3 +158,27 @@ describe('renderCell', () => {
 		expect(renderCell({ name: 's', type: 'select', options: [{ value: 'a', label: 'A' }] }, null)).toBe('—');
 	});
 });
+
+describe('renderCell — relation display picks', () => {
+	const dept: FieldDefinition = { name: 'department', type: 'm2o' };
+	const row = { id: 'd1', name_mm: 'ပြင်ဆင်ရေး', name_en: 'Maintenance', code: 'D-1', status: 'active' };
+
+	it('renders the picked related field instead of the automatic label', () => {
+		expect(renderCell(dept, row, { name: 'code', type: 'text' })).toBe('D-1');
+		expect(renderCell(dept, { name_mm: 'X', code: 'D-1' }, { name: 'code', type: 'text' })).toBe('D-1');
+	});
+
+	it('keeps the automatic label when no leaf is given', () => {
+		expect(renderCell(dept, row)).toBe('ပြင်ဆင်ရေး');
+	});
+
+	it('renders a picked leaf through its OWN type (a select leaf shows its option label)', () => {
+		const leaf: FieldDefinition = { name: 'status', type: 'select', options: [{ value: 'active', label: 'Active' }] };
+		expect(renderCell(dept, row, leaf)).toBe('Active');
+	});
+
+	it('states an empty picked value as em-dash rather than falling back to the label', () => {
+		expect(renderCell(dept, { id: 'd1' }, { name: 'code', type: 'text' })).toBe('—');
+		expect(renderCell(dept, { id: 'd1', code: '  ' }, { name: 'code', type: 'text' })).toBe('—');
+	});
+});

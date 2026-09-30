@@ -24,10 +24,19 @@ export function cellValue(v: unknown): string {
  *  display_template; relation arrays (o2m/m2m/table) show how many related rows
  *  there are; select/formula values show the option's label when one is defined,
  *  else enum tokens (`late_in`) render humanized (`Late In`). The stored value
- *  stays the value — only the displayed text changes. */
-export function renderCell(f: FieldDefinition, value: unknown): string {
+ *  stays the value — only the displayed text changes.
+ *
+ *  `displayLeaf` is the related field the column was explicitly set to show (the
+ *  header menu's Columns picker): it wins over the template, and the leaf's OWN
+ *  type renders its value — a select leaf shows its option label, a datetime leaf
+ *  its Myanmar time — the same text the related collection's own table shows. */
+export function renderCell(f: FieldDefinition, value: unknown, displayLeaf?: FieldDefinition | null): string {
 	if (f.type === 'm2o' && value && typeof value === 'object' && !Array.isArray(value)) {
 		const obj = value as Record<string, unknown>;
+		if (displayLeaf) {
+			const v = obj[displayLeaf.name];
+			return v === null || v === undefined || String(v).trim() === '' ? '—' : renderCell(displayLeaf, v);
+		}
 		return renderTemplate(f.display_template, obj) || m2oLabel(obj) || '—';
 	}
 	// Relation arrays arrive id-only from the table projection (lib/list-projection.ts);

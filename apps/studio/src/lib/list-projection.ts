@@ -40,7 +40,9 @@ function templateKeys(template: string | undefined): string[] {
  *                       field's `display_template` keys. Unknown names are
  *                       dropped server-side (`projectColumns` filters against the
  *                       real columns), so this is correct even before the related
- *                       schema has loaded;
+ *                       schema has loaded. A relation the operator pointed at ONE
+ *                       field (`leaves`) projects just that field — the cell reads
+ *                       one column, so the candidates would be ~18 wasted entries;
  *   - `<rel>.id`      — relation ARRAYS (o2m/m2m/table) arrive id-only: enough for
  *                       the cell to show a related-row COUNT without pulling rows.
  *
@@ -60,7 +62,7 @@ function templateKeys(template: string | undefined): string[] {
  * relation keeps its id + declared template/key and only the least-useful tail is
  * dropped on a wide schema.
  */
-export function buildListFields(fields: FieldDefinition[]): string {
+export function buildListFields(fields: FieldDefinition[], leaves?: ReadonlyMap<string, FieldDefinition>): string {
 	if (fields.length === 0) return '*';
 	const parts = new Set<string>(['*']);
 	const add = (token: string): void => {
@@ -74,6 +76,14 @@ export function buildListFields(fields: FieldDefinition[]): string {
 	for (const f of fields) {
 		if (f.type === 'm2o') {
 			add(`${f.name}.id`);
+			// A relation the operator pointed at ONE related field (the display pick)
+			// projects exactly that field — the conventional candidates are dead
+			// weight for a cell that reads one column.
+			const leaf = leaves?.get(f.name);
+			if (leaf) {
+				add(`${f.name}.${leaf.name}`);
+				continue;
+			}
 			for (const key of templateKeys(f.display_template)) add(`${f.name}.${key}`);
 			fallback.push(`${f.name}.`);
 		} else if (f.type === 'o2m' || f.type === 'm2m' || f.type === 'table') {

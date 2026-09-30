@@ -160,6 +160,11 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 	// The lock for the record OPEN in the detail view — it may be a related
 	// collection, and a row can be frozen by `freeze_when` (a 403 on update/delete).
 	const openWriteLock = useMemo(() => writeLockOf(openSchema ?? selectedSchema), [openSchema, selectedSchema]);
+	// Mount the detail view for a record — the row click and a child-create's hop.
+	const openRecordView = useCallback((rec: Record<string, unknown>, schema: EntitySchema | undefined) => {
+		setOpenRecord(rec);
+		setOpenSchema(schema ?? null);
+	}, []);
 	// Bump to refetch the rows after a record create/edit/delete.
 	const [reloadTick, setReloadTick] = useState(0);
 	// Re-read the visible page after a row write: drop this collection's cached pages,
@@ -411,11 +416,6 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	function openRecordView(rec: Record<string, unknown>, schema: EntitySchema | undefined) {
-		setOpenRecord(rec);
-		setOpenSchema(schema ?? null);
-	}
-
 	const right = (
 		<div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
 			<FieldTypesPanel
@@ -500,7 +500,9 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 			) : openRecord && (openSchema ?? selectedSchema) ? (
 				<RecordDetailView
 					token={token}
-					collection={selectedModel ?? { slug: selected, name: collectionName }}
+					// The header names the collection the OPEN record lives in — a related
+					// record opened via the ↗ (or an o2m child) is not the focused one.
+					collection={openSchema ? { slug: openSchema.slug, name: openSchema.name } : (selectedModel ?? { slug: selected, name: collectionName })}
 					schema={openSchema ?? selectedSchema}
 					record={openRecord}
 					// Browse-only when the OPENED collection (which may be a related one)

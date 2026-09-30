@@ -10,6 +10,7 @@ import {
 	ArrowRightToLineIcon,
 	ArrowLeftIcon,
 	ArrowRightIcon,
+	CheckIcon,
 	EyeOffIcon,
 	Columns3Icon,
 	PinOffIcon,
@@ -19,6 +20,8 @@ import {
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuGroup,
+	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
@@ -29,7 +32,7 @@ import { useProcessedData } from '../datatable-context';
 import { columnBorderCellClass, CONTROL_COLUMN_WIDTH, pinnedColumnBorderClass } from '../core/utils';
 import type { ColumnPinningState, RowData } from '@tanstack/react-table';
 import type { LegacyTable } from '@tanstack/react-table/legacy';
-import type { BorderStyle, ColumnDef } from '../core/types';
+import type { BorderStyle, ColumnDef, ColumnMenuOption } from '../core/types';
 
 interface DataTableHeaderProps<TData extends RowData> {
 	columns: ColumnDef<TData>[];
@@ -264,11 +267,45 @@ function HeaderMenuContent({ columnId }: { columnId: string }) {
 					<span>Columns</span>
 				</DropdownMenuSubTrigger>
 				<DropdownMenuSubContent className="w-44">
-					{hideableColumns.map((col) => (
-						<DropdownMenuCheckboxItem key={col.id} checked={col.getIsVisible()} onCheckedChange={() => col.toggleVisibility()}>
-							{typeof col.columnDef.header === 'string' ? col.columnDef.header : col.id}
-						</DropdownMenuCheckboxItem>
-					))}
+					{hideableColumns.map((col) => {
+						const label = typeof col.columnDef.header === 'string' ? col.columnDef.header : col.id;
+						const menuOptions = (col.columnDef.meta as { menuOptions?: ColumnMenuOption[] } | undefined)?.menuOptions;
+						// A column carrying choices (a relation's display field) nests into its
+						// own submenu: show/hide first, then the choices — so picking WHAT a
+						// column shows sits with the column it belongs to.
+						if (!menuOptions?.length) {
+							return (
+								<DropdownMenuCheckboxItem key={col.id} checked={col.getIsVisible()} onCheckedChange={() => col.toggleVisibility()}>
+									{label}
+								</DropdownMenuCheckboxItem>
+							);
+						}
+						return (
+							<DropdownMenuSub key={col.id}>
+								{/* The parent Columns list opens on hover; this picker opens on CLICK —
+								    a nested hover chain would open it by accident on a pointer sweep
+								    past the entry, and a click makes the choice deliberate. */}
+								<DropdownMenuSubTrigger openOnHover={false} className="gap-2">
+									<span className="truncate">{label}</span>
+									{col.getIsVisible() && <CheckIcon className="ml-auto size-3.5 shrink-0 text-primary" />}
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent className="w-52">
+									<DropdownMenuCheckboxItem checked={col.getIsVisible()} onCheckedChange={() => col.toggleVisibility()}>
+										Show column
+									</DropdownMenuCheckboxItem>
+									<DropdownMenuSeparator />
+									<DropdownMenuGroup>
+										<DropdownMenuLabel>Display field</DropdownMenuLabel>
+										{menuOptions.map((opt) => (
+											<DropdownMenuCheckboxItem key={opt.id} checked={opt.selected === true} onCheckedChange={() => opt.onSelect()}>
+												{opt.label}
+											</DropdownMenuCheckboxItem>
+										))}
+									</DropdownMenuGroup>
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+						);
+					})}
 				</DropdownMenuSubContent>
 			</DropdownMenuSub>
 		</>
