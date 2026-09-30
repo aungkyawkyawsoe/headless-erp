@@ -1,29 +1,38 @@
 import { lazy, Suspense } from 'react';
-import IdpShell from '../components/IdpShell';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import { Button } from '@mmbix/design-system';
+import { popBack } from '../lib/view-state';
 
 // Lazy-loaded — Scalar is heavy and only needed when the API docs page is opened.
 const ApiDocsTab = lazy(() => import('../components/ApiDocsTab'));
 
-/**
- * The Scalar API reference as a portal SECTION (`/idp/api-docs`) — the
- * `api-docs` entry in `lib/idp-nav.ts` gives it the rail icon, its route and the
- * ⌘K row, so the page carries no chrome of its own. It also renders the shell
- * WITHOUT its header (no breadcrumbs, no fullscreen toggle) and without the
- * status bar: the reference is the whole destination, so the canvas is Scalar's
- * — a crumb row on top and 28px of empty bar below would only shrink it
- * (Data-Ink Ratio). Navigation stays on the rail, whose footer carries the theme
- * toggle, and the page used to be a standalone route at `/api-docs`, outside it.
- */
-export default function ApiDocsPage({ token, user }: { token: string; user: { email: string; full_name: string } }) {
+/** Full-page Scalar API reference — a standalone destination (opened from the
+ *  Apps grid "Api" tile), NOT wrapped in the IDP nav drawer. */
+export default function ApiDocsPage({ token }: { token: string }) {
+	const navigate = useNavigate();
 	return (
-		<IdpShell token={token} user={user} showHeader={false} showStatusBar={false}>
-			<Suspense
-				fallback={
-					<p style={{ padding: '1rem', color: 'var(--mmbix-muted-foreground, #6b7280)', fontSize: '0.8rem' }}>Loading API docs…</p>
-				}
+		<div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+			<div
+				style={{
+					display: 'flex',
+					alignItems: 'center',
+					gap: '0.75rem',
+					padding: '0.5rem 1rem',
+					borderBottom: '1px solid var(--mmbix-border, #e5e7eb)',
+					background: 'var(--mmbix-background, #fff)',
+				}}
 			>
-				<ApiDocsTab token={token} />
-			</Suspense>
-		</IdpShell>
+				<Button size="icon" variant="outline" title="Back to Apps" aria-label="Back to Apps" onClick={() => popBack(navigate, '/')}>
+					<ArrowLeft size={16} />
+				</Button>
+				<h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>API Docs</h1>
+			</div>
+			<div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+				<Suspense fallback={<p style={{ padding: '1rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Loading API docs…</p>}>
+					<ApiDocsTab token={token} />
+				</Suspense>
+			</div>
+		</div>
 	);
 }

@@ -12,7 +12,7 @@ import {
 	type DragMoveEvent,
 	type DragStartEvent,
 } from '@dnd-kit/core';
-import { Button, Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList, alertDialog } from '@mmbix/design-system';
+import { Button, Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList } from '@mmbix/design-system';
 import { PivotTable } from '@mmbix/design-system/pivot';
 import type { ReportDefinition } from '@mmbix/types';
 import { starterPivotDef } from '@mmbix/types';
@@ -866,12 +866,7 @@ function PageLayoutOutline() {
 													<BlockDragHandle blockId={b.id} label={b.label ?? b.type} />
 												</span>
 											)}
-											<BlockView
-												block={b}
-												renderDataBlock={renderDataBlock}
-												dataSource={dataSource}
-												notify={(msg) => void alertDialog({ description: msg })}
-											/>
+											<BlockView block={b} renderDataBlock={renderDataBlock} dataSource={dataSource} notify={(msg) => window.alert(msg)} />
 										</div>
 									</DroppableZone>
 								</BlockContextMenu>
@@ -984,7 +979,7 @@ export function PageCanvas() {
 					<Button
 						key={m.key}
 						size="sm"
-						variant={canvasMode === m.key ? 'secondary' : 'ghost'}
+						variant={canvasMode === m.key ? 'default' : 'ghost'}
 						onClick={() => setCanvasMode(m.key)}
 						style={{ gap: 6, textTransform: 'capitalize' }}
 					>

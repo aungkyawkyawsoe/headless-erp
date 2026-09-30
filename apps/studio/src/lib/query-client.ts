@@ -166,7 +166,7 @@ export function invalidateDesignTokens(client: QueryClient): Promise<void> {
 /**
  * An IDP-portal write (scaffold a module, create/bind an app, deploy / apply /
  * rollback / promote) — revalidate the portal's whole subtree, plus the system
- * module list (scaffolding adds a module the catalog then shows) in ONE call.
+ * module list (scaffolding adds a module the launcher grid shows) in ONE call.
  *
  * Deliberately coarse: `qk.idp()` is a small, low-traffic console and every read
  * there is cheap, so refining this to per-badge precision would only risk a stale

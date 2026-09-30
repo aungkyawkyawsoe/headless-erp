@@ -1001,7 +1001,7 @@ export function PageProperties() {
 							t === 'events' && !canEvents ? null : (
 								<Button
 									key={t}
-									variant={blockTab === t ? 'secondary' : 'ghost'}
+									variant={blockTab === t ? 'default' : 'ghost'}
 									size="sm"
 									onClick={() => setBlockTab(t)}
 									style={{ textTransform: 'capitalize', fontSize: '0.75rem', padding: '0 0.6rem' }}

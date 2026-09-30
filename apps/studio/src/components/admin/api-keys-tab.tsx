@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, confirmDialog } from '@mmbix/design-system';
+import { Button } from '@mmbix/design-system';
 import { KeyRound, Plus } from 'lucide-react';
-import { createApiKey, revokeApiKey, type ApiKeyInfo, type ApiKeyScope } from '../../lib/api';
+import { createApiKey, revokeApiKey, type ApiKeyInfo } from '../../lib/api';
 import { apiKeysQuery, usersQuery } from '../../lib/queries';
 import { invalidateApiKeys } from '../../lib/query-client';
 
@@ -19,7 +19,6 @@ export function ApiKeysTab({ token }: { token: string }) {
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState('');
 	const [userId, setUserId] = useState('');
-	const [scope, setScope] = useState<ApiKeyScope>('read');
 	const [createdKey, setCreatedKey] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
@@ -35,10 +34,9 @@ export function ApiKeysTab({ token }: { token: string }) {
 		setBusy(true);
 		setMsg(null);
 		try {
-			const created = await createApiKey(token, name.trim(), userId, null, scope);
+			const created = await createApiKey(token, name.trim(), userId);
 			setCreatedKey(created.key);
 			setName('');
-			setScope('read');
 			setOpen(false);
 			await invalidateApiKeys(queryClient);
 		} catch (e) {
@@ -49,15 +47,7 @@ export function ApiKeysTab({ token }: { token: string }) {
 	};
 
 	const revoke = async (k: ApiKeyInfo) => {
-		if (
-			!(await confirmDialog({
-				title: 'Revoke API key',
-				description: `Revoke API key “${k.name}”? It stops working immediately.`,
-				destructive: true,
-				confirmLabel: 'Revoke',
-			}))
-		)
-			return;
+		if (!window.confirm(`Revoke API key “${k.name}”? It stops working immediately.`)) return;
 		try {
 			await revokeApiKey(token, k.id);
 			await invalidateApiKeys(queryClient);
@@ -82,18 +72,10 @@ export function ApiKeysTab({ token }: { token: string }) {
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0.75rem 0.9rem' }}>
 			<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-				<span
-					style={{
-						fontSize: '0.66rem',
-						fontWeight: 700,
-						textTransform: 'uppercase',
-						letterSpacing: '0.05em',
-						color: 'var(--mmbix-muted-foreground, #64748b)',
-					}}
-				>
+				<span style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b' }}>
 					API keys
 				</span>
-				<span style={{ fontSize: '0.6rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{keys.length}</span>
+				<span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>{keys.length}</span>
 				<Button
 					size="sm"
 					style={{ marginLeft: 'auto' }}
@@ -112,15 +94,13 @@ export function ApiKeysTab({ token }: { token: string }) {
 						display: 'flex',
 						flexDirection: 'column',
 						gap: 4,
-						border: '1px solid var(--mmbix-tone-positive-fg, #059669)',
+						border: '1px solid #059669',
 						borderRadius: 8,
 						padding: '0.5rem 0.6rem',
 						background: 'rgba(16,185,129,0.06)',
 					}}
 				>
-					<span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-tone-positive-fg, #059669)' }}>
-						Key created — copy it now, it is shown only once:
-					</span>
+					<span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#059669' }}>Key created — copy it now, it is shown only once:</span>
 					<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
 						<code
 							style={{
@@ -153,7 +133,7 @@ export function ApiKeysTab({ token }: { token: string }) {
 				</div>
 			)}
 			{keys.length === 0 && (
-				<p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
+				<p style={{ margin: 0, fontSize: '0.72rem', color: '#9ca3af' }}>
 					No API keys — create one for headless/integration access (Bearer mmk_…).
 				</p>
 			)}
@@ -170,10 +150,7 @@ export function ApiKeysTab({ token }: { token: string }) {
 						background: 'var(--mmbix-card, #fff)',
 					}}
 				>
-					<KeyRound
-						size={13}
-						style={{ color: k.is_active === 1 ? 'var(--mmbix-primary, #2563eb)' : 'var(--mmbix-muted-foreground, #9ca3af)', flexShrink: 0 }}
-					/>
+					<KeyRound size={13} style={{ color: k.is_active === 1 ? '#2563eb' : '#9ca3af', flexShrink: 0 }} />
 					<span
 						style={{
 							flex: 1,
@@ -187,29 +164,20 @@ export function ApiKeysTab({ token }: { token: string }) {
 					>
 						{k.name}
 					</span>
-					<span style={{ fontSize: '0.66rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{userEmail(k.user_id)}</span>
-					<span
-						style={{
-							fontSize: '0.6rem',
-							fontWeight: 700,
-							color: k.scope === 'read' ? 'var(--mmbix-muted-foreground, #6b7280)' : 'var(--mmbix-tone-warning-fg, #b45309)',
-						}}
-					>
-						{k.scope ?? 'admin'}
-					</span>
+					<span style={{ fontSize: '0.66rem', color: '#9ca3af' }}>{userEmail(k.user_id)}</span>
 					{k.is_active !== 1 ? (
-						<span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>revoked</span>
+						<span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#dc2626' }}>revoked</span>
 					) : (
-						<span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--mmbix-tone-positive-fg, #059669)' }}>active</span>
+						<span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#059669' }}>active</span>
 					)}
 					{k.is_active === 1 && (
-						<Button size="sm" variant="outline" onClick={() => void revoke(k)} style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
+						<Button size="sm" variant="outline" onClick={() => void revoke(k)} style={{ color: '#dc2626' }}>
 							Revoke
 						</Button>
 					)}
 				</div>
 			))}
-			{msg && <span style={{ fontSize: '0.68rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>{msg}</span>}
+			{msg && <span style={{ fontSize: '0.68rem', color: '#dc2626' }}>{msg}</span>}
 
 			{open && (
 				<div
@@ -251,11 +219,6 @@ export function ApiKeysTab({ token }: { token: string }) {
 									{u.email}
 								</option>
 							))}
-						</select>
-						<select value={scope} onChange={(e) => setScope(e.target.value as ApiKeyScope)} style={field}>
-							<option value="read">read — may call read tools only (recommended)</option>
-							<option value="write">write — may call mutating tools</option>
-							<option value="admin">admin — full access</option>
 						</select>
 						<div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
 							<Button variant="outline" size="sm" onClick={() => setOpen(false)}>

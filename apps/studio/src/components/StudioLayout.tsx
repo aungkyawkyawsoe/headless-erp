@@ -1,8 +1,7 @@
 /**
  * StudioLayout — Odoo-inspired 3-pane studio workspace shell.
- * Rendered inside the app's global shell (see App.tsx — the only authed
- * surfaces are this workbench, Studio Admin and the portal; navigation lives in
- * the portal's rail + panel).
+ * Rendered inside the app's global shell (see App.tsx — the narrow activity
+ * rail was removed; navigation lives in the Apps ModuleGrid).
  *
  *   ┌────────────────────────────────────────────────────────────────┐
  *   │  header                                                        │
@@ -19,10 +18,9 @@
  * when collapsed it shrinks to a slim strip with an expand button.
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@mmbix/design-system';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@mmbix/design-system';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import PaneBoundary from './PaneBoundary';
-import { useIsNarrow } from '../lib/use-media-query';
 
 interface StudioLayoutProps {
 	header?: ReactNode;
@@ -66,16 +64,6 @@ export default function StudioLayout({ header, left, right, footer, storageKey, 
 		return typeof s === 'number' && s > 0 ? s : 26;
 	});
 	const [leftCollapsed, setLeftCollapsed] = useState(() => loadPersisted(storageKey)?.leftCollapsed ?? false);
-	// Responsive: on a narrow viewport, collapse both inspectors to their slim
-	// strips so the canvas keeps the width. Runs only when `narrow` CHANGES (so a
-	// deliberate manual expand on a wide screen is not undone), and the user can
-	// still re-expand by hand while narrow.
-	const narrow = useIsNarrow();
-	useEffect(() => {
-		if (!narrow) return;
-		setLeftCollapsed(true);
-		setRightCollapsed(true);
-	}, [narrow]);
 	useEffect(() => {
 		if (!storageKey) return;
 		try {
@@ -107,22 +95,31 @@ export default function StudioLayout({ header, left, right, footer, storageKey, 
 								justifyContent: 'center',
 							}}
 						>
-							<Button
+							<button
 								type="button"
-								variant="outline"
-								size="icon"
 								title="Expand panel"
-								aria-label="Expand left panel"
 								onClick={() => setLeftCollapsed(false)}
-								style={{ width: 22, height: 40 }}
+								style={{
+									width: 22,
+									height: 40,
+									borderRadius: 6,
+									border: '1px solid var(--mmbix-border, #e5e7eb)',
+									background: 'var(--mmbix-card, #ffffff)',
+									cursor: 'pointer',
+									display: 'inline-flex',
+									alignItems: 'center',
+									justifyContent: 'center',
+									color: '#6b7280',
+									padding: 0,
+								}}
 							>
 								<ChevronsRight size={14} />
-							</Button>
+							</button>
 						</div>
 					) : left ? (
 						<aside
 							style={{
-								width: 'min(340px, 85vw)',
+								width: 340,
 								flexShrink: 0,
 								borderRight: '1px solid var(--mmbix-border, #e5e7eb)',
 								background: 'var(--mmbix-muted, #f9fafb)',
@@ -155,17 +152,26 @@ export default function StudioLayout({ header, left, right, footer, storageKey, 
 									justifyContent: 'center',
 								}}
 							>
-								<Button
+								<button
 									type="button"
-									variant="outline"
-									size="icon"
 									title="Expand properties"
-									aria-label="Expand properties panel"
 									onClick={() => setRightCollapsed(false)}
-									style={{ width: 22, height: 40 }}
+									style={{
+										width: 22,
+										height: 40,
+										borderRadius: 6,
+										border: '1px solid var(--mmbix-border, #e5e7eb)',
+										background: 'var(--mmbix-card, #ffffff)',
+										cursor: 'pointer',
+										display: 'inline-flex',
+										alignItems: 'center',
+										justifyContent: 'center',
+										color: '#6b7280',
+										padding: 0,
+									}}
 								>
 									<ChevronsLeft size={14} />
-								</Button>
+								</button>
 							</div>
 						) : right ? (
 							<>

@@ -63,15 +63,30 @@ export function itemsParamsFromFetch(
 }
 
 /**
+ * The walk's sort: a relation (dotted) sort cannot be cursor-paged — the engine
+ * emits no `next_cursor` for nested sorts — so keeping it would silently stop
+ * the walk after one page. Falling back to the engine's default order is the
+ * only honest trade a keyset engine allows: every matching row, server-ordered.
+ * A plain column sort walks as-is.
+ */
+function walkSort(sort: string | undefined): string | undefined {
+	return sort?.includes('.') ? undefined : sort;
+}
+
+/**
  * Fetch EVERY row matching the given params via the cursor API — pages of
  * `MAX_PAGE_SIZE`, deduped by id (a collection without a total sort can repeat
  * a row across page boundaries). Refuses nothing: the reads ride the same
  * per-collection RBAC and response cache as the table's own pages.
+ *
+ * The walk starts at ROW ZERO: `params.cursor` is the table's current position,
+ * not part of "what the user is looking at" — inheriting it dropped every row
+ * before the visible page.
  */
 export async function collectAllRows(token: string, slug: string, params: EntityListParams): Promise<Record<string, unknown>[]> {
 	const rows: Record<string, unknown>[] = [];
 	const seen = new Set<string>();
-	const pageParams: EntityListParams = { ...params, limit: MAX_PAGE_SIZE, dir: 'after' };
+	const pageParams: EntityListParams = { ...params, cursor: undefined, sort: walkSort(params.sort), limit: MAX_PAGE_SIZE, dir: 'after' };
 	let cursor: string | undefined;
 	for (;;) {
 		const page = await listItems(token, slug, cursor ? { ...pageParams, cursor } : pageParams);
@@ -81,7 +96,10 @@ export async function collectAllRows(token: string, slug: string, params: Entity
 			seen.add(key);
 			rows.push(row);
 		}
-		if (!page.meta.has_more || !page.meta.next_cursor) break;
+		if (!page.meta.has_more) break;
+		// A page that says "more rows" MUST hand over the cursor to reach them —
+		// stopping here would export a truncated file that looks complete.
+		if (!page.meta.next_cursor) throw new Error('Export stopped early: the server reported more rows but no cursor to fetch them.');
 		cursor = page.meta.next_cursor;
 	}
 	return rows;

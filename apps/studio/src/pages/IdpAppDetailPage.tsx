@@ -55,9 +55,8 @@ export default function IdpAppDetailPage({ token, user }: { token: string; user:
 	const { slug } = useParams<{ slug: string }>();
 	const queryClient = useQueryClient();
 
-	// Catalog + deployments are shared cache entries (the catalog page reads the
-	// same ones); this page only FILTERS the deployments by slug — the portal's
-	// standalone Deployments page was dropped, the per-app view is what remains.
+	// Catalog + deployments are shared query entries (the catalog page and the
+	// deployments page read the same ones); this page only FILTERS them by slug.
 	const catalogQ = useQuery(idpCatalogQuery(token));
 	const deploymentsQ = useQuery(idpDeploymentsQuery(token));
 	const entry = useMemo(() => (catalogQ.data ?? []).find((c) => c.slug === slug) ?? null, [catalogQ.data, slug]);
@@ -103,6 +102,7 @@ export default function IdpAppDetailPage({ token, user }: { token: string; user:
 			token={token}
 			user={user}
 			breadcrumbs={[{ href: '#/idp', label: 'IDP' }, { href: '#/idp/catalog', label: 'Catalog' }, { label: entry?.name ?? slug ?? 'App' }]}
+			activeNav="catalog"
 		>
 			<div style={WRAPPER}>
 				{error && (

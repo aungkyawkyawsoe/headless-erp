@@ -416,7 +416,7 @@ export function ImageEditorDialog({ open, request, token, onClose, onApply, onBu
 						<Tool label="Crop shape">
 							<div style={{ display: 'flex', gap: 4 }}>
 								{ASPECT_IDS.map((id) => (
-									<Button key={id} size="xs" variant={aspect === id ? 'secondary' : 'outline'} type="button" onClick={() => applyAspect(id)}>
+									<Button key={id} size="xs" variant={aspect === id ? 'default' : 'outline'} type="button" onClick={() => applyAspect(id)}>
 										{id === 'free' ? 'Free' : id}
 									</Button>
 								))}

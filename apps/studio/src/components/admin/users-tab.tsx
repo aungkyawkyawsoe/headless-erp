@@ -1,22 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-	Button,
-	Combobox,
-	ComboboxContent,
-	ComboboxInput,
-	ComboboxItem,
-	ComboboxList,
-	Input,
-	NativeSelect,
-	NativeSelectOption,
-	ToggleGroup,
-	ToggleGroupItem,
-} from '@mmbix/design-system';
-import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
-import { Check, X } from 'lucide-react';
+import { Button, Checkbox, Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList, Input } from '@mmbix/design-system';
+import { ArrowLeft, Plus, Save } from 'lucide-react';
 import { createUser, updateUser, type StudioUser, type UpdateStudioUserInput } from '../../lib/api';
-import { itemsQuery, rolesQuery, serverMetaQuery, usersQuery } from '../../lib/queries';
+import { itemsQuery, rolesQuery, usersQuery } from '../../lib/queries';
 import { invalidateUsers } from '../../lib/query-client';
 import {
 	displayNameOf,
@@ -38,8 +25,6 @@ import {
 	type EmployeeRow,
 	type UserState,
 } from '../../lib/users';
-import { resolveUserView, USER_VIEWS, useUserView, type UserViewId } from '../../lib/user-view';
-import StatusBadge from '../StatusBadge';
 
 /**
  * Users — the `_users` registry, the Directus-style account table.
@@ -59,12 +44,6 @@ import StatusBadge from '../StatusBadge';
  * Mounted by BOTH the Studio Admin settings page and the IDP portal (the same
  * component, the pattern `RolesTab` already follows) so the two surfaces cannot
  * drift into two implementations.
- *
- * The directory's saved VIEWS (Active / Suspended / Invited / All —
- * `lib/user-view.ts`) are URL state (`?view=`) in both homes. The portal renders
- * them in its panel, exactly as Directus keeps them in the sidebar; Studio Admin
- * has no panel, so it passes `viewsInToolbar` and they ride the table's toolbar.
- * One state, one vocabulary, two placements.
  */
 
 /** Mirrors `AuthService.createUser`'s own floor — the client blocks the 400
@@ -74,29 +53,31 @@ const MIN_PASSWORD_LENGTH = 6;
 /** How long after the last keystroke a name becomes a directory search. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-const note = { fontSize: '0.7rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: 0 };
-/** The editor's field labels — the role form's own section titles, so the two
- *  forms read as ONE design language (`role-detail-view.tsx`). */
-const sectionTitle: React.CSSProperties = {
-	fontSize: '0.62rem',
+const sectionTitle = {
+	fontSize: '0.66rem',
 	fontWeight: 700,
-	textTransform: 'uppercase',
-	letterSpacing: '0.07em',
-	color: 'var(--mmbix-muted-foreground, #64748b)',
+	textTransform: 'uppercase' as const,
+	letterSpacing: '0.05em',
+	color: '#64748b',
 };
-
-/** State label; the colour comes from the ONE tokenized StatusBadge (see `lib/status.ts`). */
-const STATE_LABEL: Record<UserState, string> = { active: 'Active', invited: 'Invited', suspended: 'Suspended', unknown: 'Unknown' };
-
-/** The empty state's wording per view — the VIEW is named, because "no matches"
- *  would blame a search box nobody typed in. `all` can only be empty when there
- *  are no rows at all, which the branch above already owns. */
-const VIEW_EMPTY: Record<UserViewId, string> = {
-	active: 'No active accounts.',
-	suspended: 'No suspended accounts.',
-	invited: 'No invited accounts.',
-	all: 'No accounts.',
+const note = { fontSize: '0.7rem', color: '#9ca3af', margin: 0 };
+const field = {
+	width: '100%',
+	boxSizing: 'border-box' as const,
+	height: 28,
+	fontSize: '0.74rem',
+	padding: '0 0.45rem',
+	borderRadius: 6,
+	border: '1px solid var(--mmbix-border, #e5e7eb)',
+	background: 'var(--mmbix-card, #fff)',
+	outline: 'none',
 };
+const th = { textAlign: 'left' as const, padding: '0.2rem 0.4rem', color: '#9ca3af', fontWeight: 600 };
+const td = { padding: '0.3rem 0.4rem', verticalAlign: 'top' as const };
+
+/** Pre-attentive state colour — the column is scanned, not read. */
+const STATE_COLOR: Record<UserState, string> = { active: '#059669', disabled: '#dc2626', unknown: '#9ca3af' };
+const STATE_LABEL: Record<UserState, string> = { active: 'Active', disabled: 'Disabled', unknown: 'Unknown' };
 
 /** The dialog is one component in two modes — a new account, or one row. */
 type Editor = { mode: 'new' } | { mode: 'edit'; user: StudioUser };
@@ -106,80 +87,23 @@ interface FormState {
 	fullName: string;
 	password: string;
 	roleId: string;
-	/** The directory row this account signs in as; `''` = not linked. */
+	/** The `hrm_employees` row this account signs in as; `''` = not linked. */
 	employeeId: string;
-	/** The lifecycle state the form would write. `unknown` means the row arrived
-	 *  without one — shown honestly, and never written back as a value. */
-	status: UserState;
-	/** True once the operator picks a status themselves. In NEW mode the select
-	 *  otherwise mirrors the credential rule: no password yet ⇒ `invited`. */
-	statusPicked: boolean;
-}
-
-/** Whether a save would write anything — the header's ✓ is dimmed until it
- *  would, the role form's own rule. A NEW account needs its identity (an email)
- *  to exist; an EDIT form counts only the fields `submit` may actually write —
- *  a Telegram row's name/role/email are re-synced from the directory on every
- *  sign-in, and nobody changes their own status — so the control can never
- *  promise a write the API would ignore. */
-function userFormDirty(form: FormState, editor: Editor, selfEmail: string): boolean {
-	if (editor.mode === 'new') return form.email.trim() !== '';
-	const u = editor.user;
-	const selfRow = selfEmail !== '' && u.email.toLowerCase() === selfEmail;
-	if (identityKindOf(u) !== 'telegram') {
-		if (form.email.trim().toLowerCase() !== u.email.toLowerCase()) return true;
-		if (form.fullName.trim() !== (u.full_name ?? '')) return true;
-		if (form.roleId !== (u.role_id ?? '')) return true;
-		if (form.employeeId !== (u.employee_id ?? '')) return true;
-	}
-	if (!selfRow && form.status !== 'unknown' && form.status !== userStateOf(u)) return true;
-	return form.password !== '';
+	disabled: boolean;
 }
 
 const employeeName = { fontWeight: 600 } as const;
-const muted = { color: 'var(--mmbix-muted-foreground, #9ca3af)' } as const;
+const muted = { color: '#9ca3af' } as const;
 
-export function UsersTab({
-	token,
-	currentEmail,
-	viewsInToolbar = false,
-	onEditorChange,
-}: {
-	token: string;
-	currentEmail?: string;
-	/**
-	 * Whether the saved views ride the table's TOOLBAR. The portal sets nothing:
-	 * its panel (tier 2, `ViewsPanel`) carries them as the Directus sidebar does,
-	 * and a second control in the toolbar would be the same filter twice. Studio
-	 * Admin has no panel — its sidebar is the admin tab list — so it passes
-	 * `true` and the toggle rides the toolbar instead. Either way the state is
-	 * the SAME `?view=` (`lib/user-view.ts`), so the two surfaces cannot
-	 * disagree about which view is up.
-	 */
-	viewsInToolbar?: boolean;
-	/**
-	 * Reports whether the whole-surface editor is open, so the host can react.
-	 * The IDP portal uses it to drop its shell header while the form is up — the
-	 * form carries its own Directus-style header (the title + the circular ✓/✕)
-	 * and the crumb row above it would be a second chrome band, the exact rule
-	 * `UserRolesPage` follows. Studio Admin passes nothing: its chrome belongs to
-	 * the admin tab shell, which stays.
-	 */
-	onEditorChange?: (open: boolean) => void;
-}) {
+export function UsersTab({ token, currentEmail }: { token: string; currentEmail?: string }) {
 	const queryClient = useQueryClient();
 	// Both reads are session-level and shared: `qk.users()` is also what the API
 	// Keys tab resolves its owner labels from, `qk.roles()` what every role picker
 	// in the Studio reads. Opening this tab twice therefore costs zero reads.
 	const usersQ = useQuery(usersQuery(token));
 	const rolesQ = useQuery(rolesQuery(token));
-	const metaQ = useQuery(serverMetaQuery(token));
 	const users = useMemo(() => usersQ.data ?? [], [usersQ.data]);
 	const roles = useMemo(() => rolesQ.data ?? [], [rolesQ.data]);
-	// The employee-directory collection is CONFIG-DRIVEN server-side (advertised
-	// on `/api/meta`) — never a hardcoded name. Empty ⇒ this deployment has no
-	// directory, so the employee column is absent (accounts stay administrable).
-	const directory = metaQ.data?.identity?.directory_collection ?? '';
 
 	// ── The employee directory, read by LOOKUP — never as a roster ────────────
 	//
@@ -190,25 +114,25 @@ export function UsersTab({
 	// staff. The roster read this replaces pulled every employee (a 500-row ceiling)
 	// over the wire to label a couple of rows.
 	//
-	// A deployment with no configured directory collection fails whichever read
-	// actually runs — deliberately NOT a hard error: accounts stay administrable
-	// and the employee control says so.
+	// A deployment with no `hrm_employees` collection (the factory core,
+	// `DOMAIN_MODULES=none`) fails whichever read actually runs — deliberately NOT a
+	// hard error: accounts stay administrable and the employee control says so.
 	const linkLookup = useMemo(() => employeeLinkLookup(users), [users]);
 	const linkedQ = useQuery({
-		...itemsQuery(token, directory, {
+		...itemsQuery(token, 'hrm_employees', {
 			fields: EMPLOYEE_FIELDS,
 			limit: 500,
 			filters: { id: { operator: '_in', value: linkLookup.ids.join(',') } },
 		}),
-		enabled: !!token && !!directory && linkLookup.ids.length > 0,
+		enabled: !!token && linkLookup.ids.length > 0,
 	});
 	const linkedTgQ = useQuery({
-		...itemsQuery(token, directory, {
+		...itemsQuery(token, 'hrm_employees', {
 			fields: EMPLOYEE_FIELDS,
 			limit: 500,
 			filters: { etg_id: { operator: '_in', value: linkLookup.tgIds.join(',') } },
 		}),
-		enabled: !!token && !!directory && linkLookup.tgIds.length > 0,
+		enabled: !!token && linkLookup.tgIds.length > 0,
 	});
 
 	// The picker's own search — the one directory read whose size follows what is
@@ -221,14 +145,14 @@ export function UsersTab({
 		return () => clearTimeout(t);
 	}, [employeeTerm]);
 	const employeeSearchQ = useQuery({
-		...itemsQuery(token, directory, {
+		...itemsQuery(token, 'hrm_employees', {
 			search: employeeSearch.trim(),
 			fields: EMPLOYEE_FIELDS,
 			limit: EMPLOYEE_SEARCH_LIMIT,
 		}),
 		// Below the floor a term matches most of the directory — the read this picker
 		// exists to avoid — so nothing is asked for until a name starts to be a name.
-		enabled: !!token && !!directory && employeeSearch.trim().length >= EMPLOYEE_SEARCH_MIN,
+		enabled: !!token && employeeSearch.trim().length >= EMPLOYEE_SEARCH_MIN,
 	});
 
 	const searchRows = useMemo(() => (employeeSearchQ.data?.rows ?? []) as unknown as EmployeeRow[], [employeeSearchQ.data]);
@@ -236,9 +160,7 @@ export function UsersTab({
 		() => [...((linkedQ.data?.rows ?? []) as unknown as EmployeeRow[]), ...((linkedTgQ.data?.rows ?? []) as unknown as EmployeeRow[])],
 		[linkedQ.data, linkedTgQ.data],
 	);
-	// A directory is available when the server advertises one AND no directory
-	// read has failed (a missing table degrades to "no directory", never a crash).
-	const directoryAvailable = !!directory && !(linkedQ.error ?? linkedTgQ.error ?? employeeSearchQ.error);
+	const directoryAvailable = !(linkedQ.error ?? linkedTgQ.error ?? employeeSearchQ.error);
 
 	const roleNames = useMemo(() => roleNameMap(roles), [roles]);
 	const roleNameOf = useMemo(
@@ -273,43 +195,12 @@ export function UsersTab({
 	);
 
 	const [query, setQuery] = useState('');
-	// Which saved view the table shows. URL-backed (`?view=` — replace): the
-	// panel, the toolbar toggle (where one renders) and a pasted link are all the
-	// same state. A bare URL lands on Active — the Directus default.
-	const { view, selectView } = useUserView();
 	const [editor, setEditor] = useState<Editor | null>(null);
-	const [form, setForm] = useState<FormState>({
-		email: '',
-		fullName: '',
-		password: '',
-		roleId: '',
-		employeeId: '',
-		status: 'active',
-		statusPicked: false,
-	});
+	const [form, setForm] = useState<FormState>({ email: '', fullName: '', password: '', roleId: '', employeeId: '', disabled: false });
 	const [busy, setBusy] = useState(false);
-	// The one status line: its text, and whether it was a refusal — a single flag
-	// decides BOTH the tone and the `role="alert"` announcement, so a failure can
-	// never render (or be announced) as a confirmation.
 	const [msg, setMsg] = useState<string | null>(null);
-	const [msgFailed, setMsgFailed] = useState(false);
-	function say(text: string, failed = false) {
-		setMsg(text);
-		setMsgFailed(failed);
-	}
-	// The host's view of the editor's open state (see `onEditorChange`) — one
-	// effect rather than a call in each open/close path, so a future way in or
-	// out cannot forget to report.
-	useEffect(() => {
-		onEditorChange?.(editor !== null);
-	}, [editor, onEditorChange]);
 
-	const filtered = useMemo(() => {
-		const base = filterUsers(users, query, roleNameOf, employeeOf);
-		// The view rides ON TOP of the text search — two independent predicates, so
-		// "suspended, named Mya" is expressible. `all` claims nothing about a row.
-		return view === 'all' ? base : base.filter((u) => userStateOf(u) === view);
-	}, [users, query, roleNameOf, employeeOf, view]);
+	const filtered = useMemo(() => filterUsers(users, query, roleNameOf, employeeOf), [users, query, roleNameOf, employeeOf]);
 
 	/** The account this session is signed in as. Editing it is allowed; DISABLING it
 	 *  is not — that would revoke the operator's own access, and the recovery path
@@ -322,7 +213,7 @@ export function UsersTab({
 		// less decision — never to no role at all, which the API would accept and
 		// which produces an account that can do nothing.
 		const preferred = roles.find((r) => /^employee$/i.test(r.name)) ?? roles[0];
-		setForm({ email: '', fullName: '', password: '', roleId: preferred?.id ?? '', employeeId: '', status: 'active', statusPicked: false });
+		setForm({ email: '', fullName: '', password: '', roleId: preferred?.id ?? '', employeeId: '', disabled: false });
 		setMsg(null);
 		// A term typed for a previous editor session must not re-run against this one.
 		setEmployeeTerm('');
@@ -337,8 +228,7 @@ export function UsersTab({
 			password: '',
 			roleId: user.role_id ?? '',
 			employeeId: user.employee_id ?? '',
-			status: userStateOf(user),
-			statusPicked: true,
+			disabled: userStateOf(user) === 'disabled',
 		});
 		setMsg(null);
 		setEmployeeTerm('');
@@ -351,14 +241,7 @@ export function UsersTab({
 	function closeEditor() {
 		setEditor(null);
 		setMsg(null);
-		setMsgFailed(false);
 	}
-
-	// The editor's Status control shows the SAME rule the payload applies (see
-	// `submit`), so what is displayed is what will be sent: in NEW mode the state
-	// follows the credential until the operator says otherwise — no password yet
-	// means the account will be created `invited`.
-	const shownStatus: UserState = editor?.mode === 'new' && !form.statusPicked ? (form.password ? 'active' : 'invited') : form.status;
 
 	async function submit() {
 		if (!editor) return;
@@ -366,20 +249,13 @@ export function UsersTab({
 		const name = form.fullName.trim();
 		const email = form.email.trim();
 
-		if (!email) return say('An email is required — it is the sign-in identity.', true);
+		if (!email) return setMsg('An email is required — it is the sign-in identity.');
 		// A Telegram row's role and name are re-synced from the employee directory on
 		// every sign-in, so this form does not pretend to own them.
-		if (!isTelegram && !name) return say('A full name is required.', true);
-		if (!isTelegram && !form.roleId) return say('Pick a role — an account without one can do nothing.', true);
-		if (editor.mode === 'new') {
-			// A password is OPTIONAL now (blank ⇒ invited), but a real one must clear
-			// the same floor the API enforces.
-			if (form.password && form.password.length < MIN_PASSWORD_LENGTH) {
-				return say(`The password must be at least ${MIN_PASSWORD_LENGTH} characters.`, true);
-			}
-			if (!form.password && shownStatus === 'active') {
-				return say('A password is required for an active account — set one, or choose Invited.', true);
-			}
+		if (!isTelegram && !name) return setMsg('A full name is required.');
+		if (!isTelegram && !form.roleId) return setMsg('Pick a role — an account without one can do nothing.');
+		if (editor.mode === 'new' && form.password.length < MIN_PASSWORD_LENGTH) {
+			return setMsg(`The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
 		}
 
 		setBusy(true);
@@ -388,21 +264,14 @@ export function UsersTab({
 			if (editor.mode === 'new') {
 				await createUser(token, {
 					email,
+					password: form.password,
 					full_name: name,
 					role_id: form.roleId,
 					employee_id: form.employeeId || null,
-					// `unknown` is only reachable on an EDIT form (a row that arrived
-					// without a status); a new form can never produce it — and if one
-					// ever did, `invited` is the only safe reading: an account that
-					// cannot sign in until it is deliberately activated.
-					status: shownStatus === 'unknown' ? 'invited' : shownStatus,
-					// Absent, never empty — an invited account is DEFINED by having no
-					// credential, so no password key may be sent for it.
-					password: form.password || undefined,
 				});
 			} else {
 				const user = editor.user;
-				const statusNow = userStateOf(user);
+				const disabledNow = userStateOf(user) === 'disabled';
 				const body: UpdateStudioUserInput = {};
 				// Only what actually changed — an identical re-send would touch
 				// `updated_at`, which each authz lookup keys off, evicting every
@@ -415,13 +284,12 @@ export function UsersTab({
 					// binding made to the wrong person can be taken back.
 					if (form.employeeId !== (user.employee_id ?? '')) body.employee_id = form.employeeId || null;
 				}
-				// Suspending or re-activating carries the same self-guard; `unknown` is
-				// never written — it is what the row READS as, not a state to store.
-				if (!isSelf(user) && form.status !== 'unknown' && form.status !== statusNow) body.status = form.status;
+				// Disabling yourself is the one edit this screen refuses to make.
+				if (!isSelf(user) && form.disabled !== disabledNow) body.status = form.disabled ? 'disabled' : 'active';
 				if (form.password) body.password = form.password;
 
 				if (Object.keys(body).length === 0) {
-					say('Nothing changed.', true);
+					setMsg('Nothing changed.');
 					setBusy(false);
 					return;
 				}
@@ -429,9 +297,9 @@ export function UsersTab({
 			}
 			setEditor(null);
 			await invalidateUsers(queryClient);
-			say(editor.mode === 'new' ? 'Account created.' : 'Account updated.');
+			setMsg(editor.mode === 'new' ? 'Account created.' : 'Account updated.');
 		} catch (err) {
-			say(err instanceof Error ? err.message : 'Save failed', true);
+			setMsg(err instanceof Error ? err.message : 'Save failed');
 		} finally {
 			setBusy(false);
 		}
@@ -439,21 +307,15 @@ export function UsersTab({
 
 	const editingTelegram = editor?.mode === 'edit' && identityKindOf(editor.user) === 'telegram';
 	const editingSelf = editor?.mode === 'edit' && isSelf(editor.user);
-	/** The row is invited — its password field ACTIVATES it, so it asks for one. */
-	const editingInvited = editor?.mode === 'edit' && userStateOf(editor.user) === 'invited';
 	// A Telegram row has no password by construction (the login route stores an
 	// unverifiable marker) — so the field is absent rather than a control whose
 	// value nothing would ever check.
 	const showPassword = !editingTelegram;
-	// Two distinct failures, two distinct homes: a failed USERS read is what the
-	// table could not show, so it belongs in the table's own error state; a failed
-	// ROLES read only costs the Role column its names — said above the table.
-	const usersError = usersQ.error ? (usersQ.error instanceof Error ? usersQ.error.message : 'Failed to load users') : null;
-	const rolesError = rolesQ.error ? (rolesQ.error instanceof Error ? rolesQ.error.message : 'Failed to load roles') : null;
-	// ONE judgement for the message's tone AND its announcement — the flag the
-	// writer set, never a word-sniff over the text, so a server error phrased in
-	// new words still reads (and is announced) as a failure.
-	const msgIsFailure = msg !== null && msgFailed;
+	const loadError = usersQ.error ?? rolesQ.error;
+	// ONE judgement for the message's tone AND its announcement: a refused save is an
+	// alert, a confirmation is just a sentence. Kept as one regex so the colour and
+	// the role can never disagree about which message this was.
+	const msgIsFailure = msg !== null && /fail|required|least|changed|Nothing/i.test(msg);
 
 	// ── The employee picker's view ────────────────────────────────────────────
 	// The options are "Not linked", the account's CURRENT employee (so the selection
@@ -477,7 +339,7 @@ export function UsersTab({
 	// instruction the operator can act on.
 	const typed = employeeTerm.trim();
 	const employeeHint = !directoryAvailable
-		? null // the picker is disabled, so the FIELD's hint carries this, not the popup
+		? null // the note above the table already says the directory is missing
 		: typed.length > 0 && typed.length < EMPLOYEE_SEARCH_MIN
 			? `Type ${EMPLOYEE_SEARCH_MIN} or more characters to search the directory.`
 			: employeeSearchQ.isFetching
@@ -488,70 +350,58 @@ export function UsersTab({
 
 	// ── The editor: the WHOLE tab surface ─────────────────────────────────────
 	//
-	// Deliberately NOT a 420px modal, and deliberately the SAME chrome as the role
-	// profile form (`role-detail-view.tsx`, mode='role'): the record names itself
-	// on the left with a note under it, the circular icon-only actions sit at the
-	// header's right edge — the ONE Save (a ✓, dimmed until a writable field
-	// differs) and the ✕ that leaves the form — and the fields are a TWO-COLUMN
-	// grid of uppercase-labelled DS controls (Email | Full name, Role | Status,
-	// Employee | Password), so the form reads in two glances instead of one long
-	// scroll. There is no back button and no bottom action bar; the ✕ is the way
-	// out, so the form reads as one surface, not a dialog with scaffolding.
+	// Deliberately NOT a 420px modal. The account being edited is the subject of
+	// this screen, so it gets the screen: a title bar that names it, the fields on a
+	// grid that uses whatever width it has (`auto-fit`, so a narrow IDP-portal
+	// column still collapses to one), and the actions on their own bar. The Employee
+	// picker is the control this screen exists for, and its search popup was exactly
+	// the cramped case a modal card created.
 	//
 	// The LIST is unmounted while this shows, so there is no overlay to click and no
 	// doubt left about which of the two the operator is looking at.
 	if (editor) {
 		const isNew = editor.mode === 'new';
-		const canSave = userFormDirty(form, editor, selfEmail);
 		return (
 			<section
 				role="region"
 				aria-labelledby="user-editor-title"
-				style={{ padding: '1.25rem', maxWidth: 960, margin: '0 auto' }}
+				style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '0.75rem 0.9rem' }}
 			>
-				<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: '1.5rem' }}>
-					<div style={{ minWidth: 0 }}>
-						<h1 id="user-editor-title" style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>
+				{/* Leaving is a NAMED action now. The list is gone, so there is nothing to
+				    click outside of and no way back that the operator has to guess. */}
+				<div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+					<Button variant="outline" size="sm" onClick={closeEditor}>
+						<ArrowLeft size={12} /> Users
+					</Button>
+					<div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+						<h2 id="user-editor-title" style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700 }}>
 							{isNew ? 'New user' : 'Edit user'}
-						</h1>
+						</h2>
 						{/* Which account this is — the one thing an editor for a table cannot
 						    leave the operator to infer from the form's contents. */}
 						<p style={{ ...note, overflowWrap: 'anywhere' }}>
 							{isNew ? 'An account for somebody who signs in with an email and password.' : editor.user.email}
 						</p>
 					</div>
-					<div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-						<Button
-							variant="default"
-							size="icon"
-							className="rounded-full"
-							disabled={busy || !canSave}
-							title={!canSave ? 'No changes to save' : isNew ? 'Create the account' : 'Save changes'}
-							aria-label="Save"
-							onClick={() => void submit()}
-						>
-							<Check />
-						</Button>
-						<Button variant="secondary" size="icon" className="rounded-full" title="Close" aria-label="Close" onClick={closeEditor}>
-							<X />
-						</Button>
-					</div>
 				</div>
 
-				{editingSelf && <p style={{ ...note, marginBottom: '1rem' }}>This is your own account.</p>}
+				{editingSelf && <p style={note}>This is your own account.</p>}
 
 				{editingTelegram && (
-					<p style={{ ...note, maxWidth: '46rem', marginBottom: '1rem' }}>
+					<p style={{ ...note, maxWidth: '46rem' }}>
 						This account is provisioned from the employee directory. Its name and role are re-read from the directory on every Telegram
 						sign-in, so they are shown read-only here — change the employee&apos;s role in the directory instead.
 					</p>
 				)}
 
-				{/* TWO columns, paired by what the field decides: who the account is
-				    (Email | Full name), what it may do (Role | Status) and what it acts
-				    as (Employee | Password). Rows flow, so a Telegram row (no Employee,
-				    no Password) simply ends at the shorter grid. */}
-				<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1.25rem 1.5rem' }}>
+				<div
+					style={{
+						display: 'grid',
+						gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))',
+						gap: '0.8rem 1rem',
+						alignItems: 'start',
+					}}
+				>
 					<Field id="user-email" label="Email">
 						<Input
 							id="user-email"
@@ -563,6 +413,7 @@ export function UsersTab({
 							// by; renaming it would orphan the account and provision a second one.
 							disabled={editingTelegram}
 							onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+							style={field}
 						/>
 					</Field>
 
@@ -572,65 +423,25 @@ export function UsersTab({
 							value={form.fullName}
 							disabled={editingTelegram}
 							onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
+							style={field}
 						/>
 					</Field>
 
 					<Field id="user-role" label="Role">
-						<NativeSelect
+						<select
 							id="user-role"
-							className="w-full"
 							value={form.roleId}
 							disabled={editingTelegram}
 							onChange={(e) => setForm((f) => ({ ...f, roleId: e.target.value }))}
+							style={field}
 						>
-							<NativeSelectOption value="">Pick a role…</NativeSelectOption>
+							<option value="">Pick a role…</option>
 							{roles.map((role) => (
-								<NativeSelectOption key={role.id} value={role.id}>
+								<option key={role.id} value={role.id}>
 									{role.name}
-								</NativeSelectOption>
+								</option>
 							))}
-						</NativeSelect>
-					</Field>
-
-					{/* The lifecycle state — the same field Directus puts on a user's
-					    Admin Options. The hint states what the CHOSEN state means, because
-					    the two non-obvious ones (invited cannot sign in yet, suspended is
-					    blocked now) are exactly what the operator is deciding. */}
-					<Field
-						id="user-status"
-						label="Status"
-						hint={
-							editingSelf ? (
-								<p style={note}>You cannot change the status of the account you are signed in with.</p>
-							) : (
-								<p style={note}>
-									{shownStatus === 'invited'
-										? 'Invited — the account exists but cannot sign in until a password is set.'
-										: shownStatus === 'suspended'
-											? 'Suspended — sign-in is blocked immediately.'
-											: 'Active — can sign in.'}
-								</p>
-							)
-						}
-					>
-						<NativeSelect
-							id="user-status"
-							className="w-full"
-							value={shownStatus}
-							disabled={editingSelf}
-							onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as UserState, statusPicked: true }))}
-						>
-							{/* Rendered only while the row genuinely has no status, and disabled —
-							    it is what the control must SHOW, never a state to write. */}
-							{shownStatus === 'unknown' && (
-								<NativeSelectOption value="unknown" disabled>
-									Unknown — no status stored
-								</NativeSelectOption>
-							)}
-							<NativeSelectOption value="active">Active</NativeSelectOption>
-							<NativeSelectOption value="invited">Invited</NativeSelectOption>
-							<NativeSelectOption value="suspended">Suspended</NativeSelectOption>
-						</NativeSelect>
+						</select>
 					</Field>
 
 					{/* The link that makes a web sign-in ACT as somebody. Absent for a Telegram
@@ -641,13 +452,7 @@ export function UsersTab({
 						<Field
 							id="user-employee"
 							label="Employee"
-							hint={
-								<p style={note}>
-									{directoryAvailable
-										? 'Signs in as this employee, and stops working the moment they are offboarded.'
-										: 'No employee directory in this deployment — accounts can still be managed, and a link is shown by its id.'}
-								</p>
-							}
+							hint={<p style={note}>Signs in as this employee, and stops working the moment they are offboarded.</p>}
 						>
 							{/* A SEARCHABLE picker, not a 250-option `<select>`: the directory is asked
 							    for only what is TYPED (three or more characters, debounced), so naming a
@@ -667,10 +472,10 @@ export function UsersTab({
 								<ComboboxInput
 									id="user-employee"
 									aria-label="Employee"
-									className="w-full"
 									showTrigger
 									placeholder={`Search by name (${EMPLOYEE_SEARCH_MIN}+ characters)…`}
 									disabled={!directoryAvailable}
+									style={field}
 								/>
 								<ComboboxContent align="start" sideOffset={4} style={{ width: 360 }}>
 									<ComboboxList>
@@ -687,212 +492,150 @@ export function UsersTab({
 					)}
 
 					{showPassword && (
-						<Field id="user-password" label={isNew || editingInvited ? 'Password' : 'New password'}>
+						<Field id="user-password" label={isNew ? 'Password' : 'New password'}>
 							<Input
 								id="user-password"
 								type="password"
 								autoComplete="new-password"
 								value={form.password}
 								onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-								placeholder={
-									isNew
-										? shownStatus === 'invited'
-											? 'Optional — leave blank to invite without one'
-											: `At least ${MIN_PASSWORD_LENGTH} characters`
-										: editingInvited
-											? 'Set one to activate this account'
-											: 'Leave blank to keep the current one'
-								}
+								placeholder={isNew ? `At least ${MIN_PASSWORD_LENGTH} characters` : 'Leave blank to keep the current one'}
+								style={field}
 							/>
 						</Field>
 					)}
 				</div>
 
-				{msg && (
-					<span
-						role={msgIsFailure ? 'alert' : undefined}
-						style={{
-							display: 'block',
-							marginTop: 12,
-							fontSize: '0.72rem',
-							color: msgIsFailure ? 'var(--mmbix-tone-warning-fg, #d97706)' : 'var(--mmbix-tone-positive-fg, #059669)',
-						}}
-					>
-						{msg}
-					</span>
+				{!isNew && (
+					<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+						<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+							<Checkbox
+								aria-label="Disabled — block sign-in"
+								checked={form.disabled}
+								disabled={editingSelf}
+								onCheckedChange={(checked) => setForm((f) => ({ ...f, disabled: checked === true }))}
+							/>
+							<span style={{ fontSize: '0.72rem' }}>Disabled — blocks sign-in immediately</span>
+						</div>
+						{editingSelf && <p style={note}>You cannot disable the account you are signed in with.</p>}
+					</div>
 				)}
+
+				<div
+					style={{
+						display: 'flex',
+						alignItems: 'center',
+						gap: 8,
+						borderTop: '1px solid var(--mmbix-border, #e5e7eb)',
+						paddingTop: 10,
+					}}
+				>
+					<Button variant="outline" size="sm" onClick={closeEditor}>
+						Cancel
+					</Button>
+					<Button size="sm" onClick={() => void submit()} disabled={busy}>
+						<Save size={12} /> {busy ? 'Saving…' : isNew ? 'Create user' : 'Save changes'}
+					</Button>
+					{msg && (
+						<p role={msgIsFailure ? 'alert' : undefined} style={{ ...note, color: msgIsFailure ? '#d97706' : '#059669' }}>
+							{msg}
+						</p>
+					)}
+				</div>
 			</section>
 		);
 	}
 
-	// ── The list's columns (design-system DataTable) ──────────────────────────
-	//
-	// The same facts the raw table rendered, now as a real DataTable — the SHARED
-	// table every other Studio surface uses: its toolbar owns the search box and the
-	// Create action, so those controls exist once, in the system's shape. The
-	// cross-field search is the caller's predicate (`manualFiltering`): it matches a
-	// role NAME and an employee NAME, which a per-column accessor cannot.
-	const columns: ColumnDef<StudioUser>[] = [
-		{
-			id: 'account',
-			accessorKey: 'email',
-			header: 'Account',
-			cell: ({ row }) => (
-				<div style={{ minWidth: 0 }}>
-					<div style={{ fontWeight: 600 }}>{displayNameOf(row.original)}</div>
-					<div style={{ fontSize: '0.66rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{row.original.email}</div>
-				</div>
-			),
-		},
-		{
-			id: 'identity',
-			header: 'Signs in via',
-			accessorFn: (u) => IDENTITY_KIND_LABEL[identityKindOf(u)],
-			cell: ({ row }) => (
-				<span style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }}>{IDENTITY_KIND_LABEL[identityKindOf(row.original)]}</span>
-			),
-		},
-		{
-			id: 'employee',
-			header: 'Employee',
-			accessorFn: (u) => employeeOf(u),
-			cell: ({ row }) => {
-				// Which employee this account acts as. An account with none can sign in
-				// but cannot punch, file leave or move stock — a state worth SEEING, so
-				// it is stated rather than left as an empty cell.
-				const name = employeeOf(row.original);
-				return name ? <span style={employeeName}>{name}</span> : <span style={muted}>Not linked</span>;
-			},
-		},
-		{
-			id: 'role',
-			header: 'Role',
-			accessorFn: (u) => roleNameOf(u.role_id),
-			cell: ({ row }) => (
-				<span style={{ color: row.original.role_id ? 'var(--mmbix-tone-info-fg, #1d4ed8)' : 'var(--mmbix-muted-foreground, #9ca3af)' }}>
-					{roleNameOf(row.original.role_id)}
-				</span>
-			),
-		},
-		{
-			id: 'status',
-			header: 'Status',
-			accessorFn: (u) => userStateOf(u),
-			cell: ({ row }) => {
-				const state = userStateOf(row.original);
-				return <StatusBadge status={state} label={STATE_LABEL[state]} />;
-			},
-		},
-		{
-			id: 'last_login',
-			accessorKey: 'last_login',
-			header: 'Last sign-in',
-			cell: ({ row }) => (
-				<span style={{ color: 'var(--mmbix-muted-foreground, #6b7280)', whiteSpace: 'nowrap' }}>
-					{formatStamp(row.original.last_login)}
-				</span>
-			),
-		},
-		{
-			id: 'created_at',
-			accessorKey: 'created_at',
-			header: 'Created',
-			cell: ({ row }) => (
-				<span style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)', whiteSpace: 'nowrap' }}>
-					{formatStamp(row.original.created_at)}
-				</span>
-			),
-		},
-		{
-			id: 'actions',
-			header: '',
-			align: 'right',
-			enableSorting: false,
-			cell: ({ row }) => (
-				<Button size="sm" variant="outline" aria-label={`Edit ${row.original.email}`} onClick={() => openEdit(row.original)}>
-					Edit
-				</Button>
-			),
-		},
-	];
-
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0.75rem 0.9rem' }}>
-			{/* No title bar and no preamble: this surface IS the table, so the count
-			    rides the table's own pagination and every action rides its toolbar. */}
-			{rolesError && (
-				<p role="alert" style={{ ...note, color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
-					{rolesError}
+			<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+				<span style={sectionTitle}>Users</span>
+				<span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>{users.length}</span>
+				<Button size="sm" style={{ marginLeft: 'auto' }} disabled={!rolesQ.isSuccess} onClick={openNew}>
+					<Plus size={12} /> New user
+				</Button>
+			</div>
+			<p style={note}>
+				Every account that can sign in. Employees sign in through Telegram (provisioned from the employee directory) or here with an email
+				and password — an account that is linked to an employee acts as that employee, and stops working the moment they are offboarded.
+			</p>
+
+			<Input
+				aria-label="Search users"
+				value={query}
+				onChange={(e) => setQuery(e.target.value)}
+				placeholder="Search by name, email, role or employee"
+			/>
+
+			{loadError && (
+				<p role="alert" style={{ ...note, color: '#dc2626' }}>
+					{loadError instanceof Error ? loadError.message : 'Failed to load users'}
 				</p>
 			)}
 
-			<DataTable
-				columns={columns}
-				data={filtered}
-				rowKey="id"
-				density="compact"
-				defaultPageSize={25}
-				stickyHeader
-				borderStyle="row"
-				globalFilter={query}
-				onGlobalFilterChange={setQuery}
-				manualFiltering
-				// The create action appears only once the roles are in — an account
-				// without a role can do nothing, so the form must be able to offer one.
-				onCreate={rolesQ.isSuccess ? openNew : undefined}
-				isLoading={usersQ.isLoading}
-				error={usersError}
-				// The views render here ONLY on a surface that has no panel to carry
-				// them (Studio Admin). The portal's panel IS the Directus sidebar, so
-				// putting them here too would be one filter with two controls — the
-				// same `?view=`, drawn twice. Pressing the active view is IGNORED, so
-				// the table can never land in a "no view" state.
-				toolbarActions={
-					viewsInToolbar ? (
-						<ToggleGroup
-							value={[view]}
-							onValueChange={(vals) => {
-								const v = vals?.[0];
-								if (v) selectView(resolveUserView(v));
-							}}
-							variant="outline"
-							size="sm"
-							spacing={0}
-							aria-label="Filter by status"
-						>
-							{USER_VIEWS.map((v) => (
-								<ToggleGroupItem key={v.id} value={v.id}>
-									{v.label}
-								</ToggleGroupItem>
-							))}
-						</ToggleGroup>
-					) : undefined
-				}
-				labels={{
-					searchPlaceholder: 'Search by name, email, role or employee',
-					searchLabel: 'Search users',
-					create: 'New user',
-					// Three genuinely different empty states: nothing exists yet, the
-					// search matched nothing, or the VIEW has nothing in it — the last
-					// one names the view, because "no matches" would blame the search
-					// box for an empty Invited list.
-					empty:
-						users.length === 0
-							? 'No accounts yet — create one to allow an email + password sign-in.'
-							: query
-								? `No account matches “${query}”.`
-								: VIEW_EMPTY[view],
-				}}
-			/>
+			{!directoryAvailable && (
+				<p style={note}>
+					No employee directory in this deployment (<code>hrm_employees</code>) — accounts can still be managed, and a link is shown by its
+					id.
+				</p>
+			)}
+
+			{usersQ.isLoading ? (
+				<p style={note}>Loading accounts…</p>
+			) : filtered.length === 0 ? (
+				<p style={note}>
+					{users.length === 0 ? 'No accounts yet — create one to allow an email + password sign-in.' : `No account matches “${query}”.`}
+				</p>
+			) : (
+				<div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
+					<table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+						<thead style={{ position: 'sticky', top: 0, background: 'var(--mmbix-card, #fff)', zIndex: 1 }}>
+							<tr>
+								<th style={th}>Account</th>
+								<th style={th}>Signs in via</th>
+								<th style={th}>Employee</th>
+								<th style={th}>Role</th>
+								<th style={th}>Status</th>
+								<th style={th}>Last sign-in</th>
+								<th style={th}>Created</th>
+								<th style={{ ...th, textAlign: 'right' }} />
+							</tr>
+						</thead>
+						<tbody>
+							{filtered.map((user) => {
+								const state = userStateOf(user);
+								return (
+									<tr key={user.id} style={{ borderTop: '1px solid var(--mmbix-border, #e5e7eb)' }}>
+										<td style={td}>
+											<div style={{ fontWeight: 600 }}>{displayNameOf(user)}</div>
+											<div style={{ fontSize: '0.66rem', color: '#9ca3af' }}>{user.email}</div>
+										</td>
+										<td style={{ ...td, color: '#6b7280' }}>{IDENTITY_KIND_LABEL[identityKindOf(user)]}</td>
+										<td style={td}>
+											{/* Which employee this account acts as. An account with none can sign in
+											    but cannot punch, file leave or move stock — a state worth SEEING, so
+											    it is stated rather than left as an empty cell. */}
+											{employeeOf(user) ? <span style={employeeName}>{employeeOf(user)}</span> : <span style={muted}>Not linked</span>}
+										</td>
+										<td style={{ ...td, color: user.role_id ? '#1d4ed8' : '#9ca3af' }}>{roleNameOf(user.role_id)}</td>
+										<td style={{ ...td, fontWeight: 700, color: STATE_COLOR[state] }}>{STATE_LABEL[state]}</td>
+										<td style={{ ...td, color: '#6b7280', whiteSpace: 'nowrap' }}>{formatStamp(user.last_login)}</td>
+										<td style={{ ...td, color: '#9ca3af', whiteSpace: 'nowrap' }}>{formatStamp(user.created_at)}</td>
+										<td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+											<Button size="sm" variant="outline" aria-label={`Edit ${user.email}`} onClick={() => openEdit(user)}>
+												Edit
+											</Button>
+										</td>
+									</tr>
+								);
+							})}
+						</tbody>
+					</table>
+				</div>
+			)}
 
 			{msg && (
-				<span
-					role={msgIsFailure ? 'alert' : undefined}
-					style={{
-						fontSize: '0.72rem',
-						color: msgIsFailure ? 'var(--mmbix-tone-warning-fg, #d97706)' : 'var(--mmbix-tone-positive-fg, #059669)',
-					}}
-				>
+				<span role={msgIsFailure ? 'alert' : undefined} style={{ fontSize: '0.72rem', color: msgIsFailure ? '#d97706' : '#059669' }}>
 					{msg}
 				</span>
 			)}
@@ -901,17 +644,17 @@ export function UsersTab({
 }
 
 /**
- * One labelled field of the editor's stack — the role form's own shape: an
- * uppercase section title over the control, notes underneath.
+ * One labelled field of the editor's grid.
  *
  * Extracted so the editor reads as a form rather than as repeated label + control
  * scaffolding — and so every label stays a real `<label for>`, which is the
  * contract the screen readers and the specs both rely on (`getByLabelText`).
+ * `minWidth: 0` keeps a long employee name from stretching its grid track.
  */
 function Field({ id, label, hint, children }: { id: string; label: string; hint?: ReactNode; children: ReactNode }) {
 	return (
-		<div style={{ minWidth: 0 }}>
-			<label htmlFor={id} style={{ ...sectionTitle, marginBottom: 6, display: 'block' }}>
+		<div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+			<label htmlFor={id} style={note}>
 				{label}
 			</label>
 			{children}

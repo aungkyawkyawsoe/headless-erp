@@ -71,7 +71,7 @@ export default function IdpCreatePage({ token, user }: { token: string; user: { 
 			const result = await scaffoldModule(token, scaffoldTemplate.name, { name, slug });
 			const newSlug = (result.module as { slug?: string })?.slug ?? slug;
 			setScaffoldTemplate(null);
-			// A scaffolded app appears in the catalog (the app list) right away.
+			// A scaffolded app appears in the catalog + the launcher grid.
 			void invalidateIdp(queryClient);
 			navigate(`/idp/${newSlug}`);
 		} catch (err) {
@@ -82,7 +82,7 @@ export default function IdpCreatePage({ token, user }: { token: string; user: { 
 	}
 
 	return (
-		<IdpShell token={token} user={user} breadcrumbs={[{ href: '#/idp', label: 'IDP' }, { label: 'Create' }]}>
+		<IdpShell token={token} user={user} breadcrumbs={[{ href: '#/idp', label: 'IDP' }, { label: 'Create' }]} activeNav="create">
 			<div style={WRAPPER}>
 				{error && (
 					<Alert variant="destructive">

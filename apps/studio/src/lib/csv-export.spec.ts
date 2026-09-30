@@ -1,7 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_PAGE_SIZE } from '@mmbix/config';
 import type { ActiveFilter, ColumnDef, FetchParams } from '@mmbix/design-system/datatable';
-import { buildCsv, fieldMapOf, itemsParamsFromFetch } from './csv-export';
-import type { FieldDefinition } from './api';
+import { buildCsv, collectAllRows, fieldMapOf, itemsParamsFromFetch } from './csv-export';
+import { listItems, type EntityListMeta, type FieldDefinition } from './api';
+
+vi.mock('./api', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./api')>();
+	return { ...actual, listItems: vi.fn() };
+});
+const listItemsMock = vi.mocked(listItems);
+
+/** The params of the Nth `listItems` call — fails loudly when the call never happened. */
+function sentParams(index: number): import('./api').EntityListParams {
+	const params = listItemsMock.mock.calls[index]?.[2];
+	if (!params) throw new Error(`listItems call #${index} never happened`);
+	return params;
+}
+
+const row = (id: string): Record<string, unknown> => ({ id, name: `n-${id}` });
+
+function page(rows: Record<string, unknown>[], meta: Partial<EntityListMeta> = {}) {
+	return { rows, meta: { limit: MAX_PAGE_SIZE, has_more: false, ...meta } };
+}
 
 const textField = (name: string): FieldDefinition => ({ name, type: 'text' });
 
@@ -51,7 +71,7 @@ describe('itemsParamsFromFetch', () => {
 		expect(out.search).toBe('mff');
 	});
 
-	it('carries the cursor so the export walk continues where the page stopped', () => {
+	it('carries the cursor for the table\u2019s own page fetch (the export walk drops it)', () => {
 		const out = itemsParamsFromFetch([textField('name')], {}, fetchParams({ cursor: 'abc123' }));
 		expect(out.cursor).toBe('abc123');
 		expect(out.dir).toBe('after');
@@ -74,6 +94,56 @@ describe('itemsParamsFromFetch', () => {
 		expect(out.sort).toBeUndefined();
 		expect(out.search).toBeUndefined();
 		expect(out.filters).toBeUndefined();
+	});
+});
+
+describe('collectAllRows', () => {
+	beforeEach(() => {
+		listItemsMock.mockReset();
+	});
+
+	it('starts at row zero even when the table sits on a later page', async () => {
+		// `params.cursor` is the TABLE's position — inheriting it dropped every row
+		// before the visible page (an export from the last page was one page).
+		listItemsMock.mockResolvedValueOnce(page([row('a')]));
+		const rows = await collectAllRows('tok', 'items', {
+			limit: 25,
+			cursor: 'page-4-cursor',
+			dir: 'after',
+			sort: 'name',
+			search: 'mff',
+			filters: { name: { operator: '_eq', value: 'Bridgestone' } },
+		});
+		expect(rows).toHaveLength(1);
+		const sent = sentParams(0);
+		expect(sent.cursor).toBeUndefined();
+		expect(sent.limit).toBe(MAX_PAGE_SIZE);
+		expect(sent.dir).toBe('after');
+		expect(sent.sort).toBe('name');
+		expect(sent.search).toBe('mff');
+		expect(sent.filters).toEqual({ name: { operator: '_eq', value: 'Bridgestone' } });
+	});
+
+	it('follows next_cursor to the end and dedupes rows a tie-heavy boundary repeats', async () => {
+		listItemsMock
+			.mockResolvedValueOnce(page([row('a'), row('b')], { has_more: true, next_cursor: 'c1' }))
+			.mockResolvedValueOnce(page([row('b'), row('c')], { has_more: true, next_cursor: 'c2' }))
+			.mockResolvedValueOnce(page([row('c')]));
+		const rows = await collectAllRows('tok', 'items', {});
+		expect(rows.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+		expect(listItemsMock.mock.calls.map((call) => call[2]?.cursor)).toEqual([undefined, 'c1', 'c2']);
+		expect(listItemsMock.mock.calls.every((call) => call[2]?.limit === MAX_PAGE_SIZE)).toBe(true);
+	});
+
+	it('drops a relation (dotted) sort — the engine emits no cursor for nested sorts, so keeping it would stop at one page', async () => {
+		listItemsMock.mockResolvedValueOnce(page([row('a')]));
+		await collectAllRows('tok', 'items', { sort: 'grp.name' });
+		expect(sentParams(0).sort).toBeUndefined();
+	});
+
+	it('refuses to silently truncate: a page that reports more rows must hand over its cursor', async () => {
+		listItemsMock.mockResolvedValueOnce(page([row('a')], { has_more: true }));
+		await expect(collectAllRows('tok', 'items', {})).rejects.toThrow(/more rows but no cursor/);
 	});
 });
 

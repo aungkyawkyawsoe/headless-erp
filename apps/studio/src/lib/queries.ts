@@ -112,19 +112,6 @@ export const usersQuery = (token: string) =>
 		enabled: live(token),
 	});
 
-/** User count for a specific role — used by the roles list to show how many users have each role. */
-export const usersByRoleQuery = (token: string, roleId: string) =>
-	queryOptions({
-		queryKey: ['users-by-role', roleId],
-		queryFn: async () => {
-			const users = await api.listUsers(token);
-			const count = users.filter((u) => u.role_id === roleId).length;
-			return { count };
-		},
-		enabled: live(token) && !!roleId,
-		staleTime: 30_000, // refresh every 30s to pick up role changes
-	});
-
 // ── Admin console ────────────────────────────────────────────────────────────
 
 export const apiKeysQuery = (token: string) =>
@@ -184,50 +171,6 @@ export const modulesQuery = (token: string) =>
 		enabled: live(token),
 	});
 
-/** Server contract — static per deploy, so it never goes stale in a session. */
-export const serverMetaQuery = (token: string) =>
-	queryOptions({
-		queryKey: qk.serverMeta(),
-		queryFn: () => api.getServerMeta(token),
-		enabled: live(token),
-		staleTime: Infinity,
-	});
-
-/** The signed session's identity + capabilities — drives RBAC-aware UI. */
-export const meQuery = (token: string) =>
-	queryOptions({
-		queryKey: qk.me(),
-		queryFn: () => api.getMe(token),
-		enabled: live(token),
-		staleTime: 60_000,
-	});
-
-/** The add-on catalog + runtime install state. */
-export const addonsQuery = (token: string) =>
-	queryOptions({
-		queryKey: qk.addons(),
-		queryFn: () => api.listAddons(token),
-		enabled: live(token),
-	});
-
-/** Self-tuning index-advisor telemetry (admin). */
-export const operationsQuery = (token: string) =>
-	queryOptions({
-		queryKey: qk.operations(),
-		queryFn: () => api.getOperations(token),
-		enabled: live(token),
-	});
-
-/** Declared jobs + health (admin). `retry:false` so a deployment with the
- *  scheduler plugin disabled shows nothing instead of a spurious error. */
-export const schedulerTasksQuery = (token: string) =>
-	queryOptions({
-		queryKey: qk.schedulerTasks(),
-		queryFn: () => api.listSchedulerTasks(token),
-		enabled: live(token),
-		retry: false,
-	});
-
 export const moduleQuery = (token: string, slug: string | null | undefined) =>
 	queryOptions({
 		queryKey: qk.module(slug ?? ''),
@@ -265,13 +208,6 @@ export const idpScorecardQuery = (token: string) =>
 		enabled: live(token),
 	});
 
-export const idpPoliciesQuery = (token: string) =>
-	queryOptions({
-		queryKey: qk.idpPolicies(),
-		queryFn: () => api.getIdpPolicies(token),
-		enabled: live(token),
-	});
-
 export const idpUsageQuery = (token: string, days = 30) =>
 	queryOptions({
 		queryKey: qk.idpUsage(days),
@@ -292,6 +228,13 @@ export const idpDeploymentsQuery = (token: string) =>
 	queryOptions({
 		queryKey: qk.idpDeployments(),
 		queryFn: () => api.listIdpDeployments(token),
+		enabled: live(token),
+	});
+
+export const idpEnvironmentsQuery = (token: string) =>
+	queryOptions({
+		queryKey: qk.idpEnvironments(),
+		queryFn: () => api.listIdpEnvironments(token),
 		enabled: live(token),
 	});
 
