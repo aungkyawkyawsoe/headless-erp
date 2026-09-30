@@ -225,7 +225,7 @@ export default function MenuInspector({
 				{(['props', 'events'] as const).map((t) => (
 					<Button
 						key={t}
-						variant={tab === t ? 'default' : 'ghost'}
+						variant={tab === t ? 'secondary' : 'ghost'}
 						size="xs"
 						onClick={() => setTab(t)}
 						style={{ flex: 1, textTransform: 'capitalize' }}

@@ -3,6 +3,8 @@ import { Alert, AlertDescription, Button } from '@mmbix/design-system';
 import { X } from 'lucide-react';
 import { createItem, updateItem, SYSTEM_FIELD_NAMES, type EntitySchema } from '../lib/api';
 import { RECORD_EDITABLE_TYPES, docStatusLabel } from '../lib/record-edit-types';
+import { fieldRuntimeState, type FieldRuntimeState } from '../lib/linkage';
+import { validateField } from '../lib/field-validation';
 import { m2mIds } from '../lib/record-label';
 import { createRelatedRowsLoader, toRelatedOptions } from '../lib/related-rows';
 import { RecordFieldInput } from './RecordFieldInput';
@@ -82,6 +84,18 @@ export default function RecordFormDialog({
 	const [relationOptions, setRelationOptions] = useState<Record<string, Array<{ id: string; label: string }>>>({});
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// Inline per-field validation messages (keyed by field name), shown under the
+	// control after the field is blurred — never while typing (onChange clears).
+	const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+	// Live linkage state per field — recomputed on every value change so a rule on
+	// one field immediately shows/hides/disables/requires another. Purely derived
+	// from the field's conditions + current form values (no state of its own).
+	const runtime = useMemo(() => {
+		const map: Record<string, FieldRuntimeState> = {};
+		for (const f of fields) map[f.name] = fieldRuntimeState(f, values);
+		return map;
+	}, [fields, values]);
+	const visibleFields = useMemo(() => fields.filter((f) => runtime[f.name]?.visible !== false), [fields, runtime]);
 	// One loader per auth session — stateless, so it is memoized by the session
 	// token (it must never outlive the session: a re-login changes the token and
 	// recreates it; a new open reuses the same stateless loader).
@@ -92,6 +106,7 @@ export default function RecordFormDialog({
 		if (!open) return;
 		setError(null);
 		setBusy(false);
+		setFieldErrors({});
 		const initial: Record<string, unknown> = {};
 		for (const f of fields) {
 			if (editing) {
@@ -139,16 +154,58 @@ export default function RecordFormDialog({
 
 	function setValue(name: string, v: unknown) {
 		setValues((prev) => ({ ...prev, [name]: v }));
+		// Typing clears the field's error — blur re-validates. (Only touch state when
+		// an error actually stands, so a keystroke is not a re-render storm.)
+		setFieldErrors((prev) => {
+			if (!(name in prev)) return prev;
+			const next = { ...prev };
+			delete next[name];
+			return next;
+		});
+	}
+
+	/** Blur trigger — validate ONE field. Linkage-hidden fields are never validated
+	 *  (they are not on screen), and a linkage-required field is validated as
+	 *  required by composing the runtime flag into the field the validator sees. */
+	function handleBlur(name: string) {
+		const f = fields.find((x) => x.name === name);
+		if (!f) return;
+		const state = fieldRuntimeState(f, values);
+		if (!state.visible) return;
+		const message = validateField({ ...f, required: state.required }, values[name]);
+		setFieldErrors((prev) => {
+			const next = { ...prev };
+			if (message) next[name] = message;
+			else delete next[name];
+			return next;
+		});
 	}
 
 	async function submit(e: React.FormEvent) {
 		e.preventDefault();
 		if (readOnly || busy) return;
+		// Block submit while any visible field is invalid — the same pure validator as
+		// blur, so the two can never disagree. Hidden fields are skipped entirely.
+		const errors: Record<string, string> = {};
+		for (const f of fields) {
+			const state = fieldRuntimeState(f, values);
+			if (!state.visible) continue;
+			const message = validateField({ ...f, required: state.required }, values[f.name]);
+			if (message) errors[f.name] = message;
+		}
+		if (Object.keys(errors).length > 0) {
+			setFieldErrors(errors);
+			return;
+		}
 		setBusy(true);
 		setError(null);
 		try {
 			const body: Record<string, unknown> = {};
 			for (const f of fields) {
+				const state = fieldRuntimeState(f, values);
+				// A hidden field is not on screen (and may not be fillable) — never submit its
+				// value, or a stale/hidden entry would silently ride along with the write.
+				if (!state.visible) continue;
 				const v = values[f.name];
 				// undefined / '' = untouched (omit: never overwrite the stored value).
 				// null = explicit clear: send it so the server wipes the column (e.g.
@@ -241,7 +298,7 @@ export default function RecordFormDialog({
 
 			{/* Body — scrollable 2-column fields grid. */}
 			<div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1rem' }}>
-				<form id="record-form" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+				<form id="record-form" onSubmit={submit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
 					{/* Engine-owned document identity (ERP-style): status is set to Draft on
 					 * create and display_number is assigned from the naming series — shown so
 					 * the form matches the record's schema instead of silently dropping fields. */}
@@ -308,18 +365,30 @@ export default function RecordFormDialog({
 							)}
 						</div>
 					)}
-					{fields.length === 0 && !docMetaShown && <p style={{ fontSize: '0.8rem', color: '#9ca3af', margin: 0 }}>No editable fields.</p>}
+					{visibleFields.length === 0 && !docMetaShown && (
+						<p style={{ fontSize: '0.8rem', color: '#9ca3af', margin: 0 }}>No editable fields.</p>
+					)}
+					{/* Fields render in one flat grid — this view does not use the form-layout
+					 *  group tree, so FormGroup.visible_when (group-level) has no group to gate
+					 *  here; only per-field linkage is evaluated. */}
 					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-						{fields.map((f) => (
-							<RecordFieldInput
-								key={f.name}
-								field={f}
-								value={values[f.name]}
-								options={relationOptions[f.name]}
-								onChange={(v) => setValue(f.name, v)}
-								token={token}
-							/>
-						))}
+						{visibleFields.map((f) => {
+							const state = runtime[f.name];
+							return (
+								<RecordFieldInput
+									key={f.name}
+									field={f}
+									value={values[f.name]}
+									options={relationOptions[f.name]}
+									onChange={(v) => setValue(f.name, v)}
+									onBlur={() => handleBlur(f.name)}
+									error={fieldErrors[f.name]}
+									token={token}
+									readOnly={state?.readOnly}
+									required={state?.required}
+								/>
+							);
+						})}
 					</div>
 					{o2mFields.length > 0 && (
 						<div

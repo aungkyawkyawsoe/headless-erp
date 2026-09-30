@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
 	Badge,
 	Button,
+	confirmDialog,
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -58,7 +59,9 @@ export function EventsTab({ meta, api }: { meta: StudioMeta | null; api: AdminAp
 							{p.name}: {p.type}
 						</Badge>
 					))}
-					{params(row.original).length === 0 && <span style={{ fontSize: '0.65rem', color: '#9ca3af' }}>no params</span>}
+					{params(row.original).length === 0 && (
+						<span style={{ fontSize: '0.65rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>no params</span>
+					)}
 				</div>
 			),
 		},
@@ -86,10 +89,18 @@ export function EventsTab({ meta, api }: { meta: StudioMeta | null; api: AdminAp
 						variant="ghost"
 						size="icon-xs"
 						title="Delete"
-						style={{ color: '#dc2626' }}
-						onClick={() => {
-							if (confirm(`Delete action "${row.original.label}"?`))
-								void api(`/api/studio/event-action?action_key=${encodeURIComponent(row.original.action_key)}`, { method: 'DELETE' });
+						style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
+						onClick={async () => {
+							if (
+								!(await confirmDialog({
+									title: 'Delete action',
+									description: `Delete action "${row.original.label}"?`,
+									destructive: true,
+									confirmLabel: 'Delete',
+								}))
+							)
+								return;
+							await api(`/api/studio/event-action?action_key=${encodeURIComponent(row.original.action_key)}`, { method: 'DELETE' });
 						}}
 					>
 						<Trash2 size={13} />
@@ -185,7 +196,7 @@ function EventActionEditor({
 							placeholder='[{"name":"message","label":"Message","type":"text","required":true}]'
 							style={{ fontFamily: 'monospace', fontSize: '0.72rem' }}
 						/>
-						{error && <p style={{ fontSize: '0.7rem', color: '#dc2626', margin: 0 }}>{error}</p>}
+						{error && <p style={{ fontSize: '0.7rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)', margin: 0 }}>{error}</p>}
 					</div>
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
 						<Label>Sort order</Label>

@@ -9,6 +9,7 @@ import {
 	ComboboxInput,
 	ComboboxItem,
 	ComboboxList,
+	confirmDialog,
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
@@ -29,6 +30,7 @@ import {
 import { collectionQuery } from '../lib/queries';
 import { rowLabel, renderTemplate, m2oLabel, m2mIds } from '../lib/record-label';
 import { RECORD_EDITABLE_TYPES, docStatusLabel, nextDocStatuses } from '../lib/record-edit-types';
+import { fieldRuntimeState, type FieldRuntimeState } from '../lib/linkage';
 import { createRelatedRowsLoader, relatedRowsProjection, toRelatedOptions, RELATED_ROWS_LIMIT } from '../lib/related-rows';
 import { RecordFieldInput } from './RecordFieldInput';
 
@@ -144,6 +146,15 @@ export default function RecordDetailView({
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [dirty, setDirty] = useState(false);
+	// Live linkage state per field — recomputed from the current values so a rule on
+	// one field immediately shows/hides/disables/requires another (same evaluator as
+	// the create/edit dialog: apps/studio/src/lib/linkage.ts).
+	const runtime = useMemo(() => {
+		const map: Record<string, FieldRuntimeState> = {};
+		for (const f of fields) map[f.name] = fieldRuntimeState(f, values);
+		return map;
+	}, [fields, values]);
+	const visibleFields = useMemo(() => fields.filter((f) => runtime[f.name]?.visible !== false), [fields, runtime]);
 	// DocStatus of the open record — the engine validates transitions server-side
 	// (draft → submitted → approved → cancelled); the combobox offers only legal
 	// moves and the save body carries doc_status when it changed.
@@ -229,7 +240,16 @@ export default function RecordDetailView({
 		try {
 			const body: Record<string, unknown> = {};
 			for (const f of fields) {
+				const state = fieldRuntimeState(f, values);
+				// A hidden field is not on screen — never submit its value.
+				if (!state.visible) continue;
 				const v = values[f.name];
+				const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+				// Linkage-aware required (the inline form has no native required affordance).
+				if (state.required && empty) {
+					setError(`${f.label || f.name} is required`);
+					return;
+				}
 				// undefined / '' = untouched (omit: never overwrite the stored value).
 				// null = explicit clear: send it so the server wipes the column (e.g.
 				// removing an image/date/number leaves the row empty after Save).
@@ -288,7 +308,15 @@ export default function RecordDetailView({
 
 	async function remove() {
 		if (readOnly) return;
-		if (!confirm(`Delete record “${rowLabel(record)}”?`)) return;
+		if (
+			!(await confirmDialog({
+				title: 'Delete record',
+				description: `Delete record “${rowLabel(record)}”?`,
+				destructive: true,
+				confirmLabel: 'Delete',
+			}))
+		)
+			return;
 		if (busy) return;
 		setBusy(true);
 		setError(null);
@@ -432,7 +460,15 @@ export default function RecordDetailView({
 
 	async function removeRelated(rf: RelatedField, row: Record<string, unknown>) {
 		if (readOnly) return;
-		if (!confirm(`Delete related record?`)) return;
+		if (
+			!(await confirmDialog({
+				title: 'Delete related record',
+				description: 'Delete related record?',
+				destructive: true,
+				confirmLabel: 'Delete',
+			}))
+		)
+			return;
 		try {
 			await deleteItem(token, rf.slug, String(row.id));
 			setRelated(await loadRelated());
@@ -488,7 +524,7 @@ export default function RecordDetailView({
 						   so there is no Save / Duplicate / Delete here. */
 						<span
 							title="Read-only — this collection is written through its domain service"
-							style={{ fontSize: '0.7rem', fontWeight: 600, color: '#9ca3af' }}
+							style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--mmbix-muted-foreground, #9ca3af)' }}
 						>
 							Read-only
 						</span>
@@ -542,7 +578,15 @@ export default function RecordDetailView({
 				>
 					{hasDocStatus && (
 						<div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-							<span style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9ca3af' }}>
+							<span
+								style={{
+									fontSize: '0.72rem',
+									fontWeight: 600,
+									textTransform: 'uppercase',
+									letterSpacing: '0.04em',
+									color: 'var(--mmbix-muted-foreground, #9ca3af)',
+								}}
+							>
 								Status
 							</span>
 							{readOnly ? (
@@ -573,7 +617,15 @@ export default function RecordDetailView({
 					)}
 					{hasDisplayNumber && (
 						<div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-							<span style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9ca3af' }}>
+							<span
+								style={{
+									fontSize: '0.72rem',
+									fontWeight: 600,
+									textTransform: 'uppercase',
+									letterSpacing: '0.04em',
+									color: 'var(--mmbix-muted-foreground, #9ca3af)',
+								}}
+							>
 								Doc No.
 							</span>
 							<span
@@ -605,19 +657,27 @@ export default function RecordDetailView({
 			<div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
 				<div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '1rem' }}>
 					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-						{fields.map((f) => (
-							// JSON blobs are wide — a JSON field spans the full form row (and the
-							// editor itself is a full-width monospace JSON viewer/editor).
-							<div key={f.name} style={f.type === 'json' ? { gridColumn: '1 / -1' } : undefined}>
-								<RecordFieldInput
-									field={f}
-									value={values[f.name]}
-									options={relationOptions[f.name]}
-									onChange={(v) => setValue(f.name, v)}
-									token={token}
-								/>
-							</div>
-						))}
+						{/* Fields render in one flat grid — this view does not use the form-layout
+						 *  group tree, so FormGroup.visible_when (group-level) has no group to gate
+						 *  here; only per-field linkage is evaluated. */}
+						{visibleFields.map((f) => {
+							const state = runtime[f.name];
+							return (
+								// JSON blobs are wide — a JSON field spans the full form row (and the
+								// editor itself is a full-width monospace JSON viewer/editor).
+								<div key={f.name} style={f.type === 'json' ? { gridColumn: '1 / -1' } : undefined}>
+									<RecordFieldInput
+										field={f}
+										value={values[f.name]}
+										options={relationOptions[f.name]}
+										onChange={(v) => setValue(f.name, v)}
+										token={token}
+										readOnly={state?.readOnly}
+										required={state?.required}
+									/>
+								</div>
+							);
+						})}
 					</div>
 				</div>
 
@@ -706,7 +766,9 @@ export default function RecordDetailView({
 										</div>
 									)}
 									<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-										{rf.rows.length === 0 && !cp && <p style={{ fontSize: '0.72rem', color: '#9ca3af', margin: 0 }}>No related records.</p>}
+										{rf.rows.length === 0 && !cp && (
+											<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: 0 }}>No related records.</p>
+										)}
 										{pendingIds.map((id) => (
 											<div
 												key={`pending-${id}`}
@@ -717,7 +779,7 @@ export default function RecordDetailView({
 													gap: 6,
 													padding: '0.35rem 0.5rem',
 													borderRadius: 6,
-													border: '1px dashed #d97706',
+													border: '1px dashed var(--mmbix-tone-warning-fg, #d97706)',
 													background: '#fffbeb',
 													cursor: 'default',
 												}}
@@ -742,7 +804,7 @@ export default function RecordDetailView({
 														e.stopPropagation();
 														unstage(rf, id);
 													}}
-													style={{ color: '#b45309' }}
+													style={{ color: 'var(--mmbix-tone-warning-fg, #b45309)' }}
 												>
 													<X size={12} />
 												</Button>
@@ -783,7 +845,7 @@ export default function RecordDetailView({
 														e.stopPropagation();
 														void removeRelated(rf, row);
 													}}
-													style={{ color: '#dc2626' }}
+													style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
 												>
 													<Trash2 size={12} />
 												</Button>

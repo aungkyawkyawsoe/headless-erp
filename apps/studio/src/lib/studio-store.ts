@@ -19,11 +19,14 @@ export interface StudioUiState {
 	registryQuery: string;
 	/** Reveal collections flagged `meta.hidden` in the registry list. */
 	showHiddenCollections: boolean;
+	/** Role-registry search (the Roles & Access panel). */
+	rolesSearch: string;
 }
 
 export const studioUiStore = new Store<StudioUiState>({
 	registryQuery: '',
 	showHiddenCollections: false,
+	rolesSearch: '',
 });
 
 export function setRegistryQuery(registryQuery: string): void {
@@ -34,7 +37,11 @@ export function setShowHiddenCollections(showHiddenCollections: boolean): void {
 	studioUiStore.setState((s) => ({ ...s, showHiddenCollections }));
 }
 
+export function setRolesSearch(rolesSearch: string): void {
+	studioUiStore.setState((s) => ({ ...s, rolesSearch }));
+}
+
 /** Reset UI state on logout / token change so the next session starts clean. */
 export function resetStudioUi(): void {
-	studioUiStore.setState(() => ({ registryQuery: '', showHiddenCollections: false }));
+	studioUiStore.setState(() => ({ registryQuery: '', showHiddenCollections: false, rolesSearch: '' }));
 }

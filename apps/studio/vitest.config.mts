@@ -15,5 +15,8 @@ export default defineConfig({
 	test: {
 		include: ['src/**/*.spec.ts', 'src/**/*.spec.tsx'],
 		environment: 'node',
+		// jsdom gaps the design system needs (ResizeObserver / matchMedia) — see
+		// the file. Runs for every test; guarded to no-op without a DOM.
+		setupFiles: ['./src/test-setup.ts'],
 	},
 });

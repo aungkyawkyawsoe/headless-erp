@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@mmbix/design-system';
+import { Button, confirmDialog } from '@mmbix/design-system';
 import { Plus, X } from 'lucide-react';
 import { upsertDesignToken, deleteDesignToken, type DesignTokenSet, type ModuleInfo } from '../../lib/api';
 import { designTokensQuery } from '../../lib/queries';
@@ -75,7 +75,15 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 
 	const removeSet = async () => {
 		if (!sel) return;
-		if (!window.confirm(`Delete token set “${sel.set_name}”?`)) return;
+		if (
+			!(await confirmDialog({
+				title: 'Delete token set',
+				description: `Delete token set “${sel.set_name}”?`,
+				destructive: true,
+				confirmLabel: 'Delete',
+			}))
+		)
+			return;
 		try {
 			await deleteDesignToken(token, sel.id);
 			setSel(null);
@@ -102,10 +110,18 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 		<div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0.75rem 0.9rem' }}>
 			<div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
 				<div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-					<span style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b' }}>
+					<span
+						style={{
+							fontSize: '0.66rem',
+							fontWeight: 700,
+							textTransform: 'uppercase',
+							letterSpacing: '0.05em',
+							color: 'var(--mmbix-muted-foreground, #64748b)',
+						}}
+					>
 						Token sets
 					</span>
-					<span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>{sets.length}</span>
+					<span style={{ fontSize: '0.6rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{sets.length}</span>
 					<Button
 						size="sm"
 						variant="outline"
@@ -123,7 +139,7 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 					</Button>
 				</div>
 				{sets.length === 0 && (
-					<p style={{ margin: 0, fontSize: '0.72rem', color: '#9ca3af' }}>
+					<p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
 						No token sets yet — create one to theme an app (e.g. --primary, --radius).
 					</p>
 				)}
@@ -146,8 +162,10 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 						}}
 					>
 						<span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.set_name}</span>
-						<span style={{ fontSize: '0.62rem', color: '#9ca3af' }}>{s.app_id ?? 'global'}</span>
-						{s.is_default === 1 ? <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#2563eb' }}>default</span> : null}
+						<span style={{ fontSize: '0.62rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{s.app_id ?? 'global'}</span>
+						{s.is_default === 1 ? (
+							<span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--mmbix-primary, #2563eb)' }}>default</span>
+						) : null}
 					</button>
 				))}
 			</div>
@@ -173,7 +191,16 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 						))}
 					</select>
 				</div>
-				<label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: '#374151', cursor: 'pointer' }}>
+				<label
+					style={{
+						display: 'flex',
+						alignItems: 'center',
+						gap: 6,
+						fontSize: '0.72rem',
+						color: 'var(--mmbix-foreground, #374151)',
+						cursor: 'pointer',
+					}}
+				>
 					<input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
 					Default set for this app
 				</label>
@@ -189,13 +216,20 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 							<input
 								value={r.value}
 								onChange={(e) => setRows((prev) => prev.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
-								placeholder="#2563eb"
+								placeholder="var(--mmbix-primary, #2563eb)"
 								style={field}
 							/>
 							<button
 								type="button"
 								onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
-								style={{ border: 'none', background: 'none', color: '#9ca3af', cursor: 'pointer', padding: 2, display: 'inline-flex' }}
+								style={{
+									border: 'none',
+									background: 'none',
+									color: 'var(--mmbix-muted-foreground, #9ca3af)',
+									cursor: 'pointer',
+									padding: 2,
+									display: 'inline-flex',
+								}}
 							>
 								<X size={13} />
 							</button>
@@ -215,7 +249,7 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 						border: '1px solid var(--mmbix-border, #e5e7eb)',
 						background: 'transparent',
 						fontSize: '0.7rem',
-						color: '#64748b',
+						color: 'var(--mmbix-muted-foreground, #64748b)',
 						cursor: 'pointer',
 					}}
 				>
@@ -223,7 +257,7 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 				</button>
 				<div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
 					{sel && (
-						<Button variant="outline" size="sm" onClick={() => void removeSet()} style={{ color: '#dc2626' }}>
+						<Button variant="outline" size="sm" onClick={() => void removeSet()} style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
 							Delete
 						</Button>
 					)}
@@ -231,7 +265,16 @@ export function TokensTab({ token, modules, refresh }: { token: string; modules:
 						{busy ? 'Saving…' : 'Save set'}
 					</Button>
 				</div>
-				{msg && <span style={{ fontSize: '0.68rem', color: msg === 'Saved' ? '#16a34a' : '#dc2626' }}>{msg}</span>}
+				{msg && (
+					<span
+						style={{
+							fontSize: '0.68rem',
+							color: msg === 'Saved' ? 'var(--mmbix-tone-positive-fg, #16a34a)' : 'var(--mmbix-tone-danger-fg, #dc2626)',
+						}}
+					>
+						{msg}
+					</span>
+				)}
 			</div>
 		</div>
 	);

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
 	Badge,
 	Button,
+	confirmDialog,
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -41,7 +42,7 @@ export function StudioConfigTab({ meta, api }: { meta: StudioMeta | null; api: A
 							display: 'inline-flex',
 							alignItems: 'center',
 							justifyContent: 'center',
-							color: '#6b7280',
+							color: 'var(--mmbix-muted-foreground, #6b7280)',
 							flexShrink: 0,
 						}}
 					>
@@ -50,7 +51,9 @@ export function StudioConfigTab({ meta, api }: { meta: StudioMeta | null; api: A
 					<div style={{ minWidth: 0 }}>
 						<div style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'monospace' }}>{row.original.config_key}</div>
 						{row.original.description && (
-							<div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: 2 }}>{row.original.description}</div>
+							<div style={{ fontSize: '0.68rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', marginTop: 2 }}>
+								{row.original.description}
+							</div>
 						)}
 					</div>
 				</div>
@@ -101,10 +104,18 @@ export function StudioConfigTab({ meta, api }: { meta: StudioMeta | null; api: A
 						variant="ghost"
 						size="icon-xs"
 						title="Delete"
-						style={{ color: '#dc2626' }}
-						onClick={() => {
-							if (confirm(`Delete config "${row.original.config_key}"?`))
-								void api(`/api/studio/config?key=${encodeURIComponent(row.original.config_key)}`, { method: 'DELETE' });
+						style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}
+						onClick={async () => {
+							if (
+								!(await confirmDialog({
+									title: 'Delete config',
+									description: `Delete config "${row.original.config_key}"?`,
+									destructive: true,
+									confirmLabel: 'Delete',
+								}))
+							)
+								return;
+							await api(`/api/studio/config?key=${encodeURIComponent(row.original.config_key)}`, { method: 'DELETE' });
 						}}
 					>
 						<Trash2 size={13} />
@@ -198,7 +209,7 @@ function StudioConfigEditor({
 							placeholder='"table-form"'
 							style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
 						/>
-						{error && <p style={{ fontSize: '0.7rem', color: '#dc2626', margin: 0 }}>{error}</p>}
+						{error && <p style={{ fontSize: '0.7rem', color: 'var(--mmbix-tone-danger-fg, #dc2626)', margin: 0 }}>{error}</p>}
 					</div>
 					<div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
 						<Label>Description</Label>

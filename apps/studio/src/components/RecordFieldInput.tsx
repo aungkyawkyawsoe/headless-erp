@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import {
 	Button,
 	Combobox,
@@ -13,6 +14,7 @@ import {
 	Field,
 	FieldContent,
 	FieldDescription,
+	FieldError,
 	FieldLabel,
 	Input,
 	Label,
@@ -100,6 +102,10 @@ export function RecordFieldInput({
 	onChange,
 	options,
 	token,
+	readOnly = false,
+	required,
+	error,
+	onBlur,
 }: {
 	field: FieldDefinition;
 	value: unknown;
@@ -108,10 +114,37 @@ export function RecordFieldInput({
 	options?: Array<{ id: string; label: string }>;
 	/** Auth token — required only for media-type fields (image) that upload. */
 	token?: string;
+	/** Linkage state — the field is shown (visible_when held) but not editable
+	 *  (readonly_when / static read_only); every control renders disabled. */
+	readOnly?: boolean;
+	/** Linkage-aware required — from fieldRuntimeState; falls back to the field's
+	 *  static flag when omitted (the common no-condition case). */
+	required?: boolean;
+	/** Inline validation message (from validateField). When set the control is
+	 *  marked aria-invalid and described by the message; omitted = no error. */
+	error?: string;
+	/** Fired when focus LEAVES the whole field (not on an internal move such as the
+	 *  date→time pair of a datetime control). The parent validates on this. */
+	onBlur?: () => void;
 }) {
 	const label = field.label || field.name;
-	const required = field.required;
+	const isRequired = required ?? Boolean(field.required);
 	const helper = field.help;
+	// One id per rendered field instance — the inline message is announced through
+	// `aria-describedby` on the control (empty `error`/omitted = no error).
+	const errorId = useId();
+	const invalid = Boolean(error);
+	const describedBy = invalid ? errorId : undefined;
+	const ariaProps = { 'aria-invalid': invalid || undefined, 'aria-describedby': describedBy };
+
+	/** Blur bubbles (focusout) — ignore a move that stays INSIDE this field so the
+	 *  datetime date→time pair doesn't validate mid-edit. */
+	function handleBlur(e: React.FocusEvent<HTMLDivElement>) {
+		if (!onBlur) return;
+		const next = e.relatedTarget as Node | null;
+		if (next && e.currentTarget.contains(next)) return;
+		onBlur();
+	}
 	// Anchor for the m2m chips popup (the DS ComboboxInput auto-anchors itself;
 	// the chips variant needs an explicit ref passed to ComboboxContent).
 	const chipsAnchor = useComboboxAnchor();
@@ -125,7 +158,7 @@ export function RecordFieldInput({
 		if (field.type === 'boolean') {
 			return (
 				<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-					<Switch checked={Boolean(value)} onCheckedChange={(c) => onChange(Boolean(c))} />
+					<Switch checked={Boolean(value)} disabled={readOnly} onCheckedChange={(c) => onChange(Boolean(c))} />
 					<Label style={{ fontSize: '0.8rem' }}>{label}</Label>
 				</div>
 			);
@@ -139,11 +172,17 @@ export function RecordFieldInput({
 				<Combobox
 					value={String(value ?? '')}
 					items={selectOptions.map((o) => o.value)}
+					disabled={readOnly}
 					onValueChange={(v) => onChange(String(v ?? ''))}
 					onInputValueChange={() => {}}
 					itemToStringLabel={(v) => displayLabel(String(v))}
 				>
-					<ComboboxInput showTrigger placeholder={field.placeholder ?? 'Pick…'} style={{ width: '100%', fontSize: '0.8rem' }} />
+					<ComboboxInput
+						{...ariaProps}
+						showTrigger
+						placeholder={field.placeholder ?? 'Pick…'}
+						style={{ width: '100%', fontSize: '0.8rem' }}
+					/>
 					<ComboboxContent align="start" sideOffset={4} style={{ minWidth: 200 }}>
 						<ComboboxList>
 							{(item: string) => (
@@ -167,6 +206,7 @@ export function RecordFieldInput({
 					multiple
 					items={opts.map((o) => o.id)}
 					value={selected}
+					disabled={readOnly}
 					onValueChange={(v) => onChange(Array.isArray(v) ? Array.from(new Set(v.map((x) => String(x)))) : [])}
 					onInputValueChange={() => {}}
 					itemToStringLabel={(id) => labelOf(String(id))}
@@ -180,7 +220,7 @@ export function RecordFieldInput({
 								</ComboboxChip>
 							))}
 						</ComboboxValue>
-						<ComboboxChipsInput placeholder={field.placeholder ?? 'Pick…'} />
+						<ComboboxChipsInput {...ariaProps} placeholder={field.placeholder ?? 'Pick…'} />
 					</ComboboxChips>
 					<ComboboxContent anchor={chipsAnchor} align="start" sideOffset={4} style={{ minWidth: 220 }}>
 						<ComboboxEmpty>No options found.</ComboboxEmpty>
@@ -200,11 +240,17 @@ export function RecordFieldInput({
 				<Combobox
 					value={String(value ?? '')}
 					items={(options ?? []).map((o) => o.id)}
+					disabled={readOnly}
 					onValueChange={(v) => onChange(String(v ?? ''))}
 					onInputValueChange={() => {}}
 					itemToStringLabel={(v) => (options ?? []).find((o) => o.id === String(v))?.label ?? String(v)}
 				>
-					<ComboboxInput showTrigger placeholder={field.placeholder ?? 'Pick…'} style={{ width: '100%', fontSize: '0.8rem' }} />
+					<ComboboxInput
+						{...ariaProps}
+						showTrigger
+						placeholder={field.placeholder ?? 'Pick…'}
+						style={{ width: '100%', fontSize: '0.8rem' }}
+					/>
 					<ComboboxContent align="start" sideOffset={4} style={{ minWidth: 200 }}>
 						<ComboboxList>
 							{(item: string) => (
@@ -220,10 +266,12 @@ export function RecordFieldInput({
 		if (field.type === 'longtext' || field.type === 'text_editor' || field.type === 'markdown' || field.type === 'code') {
 			return (
 				<Textarea
+					{...ariaProps}
 					value={String(value ?? '')}
 					onChange={(e) => onChange(e.target.value)}
 					placeholder={field.placeholder}
 					rows={3}
+					disabled={readOnly}
 					style={{ fontSize: '0.8rem' }}
 				/>
 			);
@@ -234,11 +282,13 @@ export function RecordFieldInput({
 			// trip: the engine stores json values verbatim and re-parses them on read.
 			return (
 				<Textarea
+					{...ariaProps}
 					value={jsonEditorText(value)}
 					onChange={(e) => onChange(e.target.value)}
 					placeholder={field.placeholder ?? '{ "key": "value" }'}
 					rows={7}
 					spellCheck={false}
+					disabled={readOnly}
 					style={{
 						fontSize: '0.78rem',
 						lineHeight: 1.5,
@@ -261,6 +311,7 @@ export function RecordFieldInput({
 		) {
 			return (
 				<Input
+					{...ariaProps}
 					type="number"
 					min={field.min}
 					max={field.max}
@@ -268,6 +319,7 @@ export function RecordFieldInput({
 					value={value === undefined || value === null ? '' : String(value)}
 					onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
 					placeholder={field.placeholder}
+					disabled={readOnly}
 					style={{ fontSize: '0.8rem' }}
 				/>
 			);
@@ -281,10 +333,11 @@ export function RecordFieldInput({
 							value={date}
 							onValueChange={(d) => onChange(d ? toYmd(d) : null)}
 							placeholder={field.placeholder ?? 'Pick a date'}
+							disabled={readOnly}
 							className="w-full"
 						/>
 					</div>
-					{date && <ClearButton label={label} onClear={() => onChange(null)} />}
+					{date && !readOnly && <ClearButton label={label} onClear={() => onChange(null)} />}
 				</div>
 			);
 		}
@@ -297,10 +350,11 @@ export function RecordFieldInput({
 							value={time}
 							onValueChange={(v) => onChange(v)}
 							placeholder={field.placeholder ?? 'Pick a time'}
+							disabled={readOnly}
 							className="w-full"
 						/>
 					</div>
-					{time && <ClearButton label={label} onClear={() => onChange(null)} />}
+					{time && !readOnly && <ClearButton label={label} onClear={() => onChange(null)} />}
 				</div>
 			);
 		}
@@ -319,14 +373,15 @@ export function RecordFieldInput({
 								value={date}
 								onValueChange={(d) => onChange(d ? toUtcDatetime(toYmd(d), time || '00:00') : null)}
 								placeholder={field.placeholder ?? 'Pick a date'}
+								disabled={readOnly}
 								className="w-full"
 							/>
 						</div>
-						{date && <ClearButton label={label} onClear={() => onChange(null)} />}
+						{date && !readOnly && <ClearButton label={label} onClear={() => onChange(null)} />}
 					</div>
 					<TimePicker
 						value={time}
-						disabled={!date}
+						disabled={readOnly || !date}
 						onValueChange={(t) => onChange(t && date ? toUtcDatetime(toYmd(date), t) : null)}
 						placeholder="Pick a time"
 						className="w-full"
@@ -335,29 +390,42 @@ export function RecordFieldInput({
 			);
 		}
 		if (field.type === 'image') {
-			return <ImageFieldInput value={value} onChange={onChange} token={token} />;
+			// ImageFieldInput has no disabled prop of its own — block pointer access when
+			// the field is linkage read-only so its Upload/Gallery controls can't be used.
+			return (
+				<div style={readOnly ? { pointerEvents: 'none', opacity: 0.6 } : undefined} aria-disabled={readOnly || undefined}>
+					<ImageFieldInput value={value} onChange={onChange} token={token} />
+				</div>
+			);
 		}
 		return (
 			<Input
+				{...ariaProps}
 				type="text"
 				value={String(value ?? '')}
 				onChange={(e) => onChange(e.target.value)}
 				placeholder={field.placeholder}
-				required={required}
+				required={isRequired}
+				disabled={readOnly}
 				style={{ fontSize: '0.8rem' }}
 			/>
 		);
 	})();
 
 	return (
-		<Field orientation="vertical">
+		<Field orientation="vertical" data-invalid={invalid || undefined} onBlur={handleBlur}>
 			<FieldLabel style={{ fontSize: '0.78rem' }}>
 				{label}
-				{required && <span style={{ color: '#dc2626' }}> *</span>}
+				{isRequired && <span style={{ color: 'var(--mmbix-destructive, #dc2626)' }}> *</span>}
 			</FieldLabel>
 			<FieldContent>
 				{control}
 				{helper && <FieldDescription style={{ fontSize: '0.72rem' }}>{helper}</FieldDescription>}
+				{invalid && (
+					<FieldError id={errorId} style={{ fontSize: '0.72rem' }}>
+						{error}
+					</FieldError>
+				)}
 			</FieldContent>
 		</Field>
 	);

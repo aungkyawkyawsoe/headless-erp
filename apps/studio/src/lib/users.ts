@@ -76,7 +76,7 @@ export const IDENTITY_KIND_LABEL: Record<IdentityKind, string> = {
  * employee id.
  *
  * Mirrors what the mini app already shows for an employee
- * (`apps/tgapp/src/modules/employees/data/api.ts`: `name_mm ?? name_en`), so the
+ * (a client names an employee `name_mm` then `name_en`), so the
  * same person cannot read one way in the Users table and another in the app. The
  * Burmese name leads because it is the one the crew uses day to day.
  */
@@ -86,7 +86,7 @@ export function employeeLabelOf(employee: { id: string; name_mm?: unknown; name_
 	return mm || en || employee.id;
 }
 
-/** `hrm_employees.id` → display name, for the one employee read the tab makes. */
+/** directory `.id` → display name, for the one employee read the tab makes. */
 export function employeeNameMap(employees: Array<{ id: string; name_mm?: unknown; name_en?: unknown }>): Map<string, string> {
 	return new Map(employees.map((employee) => [employee.id, employeeLabelOf(employee)]));
 }
@@ -163,19 +163,24 @@ export const EMPLOYEE_SEARCH_LIMIT = 20;
 export const NO_EMPLOYEE = '__none__';
 
 /**
- * The account's sign-in state as THREE values rather than two.
+ * The account's sign-in state as FOUR values rather than two.
  *
  * `unknown` is load-bearing. `status` is always in the API's projection today,
  * but a UI that renders a missing value as "active" is making a claim it cannot
  * back — and the claim is specifically about whether this account can sign in.
- * Unknown is the honest answer, and the Admin API's `updateUser` ignores a
- * falsy `status`, so a row really can arrive without one.
+ * Unknown is the honest answer for a row written outside the Admin API — every
+ * write seam refuses anything outside the vocabulary, INCLUDING falsy values.
+ *
+ * `invited` means the account exists but has no credential yet — it cannot sign
+ * in until it is activated. `suspended` is the blocked state (`disabled` before
+ * the vocabulary grew; migration 048 renames stored rows).
  */
-export type UserState = 'active' | 'disabled' | 'unknown';
+export type UserState = 'active' | 'invited' | 'suspended' | 'unknown';
 
 export function userStateOf(user: Pick<StudioUser, 'status'>): UserState {
 	if (user.status === 'active') return 'active';
-	if (user.status === 'disabled') return 'disabled';
+	if (user.status === 'invited') return 'invited';
+	if (user.status === 'suspended') return 'suspended';
 	return 'unknown';
 }
 

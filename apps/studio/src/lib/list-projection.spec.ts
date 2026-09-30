@@ -22,7 +22,7 @@ describe('buildListFields', () => {
 	});
 
 	it('expands an m2o target to id + the conventional display columns', () => {
-		const projection = buildListFields([{ name: 'department', type: 'm2o', related_collection: 'hrm_departments' }]);
+		const projection = buildListFields([{ name: 'department', type: 'm2o', related_collection: 'departments' }]);
 		const parts = partsOf(projection);
 		expect(parts).toContain('*');
 		expect(parts).toContain('department.id');
@@ -42,8 +42,8 @@ describe('buildListFields', () => {
 
 	it('projects relation arrays (o2m/m2m/table) as id-only', () => {
 		const projection = buildListFields([
-			{ name: 'shifts', type: 'm2m', related_collection: 'hrm_shifts' },
-			{ name: 'subordinates', type: 'o2m', related_collection: 'hrm_employee_links' },
+			{ name: 'shifts', type: 'm2m', related_collection: 'shifts' },
+			{ name: 'subordinates', type: 'o2m', related_collection: 'employee_links' },
 			{ name: 'lines', type: 'table', related_collection: 'doc_lines' },
 		]);
 		const parts = partsOf(projection);
@@ -72,7 +72,7 @@ describe('buildListFields', () => {
 		for (const key of M2O_DISPLAY_FIELDS) expect(parts).toContain(`department.${key}`);
 	});
 
-	// The regression this guards: each m2o costs ~18 entries, so `mro_serial_events`
+	// The regression this guards: each m2o costs ~18 entries, so `serial_events`
 	// (6 m2o fields) projected 103 entries and the engine rejected the ENTIRE list
 	// read with `Too many field selections (max 100)` — a blank table.
 	it('never exceeds the engine cap on a relation-heavy collection, keeping every anchor', () => {

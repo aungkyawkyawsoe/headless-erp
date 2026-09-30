@@ -106,7 +106,7 @@ export const APP_ICONS: Record<string, FC<LucideProps>> = {
 	link: Link2,
 	'link-2': Link2,
 	// Collection/menu icons — mirror the Mini App's per-module glyphs
-	// (apps/tgapp/src/shared/config/launcher-apps.ts).
+	// (the client app launcher config).
 	fingerprint: Fingerprint,
 	'list-todo': ListTodo,
 	car: Car,

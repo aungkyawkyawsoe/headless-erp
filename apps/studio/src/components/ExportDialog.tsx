@@ -48,7 +48,15 @@ function OptionRow({ value, label, count, groupLabel }: { value: string; label: 
  * The actual work always runs through lib/csv-export so the Collections
  * workbench and the App workbench export identically.
  */
-export default function ExportDialog({ open, onOpenChange, slug, pageRowCount, columnCount, visibleColumnCount, onExport }: ExportDialogProps) {
+export default function ExportDialog({
+	open,
+	onOpenChange,
+	slug,
+	pageRowCount,
+	columnCount,
+	visibleColumnCount,
+	onExport,
+}: ExportDialogProps) {
 	const [rowsScope, setRowsScope] = useState<ExportRowsScope>('page');
 	const [columnsScope, setColumnsScope] = useState<ExportColumnsScope>('visible');
 	const [busy, setBusy] = useState(false);
@@ -96,11 +104,7 @@ export default function ExportDialog({ open, onOpenChange, slug, pageRowCount, c
 					</div>
 					<div className="grid gap-1.5">
 						<Label>Columns</Label>
-						<RadioGroup
-							value={columnsScope}
-							onValueChange={(v) => setColumnsScope(v as ExportColumnsScope)}
-							className="gap-0.5"
-						>
+						<RadioGroup value={columnsScope} onValueChange={(v) => setColumnsScope(v as ExportColumnsScope)} className="gap-0.5">
 							<OptionRow groupLabel="Columns" value="visible" label="Visible columns" count={`${visibleColumnCount}`} />
 							<OptionRow groupLabel="Columns" value="all" label="All columns" count={`${columnCount}`} />
 						</RadioGroup>

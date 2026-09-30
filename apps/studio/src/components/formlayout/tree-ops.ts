@@ -198,3 +198,39 @@ export function removeFieldFromLayout(tabs: FormTab[], name: string): FormTab[] 
 		groups: mapGroups(t.groups, (g) => ({ ...g, fieldNames: g.fieldNames.filter((n) => n !== name) })),
 	}));
 }
+
+/** Move an existing field to a tab's first group (drag a field chip onto a tab).
+ *  The field is stripped from every OTHER tab; within the target tab it lands in
+ *  the first group (mirrors the original inline drop handler). */
+export function moveFieldToTab(tabs: FormTab[], tid: string, name: string): FormTab[] {
+	return tabs.map((t) => {
+		if (t.id !== tid) return { ...t, groups: mapGroups(t.groups, (g) => ({ ...g, fieldNames: g.fieldNames.filter((n) => n !== name) })) };
+		const first = t.groups[0];
+		if (!first) return t;
+		return {
+			...t,
+			groups: mapGroups(t.groups, (g) =>
+				g.id === first.id && !g.fieldNames.includes(name) ? { ...g, fieldNames: [...g.fieldNames, name] } : g,
+			),
+		};
+	});
+}
+
+/** Insert `source` at `target`'s position within the group that holds `target`
+ *  (drop a field chip onto another — before/after by drop position). */
+export function insertFieldRelative(tabs: FormTab[], target: string, source: string, before: boolean): FormTab[] {
+	return tabs.map((t) => ({
+		...t,
+		groups: mapGroups(t.groups, (g) => {
+			const ti = g.fieldNames.indexOf(target);
+			if (ti < 0) return g;
+			const without = g.fieldNames.filter((n) => n !== source);
+			const ti2 = without.indexOf(target);
+			if (ti2 < 0) return g;
+			const insertAt = Math.max(0, ti2 + (before ? 0 : 1));
+			const next = [...without];
+			next.splice(insertAt, 0, source);
+			return { ...g, fieldNames: next };
+		}),
+	}));
+}

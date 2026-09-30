@@ -43,7 +43,7 @@ export function useViewState() {
  * True when the current entry has a real previous entry beneath it. React Router stamps
  * `idx` (the entry's session-history position) onto every entry it pushes — a cold open
  * (deep link, reload, first load) sits at `idx === 0` with nothing to pop. Mirrors
- * `apps/tgapp/src/shared/platform/history.ts` so both apps share one back philosophy.
+ * `apps/client app/src/shared/platform/history.ts` so both apps share one back philosophy.
  */
 export function canGoBackInHistory(): boolean {
 	return ((window.history.state?.idx as number | undefined) ?? 0) > 0;

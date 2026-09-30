@@ -1,15 +1,17 @@
 import { m2mIds } from './record-label';
-import type { LinkageCondition, ValidationRule } from '@mmbix/types';
+import type { BlockNode, LinkageCondition, PatchOp, ProposalStatus, SchemaProposal, ValidationRule } from '@mmbix/types';
 import { SYSTEM_FIELD_NAMES as ENGINE_SYSTEM_FIELD_NAMES } from '@mmbix/ui-views';
 
 const BASE = '';
 
-// ─── Session expiry (401) ─────────────────────────────
+// ─── Session expiry (401) ────────────────────────────
 // Every authenticated Studio call goes through `api()` — a 401 always means
 // the token is invalid/expired, so it fires the registered handler and the
 // App drops the session (login screen returns).
 
 let unauthorizedHandler: (() => void) | null = null;
+let lastUnauthorizedTime = 0;
+const UNAUTHORIZED_COOLDOWN_MS = 2000; // Prevent rapid-fire 401 loops
 
 /** Register a callback fired when any authed request returns 401. */
 export function setUnauthorizedHandler(fn: (() => void) | null): void {
@@ -18,7 +20,15 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 
 /** Fire the registered 401 handler (session expiry). Returns true when the response is a 401. */
 export function handleUnauthorized(res: Response): boolean {
-	if (res.status === 401 && unauthorizedHandler) unauthorizedHandler();
+	if (res.status === 401 && unauthorizedHandler) {
+		const now = Date.now();
+		// Only trigger logout if we haven't seen a 401 in the last 2 seconds
+		// This prevents infinite loops when multiple requests fail simultaneously
+		if (now - lastUnauthorizedTime > UNAUTHORIZED_COOLDOWN_MS) {
+			lastUnauthorizedTime = now;
+			unauthorizedHandler();
+		}
+	}
 	return res.status === 401;
 }
 
@@ -74,8 +84,12 @@ async function apiFetch<T, M = unknown>(token: string, path: string, opts?: Requ
 	let res: Response;
 	try {
 		res = await fetch(`${BASE}${path}`, {
-			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
+			// `opts` FIRST, headers LAST: a caller's `headers` key — `undefined` counts,
+			// and `updateCollectionFields` always passes one — would otherwise replace
+			// the auth headers wholesale and send the write unauthenticated (401 →
+			// session dropped). Callers still win on any header they set themselves.
 			...opts,
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
 		});
 	} catch {
 		// fetch throws a bare TypeError("Failed to fetch") when the request never
@@ -83,6 +97,12 @@ async function apiFetch<T, M = unknown>(token: string, path: string, opts?: Requ
 		// clear, actionable message instead of the cryptic browser default.
 		throw new Error('Cannot reach the API server — is the backend running? (cd apps/api && npx wrangler dev)');
 	}
+
+	// Debug: log 401 responses to help diagnose auth issues
+	if (res.status === 401) {
+		console.warn(`[API] 401 Unauthorized on ${path}. Token preview: ${token.substring(0, 20)}...`);
+	}
+
 	handleUnauthorized(res);
 	const body = (await res.json().catch(() => null)) as ApiEnvelope<T, M> | null;
 	if (!body?.success) {
@@ -121,6 +141,136 @@ export interface ModuleInfo {
 }
 export async function listModules(token: string) {
 	return api<ModuleInfo[]>(token, '/api/modules');
+}
+
+/** `GET /api/meta` — the server's advertised contract (pagination, limits, and
+ *  the config-driven identity directory). No hardcoded collection names. */
+export interface ServerMeta {
+	platform: string;
+	version: string;
+	identity?: { directory_collection: string | null; directory_field: string | null };
+}
+export async function getServerMeta(token: string) {
+	return api<ServerMeta>(token, '/api/meta');
+}
+
+/** `GET /api/auth/me` — the signed session's identity + capabilities. Drives
+ *  RBAC-aware UI (admin tabs, destructive actions) instead of showing controls
+ *  the API would 403. */
+export interface StudioMe {
+	user_id: string;
+	email: string;
+	role_id: string;
+	role_name: string;
+	is_admin: boolean;
+	granted_collections?: string[] | '*';
+	apps?: string[] | null;
+	employee_id?: string | null;
+}
+export async function getMe(token: string) {
+	return api<StudioMe>(token, '/api/auth/me');
+}
+
+/** Add-on catalog entry (mirrors `@mmbix/types` AddonCatalogEntry). */
+export interface AddonEntry {
+	id: string;
+	name: string;
+	version: string;
+	scope: 'platform' | 'domain' | 'ui';
+	available: boolean;
+	installed: boolean;
+	depends: string[];
+	provides: string[];
+	requires: string[];
+	extends: string[];
+}
+export interface AddonCatalogResponse {
+	addons: AddonEntry[];
+	issues: Array<{ id: string; issue: string }>;
+}
+export async function listAddons(token: string) {
+	return api<AddonCatalogResponse>(token, '/api/addons');
+}
+
+/** Self-tuning index-advisor telemetry (`GET /api/operations/index-advisor`). */
+export interface IndexAdvisorReport {
+	mode: 'auto' | 'propose_only';
+	journal: Array<{ table: string; columns: string[]; signature?: string; createdAt?: number }>;
+	candidates: Array<{ table: string; columns: string[]; count: number }>;
+}
+export async function getOperations(token: string) {
+	return api<IndexAdvisorReport>(token, '/api/operations/index-advisor');
+}
+
+/** A declared job. `last_error` is the field that makes a silent stoppage visible. */
+export interface SchedulerTaskRow {
+	id: string;
+	name: string | null;
+	type: string;
+	status: string;
+	cron: string | null;
+	repeat_ms?: number | null;
+	run_at: string;
+	run_count: number;
+	attempts: number;
+	last_run_at: string | null;
+	last_error: string | null;
+	last_result: string | null;
+}
+export async function listSchedulerTasks(token: string) {
+	return api<SchedulerTaskRow[]>(token, '/api/scheduler/tasks');
+}
+export async function runSchedulerTask(token: string, id: string) {
+	return api<{ status: string; error?: string }>(token, `/api/scheduler/tasks/${encodeURIComponent(id)}/run`, {
+		method: 'POST',
+	});
+}
+
+/** The declared rule a violation belongs to (opaque to the Studio — the API owns
+ *  the shape; these are the keys the labels read). */
+export interface IntegrityRuleRef {
+	type?: string;
+	field?: string;
+	fields?: string[];
+	fn?: string;
+	max_age_days?: number;
+	child?: { collection?: string; fk?: string; field?: string };
+}
+
+/** One rule's verdict. `count` is bounded by the policy `limit`; `truncated` says
+ *  more violating rows exist beyond it. */
+export interface IntegrityRuleViolation {
+	rule: IntegrityRuleRef;
+	count: number;
+	truncated: boolean;
+	rows: Record<string, unknown>[];
+}
+
+/**
+ * The generic data-quality report for one collection
+ * (`GET /api/collections/:slug/integrity`). Mirrors `IntegrityReport` in
+ * `apps/api/src/lib/services/integrity.service.ts`, with the route's `enabled`
+ * flag in front. `enabled: false` is the deny-by-default state — the collection
+ * declares no integrity rules — and is answered with 200, not an error.
+ */
+export interface IntegrityReport {
+	enabled: boolean;
+	checked: number;
+	violations: number;
+	results: IntegrityRuleViolation[];
+	/** Rules that were malformed / referenced unknown identifiers (skipped). */
+	errors: Array<{ rule: unknown; error: string }>;
+}
+
+/** Run a collection's declared integrity rules. Read-gated; no rules ⇒ `enabled:false`. */
+export async function runIntegrity(token: string, slug: string) {
+	return api<IntegrityReport>(token, `/api/collections/${slug}/integrity`);
+}
+export async function installAddon(token: string, id: string) {
+	return api<AddonCatalogResponse>(token, `/api/addons/${encodeURIComponent(id)}/install`, { method: 'POST' });
+}
+export async function uninstallAddon(token: string, id: string) {
+	return api<AddonCatalogResponse>(token, `/api/addons/${encodeURIComponent(id)}/uninstall`, { method: 'POST' });
 }
 export async function createModule(
 	token: string,
@@ -188,6 +338,32 @@ export interface CatalogEntry {
 	owner: string | null;
 	owner_role: string | null;
 	environments: IdpEnvironment[];
+	/** Runtime add-on state merged on by the catalog route (null for a custom module with no manifest). */
+	registry: {
+		available: boolean;
+		installed: boolean;
+		scope: string;
+		version: string;
+		depends: string[];
+		provides: string[];
+		requires: string[];
+		extends: string[];
+	} | null;
+}
+export interface IdpPolicyRule {
+	id: string;
+	label: string;
+	description: string;
+}
+export interface IdpPolicies {
+	rules: IdpPolicyRule[];
+	modules: Array<{ id: string; slug: string; name: string; status: 'pass' | 'fail'; violations: string[] }>;
+	summary: {
+		total: number;
+		passing: number;
+		failing: number;
+		rules: Array<IdpPolicyRule & { passed: number; total: number; pass_pct: number }>;
+	};
 }
 export interface IdpScorecard {
 	total: number;
@@ -244,6 +420,10 @@ export async function getIdpCatalog(token: string) {
 export async function getIdpScorecard(token: string) {
 	return api<IdpScorecard>(token, '/api/idp/scorecard');
 }
+/** Policy-as-data scorecard — per-module rule violations. */
+export async function getIdpPolicies(token: string) {
+	return api<IdpPolicies>(token, '/api/idp/policies');
+}
 export async function listIdpTemplates(token: string) {
 	return api<IdpTemplate[]>(token, '/api/idp/templates');
 }
@@ -270,61 +450,11 @@ export async function getIdpUsage(token: string, days = 30) {
 export async function listIdpDeployments(token: string) {
 	return api<IdpDeployment[]>(token, '/api/idp/deployments');
 }
-/** Create a draft deployment (GitOps) — POST /api/idp/deployments. */
-export async function createDeployment(
-	token: string,
-	body: {
-		module_id: string;
-		environment_id: string;
-		version?: string;
-		git_ref?: string | null;
-		snapshot_json?: string | null;
-		status?: string;
-	},
-) {
-	return api<IdpDeployment>(token, '/api/idp/deployments', { method: 'POST', body: JSON.stringify(body) });
-}
-
-export interface IdpPlanResult {
-	deployment_id: string;
-	git_ref: string | null;
-	summary: { totalChanges: number; breakingChanges: string[]; safeToApply: boolean };
-}
-
-export interface IdpApplyResult {
-	deployment_id: string;
-	applied: boolean;
-	already_applied?: boolean;
-	checksum?: string;
-	results?: Array<{ slug: string; status: string }>;
-	summary?: { totalChanges: number; breakingChanges: string[]; safeToApply: boolean };
-}
-
-/** Plan — diff the deployment's pinned snapshot against the live DB (read-only). */
-export async function planDeployment(token: string, id: string) {
-	return api<IdpPlanResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/plan`, { method: 'POST' });
-}
-
-/** Apply — idempotent, gated migration of the deployment's snapshot. */
-export async function applyDeployment(token: string, id: string, force = false) {
-	return api<IdpApplyResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/apply`, {
-		method: 'POST',
-		body: JSON.stringify({ force }),
-	});
-}
-
-/** Rollback — re-apply the previous live snapshot for the same module+env. */
-export async function rollbackDeployment(token: string, id: string) {
-	return api<IdpApplyResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/rollback`, { method: 'POST' });
-}
 export async function promoteDeployment(token: string, id: string) {
 	return api<PromoteResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/promote`, { method: 'POST' });
 }
 export async function getDeploymentHistory(token: string, id: string) {
 	return api<IdpHistoryEntry[]>(token, `/api/idp/deployments/${encodeURIComponent(id)}/history`);
-}
-export async function listIdpEnvironments(token: string) {
-	return api<IdpEnvironment[]>(token, '/api/idp/environments');
 }
 export async function listIdpOwnership(token: string) {
 	return api<unknown[]>(token, '/api/idp/ownership');
@@ -486,6 +616,9 @@ export interface EntitySchema {
 	/** Auto-number pattern ("INV-" or "INV-####") — "" / null = no Doc No. */
 	naming_series?: string | null;
 	schema_json: { fields: FieldDefinition[]; actions?: unknown; policies?: { writes?: CollectionWritePolicy } & Record<string, unknown> };
+	/** Bumped on every schema/policy write — the optimistic-concurrency token
+	 *  (`If-Match`). Present on the detail read. */
+	_schema_version?: number;
 	/**
 	 * Present only when the read asked for it (`?with=relation_schemas`): every m2o
 	 * TARGET's schema, keyed by slug. It rides the focused read so the table view
@@ -558,9 +691,18 @@ export async function getCollectionPolicies(token: string, slug: string) {
 export async function setCollectionPolicies(token: string, slug: string, body: CollectionPolicy) {
 	return api<CollectionPolicy>(token, `/api/collections/${slug}/policies`, { method: 'PUT', body: JSON.stringify(body) });
 }
-export async function updateCollectionFields(token: string, slug: string, fields: FieldDefinition[], formLayout?: unknown) {
+export async function updateCollectionFields(
+	token: string,
+	slug: string,
+	fields: FieldDefinition[],
+	formLayout?: unknown,
+	/** Optimistic concurrency — the `_schema_version` the client loaded. A stale
+	 *  save is refused 409 server-side instead of clobbering another admin. */
+	ifMatch?: number,
+) {
 	const updated = await api<EntitySchema>(token, `/api/collections/${slug}`, {
 		method: 'PUT',
+		headers: ifMatch !== undefined ? { 'If-Match': `"${ifMatch}"` } : undefined,
 		body: JSON.stringify(formLayout === undefined ? { fields } : { fields, form_layout: formLayout }),
 	});
 	return updated;
@@ -610,7 +752,7 @@ export async function listServerHooks(token: string, collection?: string) {
 export interface StudioCodeHook {
 	/** The registering plugin/builder (e.g. "veh-relink"). */
 	plugin_id: string;
-	/** The collection the hook FIRES on (e.g. "veh_permits"). */
+	/** The collection the hook FIRES on (e.g. "orders"). */
 	collection: string;
 	/** Lifecycle stage: after_insert | after_update | before_insert | … */
 	event: string;
@@ -958,7 +1100,9 @@ export interface RoleRecord {
 	id: string;
 	name: string;
 	description?: string | null;
-	is_system?: number;
+	/** Engine-owned (Administrator): the API coerces SQLite's 0/1 to a real boolean
+	 *  (`coercePermissionBooleans`), and such a role cannot be renamed or deleted. */
+	is_system?: boolean;
 	/** Mini-app launcher board (Design-B role→app access): app ids this role may
 	 *  open. null = every app. Parsed from the DB JSON by the backend. */
 	app_access?: string[] | null;
@@ -1117,10 +1261,12 @@ export interface StudioUser {
 	email: string;
 	full_name?: string;
 	role_id?: string | null;
-	/** `disabled` is refused at sign-in (and its live tokens 401 on the next
-	 *  request) — see `AuthService.login` / `verifyToken`. */
-	status?: 'active' | 'disabled';
-	/** The `hrm_employees` row this account signs in AS (the web employee link).
+	/** Lifecycle: `active` signs in, `invited` has no credential yet,
+	 *  `suspended` is blocked. Every non-active state is refused at sign-in (and
+	 *  its live tokens 401 on the next request) — see `AuthService.login` /
+	 *  `verifyToken`. */
+	status?: 'active' | 'invited' | 'suspended';
+	/** The the directory row this account signs in AS (the web employee link).
 	 *  Null for the bootstrap admin and for Telegram accounts, whose acting
 	 *  employee comes from the token's `tg-<id>` address instead. */
 	employee_id?: string | null;
@@ -1136,14 +1282,19 @@ export async function listUsers(token: string) {
 
 export interface CreateStudioUserInput {
 	email: string;
-	password: string;
+	/** Omit to create the account `invited` — it then cannot sign in until a
+	 *  password is set (the API stores a no-credential marker in its place). */
+	password?: string;
 	full_name: string;
 	role_id?: string | null;
+	/** Explicit lifecycle state; the API defaults to `active` when a password is
+	 *  present and `invited` otherwise. */
+	status?: 'active' | 'invited' | 'suspended';
 	/** Omit to create an account with no acting employee (an admin-style login). */
 	employee_id?: string | null;
 }
 
-/** Admin — create an account that signs in with email + password. */
+/** Admin — create an account. Without a password it is created `invited`. */
 export async function createUser(token: string, body: CreateStudioUserInput) {
 	return api<{ id: string; email: string; full_name: string }>(token, '/api/users', {
 		method: 'POST',
@@ -1159,7 +1310,7 @@ export interface UpdateStudioUserInput {
 	/** ⚠️ The Admin API only assigns a role when this is TRUTHY, so a role can
 	 *  never be un-assigned here — a password account always holds one. */
 	role_id?: string | null;
-	status?: 'active' | 'disabled';
+	status?: 'active' | 'invited' | 'suspended';
 	/** The employee this account signs in as. `null` UNLINKS it (the API treats
 	 *  `undefined` as "leave it alone") — the fix for a binding made to the wrong
 	 *  person, and how a former employee's account stops acting as anyone. */
@@ -1198,24 +1349,78 @@ export async function deleteDesignToken(token: string, id: string) {
 	return api<{ deleted: boolean }>(token, `/api/design-tokens/${id}`, { method: 'DELETE' });
 }
 
+/** The EFFECTIVE token set for a scope (global, or one app) — CSS variables. */
+export interface EffectiveDesignTokens {
+	id: string;
+	set_name: string;
+	tokens: Record<string, string>;
+}
+export async function getEffectiveTokens(token: string, app?: string) {
+	return api<EffectiveDesignTokens | null>(token, `/api/design-tokens/effective${app ? `?app=${encodeURIComponent(app)}` : ''}`);
+}
+
+/** Translation bundle — `module → namespace → key → string` (see the backend). */
+export type TranslationBundle = Record<string, Record<string, Record<string, string | Record<string, string>>>>;
+export async function getTranslations(token: string, lang: string, module?: string) {
+	const qs = `?lang=${encodeURIComponent(lang)}${module ? `&module=${encodeURIComponent(module)}` : ''}`;
+	return api<{ lang: string; translations: TranslationBundle }>(token, `/api/translations${qs}`);
+}
+
+/** A schema change's impact — from `/api/snapshot/diff-v2` (breaking detection). */
+export interface SchemaDiffResult {
+	collectionsModified: Array<{ slug: string; fieldChanges: Array<{ field: string; change: string }> }>;
+	summary: { totalChanges: number; breakingChanges: string[]; safeToApply: boolean };
+}
+export async function diffSchema(
+	token: string,
+	snapshot: { collections: Array<{ slug: string; name: string; fields: FieldDefinition[] }> },
+) {
+	return api<SchemaDiffResult>(token, '/api/snapshot/diff-v2', { method: 'POST', body: JSON.stringify({ snapshot }) });
+}
+
+/**
+ * Review a single collection's proposed fields against the LIVE schema.
+ *
+ * The differ compares a FULL snapshot (every collection), so a one-collection
+ * snapshot would report every OTHER collection as removed. We therefore export
+ * the live snapshot, swap in the proposed fields for `slug`, and diff that — the
+ * only changes reported are this collection's.
+ */
+export async function reviewSchemaChange(token: string, slug: string, fields: FieldDefinition[]) {
+	const snap = await api<{ collections: Array<{ slug: string; name: string; fields: FieldDefinition[] } & Record<string, unknown>> }>(
+		token,
+		'/api/snapshot/export',
+	);
+	const patched = {
+		...snap,
+		collections: snap.collections.map((c) => (c.slug === slug ? { ...c, fields } : c)),
+	};
+	const diff = await api<SchemaDiffResult>(token, '/api/snapshot/diff-v2', { method: 'POST', body: JSON.stringify({ snapshot: patched }) });
+	return diff.summary;
+}
+
 export interface ApiKeyInfo {
 	id: string;
 	name: string;
 	user_id: string;
 	role_id: string | null;
+	/** PoLP scope — read (default) | write | admin; null on legacy keys. */
+	scope?: string | null;
 	is_active: number;
 	created_at: string;
 	last_used_at: string | null;
 }
 
+export type ApiKeyScope = 'read' | 'write' | 'admin';
+
 export async function listApiKeys(token: string) {
 	return api<ApiKeyInfo[]>(token, '/api/api-keys');
 }
 
-export async function createApiKey(token: string, name: string, userId: string, roleId?: string | null) {
-	return api<{ id: string; name: string; key: string; user_id: string }>(token, '/api/api-keys', {
+export async function createApiKey(token: string, name: string, userId: string, roleId?: string | null, scope: ApiKeyScope = 'read') {
+	return api<{ id: string; name: string; key: string; user_id: string; scope: ApiKeyScope }>(token, '/api/api-keys', {
 		method: 'POST',
-		body: JSON.stringify({ name, user_id: userId, role_id: roleId ?? null }),
+		body: JSON.stringify({ name, user_id: userId, role_id: roleId ?? null, scope }),
 	});
 }
 
@@ -1229,6 +1434,51 @@ export async function importRecords(token: string, slug: string, format: 'json' 
 		method: 'POST',
 		body: JSON.stringify({ format, data }),
 	});
+}
+
+/* ── Governed generation (/api/generation) ─────────────────────
+ * The pipeline PROPOSES; the human gate WRITES. The Studio renders the
+ * proposal (visible inference) and drives the state machine. */
+
+/** A persisted proposal record — mirrors the backend `GenerationRecord`. */
+export interface GenerationProposalRecord {
+	id: string;
+	name: string;
+	collection_slug: string;
+	status: ProposalStatus;
+	require_review: boolean;
+	proposal: SchemaProposal;
+	dna_source: string | null;
+	applied_slug: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export async function listGenerationProposals(token: string, limit = 50) {
+	return api<GenerationProposalRecord[]>(token, `/api/generation?limit=${limit}`);
+}
+
+/** Map a DesignDNA to a DRAFT proposal. Never writes a schema. */
+export async function proposeGeneration(
+	token: string,
+	body: { collection?: { name?: string; slug?: string }; dna?: unknown; prompt?: string },
+) {
+	return api<GenerationProposalRecord>(token, '/api/generation/propose', { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** Advance the human gate: submit | approve | reject | apply. */
+export async function transitionGeneration(token: string, id: string, action: 'submit' | 'approve' | 'reject' | 'apply') {
+	return api<GenerationProposalRecord>(token, `/api/generation/${id}/${action}`, { method: 'POST' });
+}
+
+/** Edit proposed field types during review — a type change feeds the learning loop. */
+export async function updateGenerationFields(token: string, id: string, fields: Array<{ name: string; type: string; required?: boolean }>) {
+	return api<GenerationProposalRecord>(token, `/api/generation/${id}/fields`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+}
+
+/** Apply structural patch ops to a tree (dry-run — no persistence). */
+export async function applyGenerationPatch(token: string, tree: BlockNode[], ops: PatchOp[]) {
+	return api<{ tree: BlockNode[] }>(token, '/api/generation/patch', { method: 'POST', body: JSON.stringify({ tree, ops }) });
 }
 
 /* ── Custom Widgets ──────────────────────────────────────────
