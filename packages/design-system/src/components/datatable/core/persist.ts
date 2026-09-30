@@ -2,14 +2,15 @@
 
 /**
  * Best-effort localStorage persistence for column layout state
- * (visibility / order / pinning). Sizing is intentionally NOT persisted —
- * it is measured live by the pinned-column sync.
+ * (visibility / order / pinning / sizing).
  */
 
 export interface PersistedColumnState {
 	visibility: Record<string, boolean>;
 	order: string[];
 	pinning: { start: string[]; end: string[] };
+	/** Column id → rendered width in px (the width the user dragged). */
+	sizing: Record<string, number>;
 }
 
 /** Internal envelope — adds the column-set fingerprint used for validation. */
@@ -85,7 +86,17 @@ export function loadPersistedColumnState(key: string, columnIds: string[]): Pers
 		}
 	}
 
-	return { order, visibility, pinning };
+	// A width is only useful when it is a real positive pixel number for a
+	// column that still exists — anything else (NaN, a string from a hand-edited
+	// payload) would corrupt TanStack's sizing.
+	const sizing: Record<string, number> = {};
+	if (r.sizing && typeof r.sizing === 'object') {
+		for (const [id, v] of Object.entries(r.sizing)) {
+			if (known.has(id) && typeof v === 'number' && Number.isFinite(v) && v > 0) sizing[id] = v;
+		}
+	}
+
+	return { order, visibility, pinning, sizing };
 }
 
 /** Write the current column layout state (best-effort). */

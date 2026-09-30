@@ -7,7 +7,7 @@ import { KanbanBoard } from '@/kanban';
 import { ViewModeToggle } from '@/kanban/core/view-mode-toggle';
 import { DataTableInstanceContext } from './core/context';
 import { useDataTable } from './core/use-datatable';
-import { selectableColumns } from './core/utils';
+import { ADD_COLUMN_WIDTH, CONTROL_COLUMN_WIDTH, selectableColumns } from './core/utils';
 import { DataTableToolbar } from './components/datatable-toolbar';
 import { DataTableFilterBar } from './components/datatable-filter-bar';
 import { DataTableHeader } from './components/datatable-header';
@@ -83,14 +83,29 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 	const hasPinnedColumns = table.table.getIsSomeColumnsPinned();
 	const pinningKey = JSON.stringify(table.table.getState().columnPinning);
 
-	// Resizable tables size to their columns (`w-max table-fixed`) and never
-	// stretch to the container — but with a SINGLE visible column that leaves a
-	// narrow 150px column and a mostly empty canvas. Fall back to the full-width
-	// auto layout so the lone column fills the table, and drop its resize handle
-	// (dragging a single column to fill the width is meaningless).
+	// Resizable tables render `table-fixed` so every column is exactly its
+	// TanStack size — but a fixed table honors the sizes only under a DEFINITE
+	// width: with `w-max` (max-content) the columns resolve content-based and
+	// the operator's size lands in the filler cell, so a drag moved the table's
+	// edge but never the column. The width is therefore `max(100%, <total>)` —
+	// never below the container (the filler absorbs the difference and the `+`
+	// stays on the right edge), never below the columns (exact sizes; the table
+	// overflows and scrolls).
+	// With a SINGLE visible column that leaves a narrow 150px column and a
+	// mostly empty canvas. Fall back to the full-width auto layout so the lone
+	// column fills the table, and drop its resize handle (dragging a single
+	// column to fill the width is meaningless).
 	const visibleColumnCount = table.table.getHeaderGroups()[0]?.headers.length ?? 0;
 	const singleColumnFill = enableColumnResizing && visibleColumnCount === 1;
 	const columnResizingEnabled = enableColumnResizing && !singleColumnFill;
+	// The definite width = the column set plus the edge control cells that live
+	// outside TanStack's model (selection / expansion on the left, `+` on the right).
+	const sizedTableWidth = columnResizingEnabled
+		? table.table.getTotalSize() +
+			(enableRowSelection ? CONTROL_COLUMN_WIDTH : 0) +
+			(enableRowExpansion ? CONTROL_COLUMN_WIDTH : 0) +
+			(showAddColumn ? ADD_COLUMN_WIDTH : 0)
+		: 0;
 
 	// TanStack's sizing model only understands numeric `size` values, but the
 	// column defs size columns with CSS width strings (e.g. "200px") that are
@@ -119,7 +134,19 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 			for (const th of el.querySelectorAll<HTMLElement>("[data-slot='datatable-header-cell']")) {
 				const id = th.dataset.columnId;
 				if (!id) continue;
+				// On a RESIZABLE table a committed size is the operator's intent (a
+				// drag, or a persisted width) — the measurement may only SEED an id
+				// that has none yet. Overwriting a committed value reverts every
+				// resize on the next render: this effect re-runs each render, so the
+				// drag's width was replaced ~50ms later by the pre-drag measurement.
+				if (columnResizingEnabled && Object.prototype.hasOwnProperty.call(current, id)) continue;
 				const width = th.getBoundingClientRect().width;
+				// A cell that is not laid out measures 0 — a hidden container (a
+				// collapsed panel, another tab) or no layout engine at all (jsdom).
+				// Pushing that 0 would clamp the column to TanStack's minSize (20px),
+				// and because sizing is persisted the collapse would outlive the
+				// mount. Zero means "unknown", never "zero wide".
+				if (width <= 0) continue;
 				if (Math.abs((current[id] ?? 0) - width) > 0.5) {
 					next ??= { ...current };
 					next[id] = width;
@@ -132,7 +159,7 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 		const observer = new ResizeObserver(sync);
 		observer.observe(el);
 		return () => observer.disconnect();
-	}, [tableInstance, singleColumnFill]);
+	}, [tableInstance, singleColumnFill, columnResizingEnabled]);
 
 	// Cursor pagination — rendered top-right before the custom actions, level with the search bar
 	const pagination =
@@ -355,15 +382,16 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 									ref={tableElRef}
 									data-slot="datatable-table"
 									className={cn(
-										// With column resizing, the table sizes to its columns
-										// (never stretches to the container) and uses fixed layout
-										// so every column renders exactly at its TanStack size.
-										// Otherwise `w-full` + auto layout redistributes the spare
+										// With column resizing the width comes from the definite
+										// `max(100%, …)` style below (see `sizedTableWidth`),
+										// with `table-fixed` honoring every column size. Without
+										// it, `w-full` + auto layout redistributes the spare
 										// width across ALL columns, making them shift when one
 										// column is resized.
-										'min-w-max caption-bottom border-separate border-spacing-0 text-sm',
-										columnResizingEnabled ? 'w-max table-fixed' : 'w-full',
+										'caption-bottom border-separate border-spacing-0 text-sm',
+										columnResizingEnabled ? 'table-fixed' : 'min-w-max w-full',
 									)}
+									style={columnResizingEnabled ? { width: `max(100%, ${sizedTableWidth}px)` } : undefined}
 								>
 									<DataTableHeader
 										columns={columns}
@@ -387,6 +415,7 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 										borderStyle={borderStyle}
 										striped={striped}
 										showAddColumn={showAddColumn}
+										enableColumnResizing={columnResizingEnabled}
 									/>
 									{showFooter && (
 										<DataTableFooter
@@ -396,6 +425,7 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 											enableRowExpansion={enableRowExpansion}
 											borderStyle={borderStyle}
 											showAddColumn={showAddColumn}
+											enableColumnResizing={columnResizingEnabled}
 										/>
 									)}
 								</table>

@@ -76,7 +76,7 @@ export { GroupIcon } from './group-icons';
 export { useLucideNodes, LucideGlyph } from './lucide-cdn';
 
 /** Per-field grid width resolution (Studio layout — preview == runtime). */
-export { fieldSpanOf, flowSpans, halfSpanOf, isTextareaField } from './field-span';
+export { fieldSpanOf, flowSpans, halfSpanOf, isWideField } from './field-span';
 export type { FieldSpan } from './field-span';
 
 /** Linkage-rule condition evaluation (visible_when etc. — preview == runtime). */

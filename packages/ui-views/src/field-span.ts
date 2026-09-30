@@ -6,8 +6,8 @@
  * 1. `group.fieldSpans[name]` wins — a column count capped at the group's column
  *    count, or `'fill'`: start where the field falls and take the REST of that row.
  * 2. Legacy `group.fieldWidths[name] === 'full'` spans all columns.
- * 3. Textarea-ish fields default to full width (long labels benefit), unless an
- *    explicit span says otherwise.
+ * 3. WIDE fields (multi-line editors — longtext/markdown/text_editor/json) default
+ *    to full width, unless an explicit span says otherwise.
  * 4. Everything else spans 1 column.
  *
  * `fieldSpanOf` answers what the layout DECLARES for a field; `flowSpans` answers
@@ -15,8 +15,9 @@
  * field lands. Both live here so one rule governs every renderer.
  */
 
-/** Field types that read better at full width by default. */
-export const TEXTAREA_FIELD_TYPES = new Set(['longtext', 'markdown', 'text_editor']);
+/** Field types that read better at full width by default — the multi-line editors
+ *  (a JSON blob needs the width as much as a long note does). */
+export const WIDE_FIELD_TYPES = new Set(['longtext', 'markdown', 'text_editor', 'json']);
 
 /** A declared width: a column count, or 'fill' = consume the rest of its row. */
 export type FieldSpan = number | 'fill';
@@ -38,19 +39,19 @@ export function halfSpanOf(columns: number): number {
 }
 
 /** Resolve the width a field DECLARES inside its group (a column count or 'fill'). */
-export function fieldSpanOf(group: SpanGroup, name: string, isTextarea = false): FieldSpan {
+export function fieldSpanOf(group: SpanGroup, name: string, isWide = false): FieldSpan {
 	const cols = Math.max(1, group.columns || 2);
 	// An EXPLICIT width (even 1) always wins — presence matters, not just > 1,
-	// so fields with a legacy 'full' width or textarea default can be forced narrow.
+	// so fields with a legacy 'full' width or wide-type default can be forced narrow.
 	const explicit = group.fieldSpans?.[name];
 	if (explicit !== undefined) return explicit === 'fill' ? 'fill' : clampSpan(explicit, cols);
 	if (group.fieldWidths?.[name] === 'full') return cols;
-	return isTextarea ? cols : 1;
+	return isWide ? cols : 1;
 }
 
-/** True when the field type renders as a multi-line textarea. */
-export function isTextareaField(type: string): boolean {
-	return TEXTAREA_FIELD_TYPES.has(type);
+/** True when the field type is a wide (multi-line) editor — see WIDE_FIELD_TYPES. */
+export function isWideField(type: string): boolean {
+	return WIDE_FIELD_TYPES.has(type);
 }
 
 /**
@@ -69,7 +70,7 @@ export function flowSpans(group: SpanGroup, fields: Array<{ name: string; type: 
 	const cols = Math.max(1, group.columns || 2);
 	let used = 0; // columns already taken in the row the cursor sits in
 	return fields.map((f) => {
-		const declared = fieldSpanOf(group, f.name, isTextareaField(f.type));
+		const declared = fieldSpanOf(group, f.name, isWideField(f.type));
 		let span: number;
 		if (declared === 'fill') {
 			span = cols - used; // the rest of the row — all of it when it starts one

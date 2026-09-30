@@ -31,8 +31,11 @@ import { collectionQuery } from '../lib/queries';
 import { rowLabel, renderTemplate, m2oLabel, m2mIds } from '../lib/record-label';
 import { RECORD_EDITABLE_TYPES, docStatusLabel, nextDocStatuses } from '../lib/record-edit-types';
 import { fieldRuntimeState, type FieldRuntimeState } from '../lib/linkage';
+import { formSections } from '../lib/form-view';
+import type { StoredFormLayout } from './formlayout/serialize';
 import { createRelatedRowsLoader, relatedRowsProjection, toRelatedOptions, RELATED_ROWS_LIMIT } from '../lib/related-rows';
 import { RecordFieldInput } from './RecordFieldInput';
+import { RecordFieldsGrid } from './RecordFieldsGrid';
 
 interface RelatedField {
 	field: FieldDefinition;
@@ -104,10 +107,12 @@ function joinRowLabel(rf: RelatedField, row: Record<string, unknown>): string {
 	return labelParts.length > 0 ? labelParts.join(' · ') : rowLabel(row, rf.field.display_template);
 }
 
-/** Directus-style record detail — a full 2-column editable layout (NOT a dialog)
- *  with circular save (✓) and close (✕) buttons at the top right, plus a related-items
- *  sidebar (o2m children with inline add/delete). Row click opens this; saving PUTs
- *  the record, closing returns to the table. ⌘S saves, Esc closes. */
+/** Directus-style record detail — an editable layout driven by the collection's
+ *  form_layout (sections/widths/rule-visibility all come from one resolution, see
+ *  lib/form-view), NOT a dialog, with circular save (✓) and close (✕) buttons at
+ *  the top right, plus a related-items sidebar (o2m children with inline
+ *  add/delete). Row click opens this; saving PUTs the record, closing returns to
+ *  the table. ⌘S saves, Esc closes. */
 export default function RecordDetailView({
 	token,
 	collection,
@@ -122,10 +127,13 @@ export default function RecordDetailView({
 	const queryClient = useQueryClient();
 	// Engine-managed system fields (doc_status, display_number, audit columns) are
 	// never editable in the raw record view — the engine owns their values.
+	// A field the schema hides (`hidden` — the "⋯" menu's Hide entry) is not part of
+	// this form at all: not rendered, not validated, not submitted — a stale value
+	// riding along with a save is exactly what the flag exists to prevent.
 	const fields = useMemo(
 		() =>
 			(schema?.schema_json?.fields ?? []).filter(
-				(f) => RECORD_EDITABLE_TYPES.has(f.type) && !f.read_only && !f.no_create && !SYSTEM_FIELD_NAMES.has(f.name),
+				(f) => RECORD_EDITABLE_TYPES.has(f.type) && !f.read_only && !f.no_create && !f.hidden && !SYSTEM_FIELD_NAMES.has(f.name),
 			),
 		[schema],
 	);
@@ -154,7 +162,21 @@ export default function RecordDetailView({
 		for (const f of fields) map[f.name] = fieldRuntimeState(f, values);
 		return map;
 	}, [fields, values]);
-	const visibleFields = useMemo(() => fields.filter((f) => runtime[f.name]?.visible !== false), [fields, runtime]);
+	// This form's fields as the LAYOUT arranges them (lib/form-view): the schema's
+	// form_layout decides order and width, a field the layout never placed is
+	// appended, and a linkage rule takes a field (or a whole group) off the form as
+	// the values change. Seeded names come from the SAME non-system list the schema
+	// grid uses, so an uncurated collection seeds one identical default on both
+	// surfaces — the menu can never claim a placement this form does not render.
+	const layoutNames = useMemo(
+		() => (schema?.schema_json?.fields ?? []).filter((f) => !SYSTEM_FIELD_NAMES.has(f.name)).map((f) => f.name),
+		[schema],
+	);
+	const storedLayout = (schema?.schema_json as { form_layout?: StoredFormLayout } | undefined)?.form_layout;
+	const sections = useMemo(
+		() => formSections(storedLayout, layoutNames, fields, values),
+		[storedLayout, layoutNames, fields, values],
+	);
 	// DocStatus of the open record — the engine validates transitions server-side
 	// (draft → submitted → approved → cancelled); the combobox offers only legal
 	// moves and the save body carries doc_status when it changed.
@@ -656,29 +678,23 @@ export default function RecordDetailView({
 			{/* Body — 2-column fields grid + related-items sidebar. */}
 			<div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
 				<div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '1rem' }}>
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-						{/* Fields render in one flat grid — this view does not use the form-layout
-						 *  group tree, so FormGroup.visible_when (group-level) has no group to gate
-						 *  here; only per-field linkage is evaluated. */}
-						{visibleFields.map((f) => {
+					<RecordFieldsGrid
+						sections={sections}
+						renderField={(f) => {
 							const state = runtime[f.name];
 							return (
-								// JSON blobs are wide — a JSON field spans the full form row (and the
-								// editor itself is a full-width monospace JSON viewer/editor).
-								<div key={f.name} style={f.type === 'json' ? { gridColumn: '1 / -1' } : undefined}>
-									<RecordFieldInput
-										field={f}
-										value={values[f.name]}
-										options={relationOptions[f.name]}
-										onChange={(v) => setValue(f.name, v)}
-										token={token}
-										readOnly={state?.readOnly}
-										required={state?.required}
-									/>
-								</div>
+								<RecordFieldInput
+									field={f}
+									value={values[f.name]}
+									options={relationOptions[f.name]}
+									onChange={(v) => setValue(f.name, v)}
+									token={token}
+									readOnly={state?.readOnly}
+									required={state?.required}
+								/>
 							);
-						})}
-					</div>
+						}}
+					/>
 				</div>
 
 				{related.length > 0 && (

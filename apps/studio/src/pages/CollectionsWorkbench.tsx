@@ -19,7 +19,7 @@ import { writeLockOf, isRowFrozen, partitionFrozenRows, frozenRowsReason } from 
 import { useStore } from '@tanstack/react-store';
 import { studioUiStore } from '../lib/studio-store';
 import { messageOf } from '../lib/errors';
-import { duplicatedFields } from '../lib/field-ops';
+import { duplicatedFields, withFieldHidden } from '../lib/field-ops';
 import { fieldLayoutStates, withFieldPlaced, withFieldWidth } from '../lib/field-layout';
 import type { StoredFormLayout } from '../components/formlayout/serialize';
 import { useFieldTypes } from '../lib/use-field-types';
@@ -253,11 +253,11 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 
 	// ── handlers ────────────────────────────────────────────────────────────
 
-	// The form layout's view of every field in the schema grid (lib/field-layout).
-	// The LAYOUT, not the schema, decides what the detail form renders, so the menu's
-	// "Hide / Show field on detail" and width entries are resolved from it — through
-	// the same materializer the layout canvas uses, so the two surfaces agree about a
-	// field that an uncurated collection seeds onto the form by default.
+	// The detail form's view of every field in the schema grid (lib/field-layout):
+	// the WIDTH comes from the layout, the HIDDEN flag from the field itself. The
+	// width resolves through the same materializer the layout canvas uses, so the
+	// menu, the canvas and the rendered form agree about a field that an uncurated
+	// collection seeds onto the form by default.
 	const storedLayout = (selectedSchema?.schema_json as { form_layout?: StoredFormLayout } | undefined)?.form_layout;
 	const userNames = useMemo(() => visibleFields.map((f) => f.name), [visibleFields]);
 	const layoutStates = useMemo(() => fieldLayoutStates(storedLayout, userNames, visibleFields), [storedLayout, userNames, visibleFields]);
@@ -277,11 +277,39 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 		}
 	}
 
+	/** Hide / show a field on the record form. The flag lives on the FIELD, so the
+	 *  field list is what gets written; showing a field the layout never carried
+	 *  ALSO places it in the layout — otherwise the entry would flip a flag the
+	 *  form never renders. An already-placed field writes no layout at all
+	 *  (undefined leaves `form_layout` untouched), so showing one never
+	 *  re-materializes the seeded layout into the schema. */
+	async function writeFieldHidden(field: FieldDefinition, hidden: boolean) {
+		if (!selected || !selectedSchema) return;
+		const nextFields = withFieldHidden(fields, field.name, hidden);
+		if (!nextFields) return;
+		const needPlacement = !hidden && !(layoutStates.get(field.name)?.placed ?? false);
+		try {
+			const updated = await updateCollectionFields(
+				token,
+				selected,
+				nextFields,
+				needPlacement ? withFieldPlaced(storedLayout, userNames, field) : undefined,
+			);
+			queryClient.setQueryData(qk.collection(selected), updated);
+			persistedVersionRef.current = editVersionRef.current;
+			setActionError(null);
+		} catch (e) {
+			setActionError(e instanceof Error ? e.message : 'Field visibility update failed');
+		}
+	}
+
 	function fieldLayoutOf(field: FieldDefinition): FieldLayoutBinding {
+		const state = layoutStates.get(field.name);
 		return {
-			...(layoutStates.get(field.name) ?? { placed: false, width: null }),
+			hidden: state?.hidden ?? false,
+			width: state?.width ?? null,
 			onSetWidth: (width: FieldWidth) => void writeFieldLayout(withFieldWidth(storedLayout, userNames, field, width)),
-			onSetPlaced: (placed: boolean) => void writeFieldLayout(withFieldPlaced(storedLayout, userNames, field, placed)),
+			onSetHidden: (hidden: boolean) => void writeFieldHidden(field, hidden),
 		};
 	}
 
@@ -679,6 +707,10 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 							enableRowSelection={writeLock.canMutate}
 							enableColumnResizing
 							enableColumnReordering
+							// One collection = one column layout: the same key as the App
+							// workbench's data pane, so hide / reorder / width stick across
+							// both surfaces and across remounts.
+							persistStateKey={`collection:${selected}`}
 							onSelectionChange={writeLock.canMutate ? setSelectedRows : undefined}
 							onRowClick={(row) => {
 								setSelectedRows([]);
@@ -849,16 +881,6 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 					// Field palette is schema-designer furniture — hide it in table (data)
 					// view so records get the full canvas width.
 					right={view === 'schema' ? right : undefined}
-					footer={
-						<div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-							<span>
-								<strong>{collections.length}</strong> collections
-							</span>
-							<span style={{ marginLeft: 'auto' }}>
-								The right panel lists every field type the engine supports — every collection is a real backend table.
-							</span>
-						</div>
-					}
 				>
 					{center}
 				</StudioLayout>

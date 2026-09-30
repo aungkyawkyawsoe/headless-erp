@@ -3,10 +3,17 @@
  * the field "⋯" menu via FieldRowMenu), with the "No fields yet" hint when the
  * collection has none. Extracted out of the Collections workbench; behaviour
  * unchanged.
+ *
+ * The card STATES the field's place on the detail form — the width chip and the
+ * dimmed eye-off card — because the "⋯" menu's Hide/width entries change a state
+ * this grid is exactly where an operator looks for their effect. Without it a
+ * click was silent: the entry wrote, nothing on the surface moved, and the
+ * feature read as dead.
  */
 import { Badge, Card, CardContent } from '@mmbix/design-system';
+import { EyeOff } from 'lucide-react';
 import { FieldTypeIcon } from '../formlayout';
-import { FieldRowMenu, type FieldLayoutBinding } from './FieldRowMenu';
+import { FieldRowMenu, WIDTH_LABELS, type FieldLayoutBinding } from './FieldRowMenu';
 import type { FieldDefinition } from '../../lib/api';
 
 export function SchemaFieldGrid({
@@ -46,10 +53,23 @@ export function SchemaFieldGrid({
 	}
 	return (
 		<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
-			{fields.map((f) => (
-				<Card key={f.name} style={{ padding: 0, ...(f.required ? { borderColor: 'var(--mmbix-primary, #0f766e)' } : {}) }}>
+			{fields.map((f) => {
+				const layout = layoutOf?.(f);
+				return (
+				<Card
+					key={f.name}
+					style={{ padding: 0, ...(f.required ? { borderColor: 'var(--mmbix-primary, #0f766e)' } : {}), ...(layout?.hidden ? { opacity: 0.55 } : {}) }}
+				>
 					<CardContent style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.38rem 0.6rem' }}>
 						<FieldTypeIcon type={f.type} />
+						{layout?.hidden && (
+							<EyeOff
+								size={12}
+								role="img"
+								aria-label="Hidden on the detail form"
+								style={{ flexShrink: 0, color: 'var(--mmbix-muted-foreground, #9ca3af)' }}
+							/>
+						)}
 						<span
 							style={{
 								flex: 1,
@@ -77,16 +97,25 @@ export function SchemaFieldGrid({
 						<Badge variant="outline" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'capitalize' }}>
 							{f.type}
 						</Badge>
+						{/* The width the detail form renders it with — the chip the width entries
+						 *  visibly flip. A hidden field states only that fact (dimmed + eye-off);
+						 *  its width is latent until it is shown again. */}
+						{layout && !layout.hidden && layout.width && (
+							<Badge variant="outline" title="Width on the detail form" style={{ fontSize: '0.6rem', fontWeight: 600 }}>
+								{WIDTH_LABELS[layout.width]}
+							</Badge>
+						)}
 						<FieldRowMenu
 							field={f}
 							onEdit={onEditField}
 							onDuplicate={onDuplicateField}
 							onRemove={onRemoveField}
-							layout={layoutOf?.(f)}
+							layout={layout}
 						/>
 					</CardContent>
 				</Card>
-			))}
+				);
+			})}
 		</div>
 	);
 }

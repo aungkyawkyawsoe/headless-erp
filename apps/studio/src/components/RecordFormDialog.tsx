@@ -4,10 +4,13 @@ import { X } from 'lucide-react';
 import { createItem, updateItem, SYSTEM_FIELD_NAMES, type EntitySchema } from '../lib/api';
 import { RECORD_EDITABLE_TYPES, docStatusLabel } from '../lib/record-edit-types';
 import { fieldRuntimeState, type FieldRuntimeState } from '../lib/linkage';
+import { formSections } from '../lib/form-view';
 import { validateField } from '../lib/field-validation';
 import { m2mIds } from '../lib/record-label';
 import { createRelatedRowsLoader, toRelatedOptions } from '../lib/related-rows';
 import { RecordFieldInput } from './RecordFieldInput';
+import { RecordFieldsGrid } from './RecordFieldsGrid';
+import type { StoredFormLayout } from './formlayout/serialize';
 
 interface RecordFormDialogProps {
 	token: string;
@@ -58,10 +61,13 @@ export default function RecordFormDialog({
 	// Engine-managed system fields (doc_status, display_number, audit columns) are
 	// never shown in the generic record form — the engine fills them on insert
 	// (draft status, auto display_number) and drives them via its status machine.
+	// A field the schema hides (`hidden` — the "⋯" menu's Hide entry) is not part of
+	// this form at all: not rendered, not validated (a hidden required field must
+	// never block the submit), not submitted.
 	const fields = useMemo(
 		() =>
 			(schema?.schema_json?.fields ?? []).filter(
-				(f) => RECORD_EDITABLE_TYPES.has(f.type) && !f.read_only && !f.no_create && !SYSTEM_FIELD_NAMES.has(f.name),
+				(f) => RECORD_EDITABLE_TYPES.has(f.type) && !f.read_only && !f.no_create && !f.hidden && !SYSTEM_FIELD_NAMES.has(f.name),
 			),
 		[schema],
 	);
@@ -95,7 +101,19 @@ export default function RecordFormDialog({
 		for (const f of fields) map[f.name] = fieldRuntimeState(f, values);
 		return map;
 	}, [fields, values]);
-	const visibleFields = useMemo(() => fields.filter((f) => runtime[f.name]?.visible !== false), [fields, runtime]);
+	// This form's fields as the LAYOUT arranges them (lib/form-view) — the same
+	// resolution the record detail view renders, so create and edit can never show
+	// one layout two ways. Seeded names come from the full non-system list, exactly
+	// like the schema grid that hosts the field menu.
+	const layoutNames = useMemo(
+		() => (schema?.schema_json?.fields ?? []).filter((f) => !SYSTEM_FIELD_NAMES.has(f.name)).map((f) => f.name),
+		[schema],
+	);
+	const storedLayout = (schema?.schema_json as { form_layout?: StoredFormLayout } | undefined)?.form_layout;
+	const sections = useMemo(
+		() => formSections(storedLayout, layoutNames, fields, values),
+		[storedLayout, layoutNames, fields, values],
+	);
 	// One loader per auth session — stateless, so it is memoized by the session
 	// token (it must never outlive the session: a re-login changes the token and
 	// recreates it; a new open reuses the same stateless loader).
@@ -365,18 +383,15 @@ export default function RecordFormDialog({
 							)}
 						</div>
 					)}
-					{visibleFields.length === 0 && !docMetaShown && (
+					{sections.length === 0 && !docMetaShown && (
 						<p style={{ fontSize: '0.8rem', color: '#9ca3af', margin: 0 }}>No editable fields.</p>
 					)}
-					{/* Fields render in one flat grid — this view does not use the form-layout
-					 *  group tree, so FormGroup.visible_when (group-level) has no group to gate
-					 *  here; only per-field linkage is evaluated. */}
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-						{visibleFields.map((f) => {
+					<RecordFieldsGrid
+						sections={sections}
+						renderField={(f) => {
 							const state = runtime[f.name];
 							return (
 								<RecordFieldInput
-									key={f.name}
 									field={f}
 									value={values[f.name]}
 									options={relationOptions[f.name]}
@@ -388,8 +403,8 @@ export default function RecordFormDialog({
 									required={state?.required}
 								/>
 							);
-						})}
-					</div>
+						}}
+					/>
 					{o2mFields.length > 0 && (
 						<div
 							style={{

@@ -11,10 +11,11 @@
  *   2. every entry that IS shown actually RUNS the handler it was given (the
  *      base-ui `onSelect`-vs-`onClick` mistake is exactly how entries went dead
  *      elsewhere in this repo), and
- *   3. the layout group follows Directus: the hide/show toggle is always offered
- *      where the host holds a layout, the width trio only for a field that is ON
- *      the form (a width for a field that renders nowhere has nothing to set),
- *      and the width the form already renders with is DISABLED.
+ *   3. the layout group follows Directus: the Hide/Show entry always offered
+ *      where the host holds a layout and worded for the CURRENT fact (the field
+ *      renders on the form unless it is hidden — the layout never carrying it
+ *      does not take it off the form), and the width trio lists the width the
+ *      form already renders with as DISABLED.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -24,12 +25,12 @@ import type { FieldDefinition } from '../../lib/api';
 const field: FieldDefinition = { name: 'item_name', type: 'string', label: 'Item Name' };
 
 /** A layout binding whose handlers record what the menu ran. */
-function binding(over: Partial<FieldLayoutBinding> = {}) {
+function binding(over: Partial<Pick<FieldLayoutBinding, 'hidden' | 'width'>> = {}): FieldLayoutBinding {
 	return {
-		placed: over.placed ?? true,
-		width: over.width === undefined ? ('half' as const) : over.width,
+		hidden: over.hidden ?? false,
+		width: over.width === undefined ? 'half' : over.width,
 		onSetWidth: vi.fn(),
-		onSetPlaced: vi.fn(),
+		onSetHidden: vi.fn(),
 	};
 }
 
@@ -109,8 +110,8 @@ describe('FieldRowMenu', () => {
 });
 
 describe('FieldRowMenu — the layout group', () => {
-	it('offers the width trio only for a field ON the form, with the current width disabled', () => {
-		const layout = binding({ placed: true, width: 'half' });
+	it('words the toggle for the CURRENT fact and disables the width the form renders with', () => {
+		const layout = binding({ hidden: false, width: 'half' });
 		render(<FieldRowMenu field={field} layout={layout} />);
 		openMenu();
 
@@ -122,21 +123,20 @@ describe('FieldRowMenu — the layout group', () => {
 		expect(document.querySelectorAll('[data-slot="dropdown-menu-separator"]').length).toBe(1);
 	});
 
-	it('omits the width trio for a field that is not on the form — but still offers to show it', () => {
-		const layout = binding({ placed: false, width: null });
-		render(<FieldRowMenu field={field} layout={layout} />);
+	it('offers the trio for a field the layout never carried — it renders appended, so it has a width to set', () => {
+		// `hidden: false` = it RENDERS (the layout never carrying it does not take
+		// it off the form); its width is the form's own default, so the binding is
+		// indistinguishable from a placed-at-half field — by design, the menu
+		// states what the FORM does, not where the layout files it.
+		render(<FieldRowMenu field={field} layout={binding({ hidden: false, width: 'half' })} />);
 		openMenu();
-
-		expect(item('Show field on detail')).toBeTruthy();
-		expect(screen.queryByRole('menuitem', { name: 'Half width' })).toBeNull();
-		expect(screen.queryByRole('menuitem', { name: 'Full width' })).toBeNull();
-		expect(screen.queryByRole('menuitem', { name: 'Fill width' })).toBeNull();
-		// No orphaned rule where the trio would have been.
-		expect(document.querySelector('[data-slot="dropdown-menu-separator"]')).toBeNull();
+		expect(item('Hide field on detail')).toBeTruthy();
+		expect(isDisabled(item('Half width'))).toBe(true);
+		expect(isDisabled(item('Full width'))).toBe(false);
 	});
 
-	it('enables all three widths for a custom span — no named width states the current shape', () => {
-		render(<FieldRowMenu field={field} layout={binding({ placed: true, width: null })} />);
+	it('disables nothing for a custom span — no named width states the current shape', () => {
+		render(<FieldRowMenu field={field} layout={binding({ hidden: false, width: null })} />);
 		openMenu();
 		expect(isDisabled(item('Half width'))).toBe(false);
 		expect(isDisabled(item('Full width'))).toBe(false);
@@ -144,22 +144,22 @@ describe('FieldRowMenu — the layout group', () => {
 	});
 
 	it('RUNS the toggle in both directions', () => {
-		const placed = binding({ placed: true, width: 'half' });
-		const { unmount } = render(<FieldRowMenu field={field} layout={placed} />);
+		const visible = binding({ hidden: false });
+		const { unmount } = render(<FieldRowMenu field={field} layout={visible} />);
 		openMenu();
 		fireEvent.click(item('Hide field on detail'));
-		expect(placed.onSetPlaced).toHaveBeenCalledWith(false);
+		expect(visible.onSetHidden).toHaveBeenCalledWith(true);
 		unmount();
 
-		const hidden = binding({ placed: false, width: null });
+		const hidden = binding({ hidden: true });
 		render(<FieldRowMenu field={field} layout={hidden} />);
 		openMenu();
 		fireEvent.click(item('Show field on detail'));
-		expect(hidden.onSetPlaced).toHaveBeenCalledWith(true);
+		expect(hidden.onSetHidden).toHaveBeenCalledWith(false);
 	});
 
 	it('RUNS the width entries it offers', () => {
-		const layout = binding({ placed: true, width: 'half' });
+		const layout = binding({ hidden: false, width: 'half' });
 		render(<FieldRowMenu field={field} layout={layout} />);
 		openMenu();
 		fireEvent.click(item('Full width'));
@@ -174,7 +174,7 @@ describe('FieldRowMenu — the layout group', () => {
 	});
 
 	it('renders the trigger for a layout-only menu — and nothing it was not handed', () => {
-		render(<FieldRowMenu field={field} layout={binding({ placed: true, width: 'half' })} />);
+		render(<FieldRowMenu field={field} layout={binding({ hidden: false, width: 'half' })} />);
 		openMenu();
 		expect(item('Hide field on detail')).toBeTruthy();
 		expect(screen.queryByRole('menuitem', { name: 'Edit field' })).toBeNull();

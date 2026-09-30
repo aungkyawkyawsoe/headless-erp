@@ -36,8 +36,16 @@ export const ADD_COLUMN_WIDTH = 32;
  * Class of the filler column that sits between the last data column and the
  * add-column cell: it absorbs the spare width so the `+` lands on the table's
  * right edge instead of directly after the last column.
+ *
+ * On a RESIZABLE table the filler renders bare: that table carries a definite
+ * `max(100%, …)` width and `table-fixed` hands every leftover pixel to the auto
+ * column by itself — a `w-full` here is a `width: 100%` resolving against the
+ * very width being computed, which makes Chrome blow the table up to its
+ * 500 000px internal cap.
  */
-export const addColumnSpacerClass = 'w-full';
+export function addColumnSpacerClass(resizing: boolean): string | undefined {
+	return resizing ? undefined : 'w-full';
+}
 
 /**
  * The columns the Columns list may offer: hideable, and carrying a header the

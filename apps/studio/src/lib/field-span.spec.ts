@@ -11,7 +11,7 @@
  * menu and the canvas' keyboard spans both write through this rule).
  */
 import { describe, expect, it } from 'vitest';
-import { fieldSpanOf, flowSpans, halfSpanOf, isTextareaField } from '@mmbix/ui-views';
+import { fieldSpanOf, flowSpans, halfSpanOf, isWideField } from '@mmbix/ui-views';
 
 const plain = (name: string, type = 'text') => ({ name, type });
 
@@ -46,10 +46,12 @@ describe('fieldSpanOf', () => {
 	it('textarea-ish types default to full, others to one column', () => {
 		expect(fieldSpanOf({ columns: 6 }, 'a', true)).toBe(6);
 		expect(fieldSpanOf({ columns: 6 }, 'a', false)).toBe(1);
-		expect(isTextareaField('longtext')).toBe(true);
-		expect(isTextareaField('markdown')).toBe(true);
-		expect(isTextareaField('text_editor')).toBe(true);
-		expect(isTextareaField('text')).toBe(false);
+		expect(isWideField('longtext')).toBe(true);
+		expect(isWideField('markdown')).toBe(true);
+		expect(isWideField('text_editor')).toBe(true);
+		// `json` renders as a code editor — as wide as the other multi-line types.
+		expect(isWideField('json')).toBe(true);
+		expect(isWideField('text')).toBe(false);
 	});
 });
 

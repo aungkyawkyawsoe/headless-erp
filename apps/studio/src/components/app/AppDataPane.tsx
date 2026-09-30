@@ -297,6 +297,9 @@ export function AppDataPane({ token, model, schema, fields, writeLock, m2oSchema
 					enableRowSelection={writeLock.canMutate}
 					enableColumnResizing
 					enableColumnReordering
+					// One collection = one column layout — the same key the Collections
+					// workbench uses, so hide / reorder / width stick across surfaces.
+					persistStateKey={`collection:${selected}`}
 					onSelectionChange={writeLock.canMutate ? setSelectedRows : undefined}
 					onRowClick={(row) => {
 						setSelectedRows([]);

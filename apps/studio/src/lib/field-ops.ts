@@ -49,3 +49,21 @@ export function duplicatedFields(fields: FieldDefinition[], source: string): Fie
 	if (field.label) copy.label = `${field.label} (copy)`;
 	return [...fields, copy];
 }
+
+/**
+ * The field list with `source` hidden from / shown on the record form (the field
+ * "⋯" menu's Hide/Show entry). `hidden: true` writes the flag; `hidden: false`
+ * REMOVES the key rather than writing `false`, so a field that was never hidden
+ * and one that was shown again serialize identically — one state, one shape.
+ * Returns `null` when the name is unknown (a menu left open across a schema
+ * change), so the caller can skip the write.
+ */
+export function withFieldHidden(fields: FieldDefinition[], source: string, hidden: boolean): FieldDefinition[] | null {
+	if (!fields.some((f) => f.name === source)) return null;
+	return fields.map((f) => {
+		if (f.name !== source) return f;
+		if (hidden) return { ...f, hidden: true };
+		const { hidden: _drop, ...rest } = f;
+		return rest;
+	});
+}

@@ -565,9 +565,9 @@ export interface DataTableProps<TData extends RowData> {
 	 */
 	showFooter?: boolean;
 	/**
-	 * Persist column layout (visibility / order / pinning) to localStorage
-	 * under this key. Restored on mount; unknown columns from stale state are
-	 * dropped. Best-effort — no data is sent to the server.
+	 * Persist column layout (visibility / order / pinning / sizing) to
+	 * localStorage under this key. Restored on mount; unknown columns from
+	 * stale state are dropped. Best-effort — no data is sent to the server.
 	 * @example
 	 * ```tsx
 	 * persistStateKey={`${collection}:list`}

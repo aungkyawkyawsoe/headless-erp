@@ -37,6 +37,8 @@ interface DataTableBodyProps<TData extends RowData> {
 	 * to the table's right edge.
 	 */
 	showAddColumn?: boolean;
+	/** The table resizes columns — its filler renders bare (see `addColumnSpacerClass`). */
+	enableColumnResizing?: boolean;
 }
 
 const densityMap: Record<Density, string> = {
@@ -91,10 +93,10 @@ export function cellBackgroundClass(selected: boolean, rowBg: string): string {
  * under it) and therefore needs the row's opaque background, exactly like a
  * right-pinned cell.
  */
-function AddColumnCells({ className, background }: { className?: string; background: string }) {
+function AddColumnCells({ className, background, resizing }: { className?: string; background: string; resizing?: boolean }) {
 	return (
 		<>
-			<td aria-hidden="true" className={cn(addColumnSpacerClass, className)} />
+			<td aria-hidden="true" className={cn(addColumnSpacerClass(resizing ?? false), className)} />
 			<td
 				aria-hidden="true"
 				className={cn(className, 'transition-colors', background)}
@@ -115,6 +117,7 @@ export function DataTableBody<TData extends RowData>({
 	borderStyle = 'row',
 	striped = false,
 	showAddColumn = false,
+	enableColumnResizing = false,
 }: DataTableBodyProps<TData>) {
 	const { table, isLoading, error, rows } = useProcessedData<TData>();
 
@@ -163,7 +166,11 @@ export function DataTableBody<TData extends RowData>({
 							</td>
 						))}
 						{showAddColumn && (
-							<AddColumnCells className={cn(densityMap[density], borderCellClass[borderStyle])} background="bg-background" />
+							<AddColumnCells
+								className={cn(densityMap[density], borderCellClass[borderStyle])}
+								background="bg-background"
+								resizing={enableColumnResizing}
+							/>
 						)}
 					</tr>
 				))}
@@ -376,6 +383,7 @@ export function DataTableBody<TData extends RowData>({
 								<AddColumnCells
 									className={cn(densityMap[density], borderCellClass[borderStyle])}
 									background={cellBackgroundClass(selected, rowBg)}
+									resizing={enableColumnResizing}
 								/>
 							)}
 						</tr>

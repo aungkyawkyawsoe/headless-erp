@@ -23,6 +23,8 @@ interface DataTableFooterProps<TData extends RowData> {
 	borderStyle?: BorderStyle;
 	/** Render the trailing filler + add-column cells that mirror the header's `+`. */
 	showAddColumn?: boolean;
+	/** The table resizes columns — its filler renders bare (see `addColumnSpacerClass`). */
+	enableColumnResizing?: boolean;
 }
 
 const densityMap: Record<Density, string> = {
@@ -53,6 +55,7 @@ export function DataTableFooter<TData extends RowData>({
 	enableRowExpansion = false,
 	borderStyle = 'row',
 	showAddColumn = false,
+	enableColumnResizing = false,
 }: DataTableFooterProps<TData>) {
 	const { table } = useProcessedData<TData>();
 
@@ -126,7 +129,7 @@ export function DataTableFooter<TData extends RowData>({
 					})}
 					{showAddColumn && (
 						<>
-							<td aria-hidden="true" className={cn(addColumnSpacerClass, borderCellClass[borderStyle])} />
+							<td aria-hidden="true" className={cn(addColumnSpacerClass(enableColumnResizing), borderCellClass[borderStyle])} />
 							{/* Sticky like the header's `+` cell — an opaque trailing gutter
 							    the footer's right-pinned cells sit inside of. */}
 							<td

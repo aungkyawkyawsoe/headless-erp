@@ -497,16 +497,6 @@ export default function AppDetailPage({ token }: { token: string }) {
 									<BuilderRightPane />
 								) : undefined
 							}
-							footer={
-								<div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-									<span>
-										<strong>{mod.collections?.length ?? 0}</strong> models
-									</span>
-									<span style={{ marginLeft: 'auto' }}>
-										The right panel lists every field type the engine supports — design models in the Form Builder.
-									</span>
-								</div>
-							}
 						>
 							{section === 'models' ? (
 								<div

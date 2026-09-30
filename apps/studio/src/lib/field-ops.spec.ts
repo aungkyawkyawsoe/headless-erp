@@ -5,7 +5,7 @@
  * tell a copy apart, because a column cannot be renamed after creation.
  */
 import { describe, expect, it } from 'vitest';
-import { canDuplicateField, copyFieldName, duplicatedFields } from './field-ops';
+import { canDuplicateField, copyFieldName, duplicatedFields, withFieldHidden } from './field-ops';
 import type { FieldDefinition } from './api';
 
 const fields: FieldDefinition[] = [
@@ -59,5 +59,32 @@ describe('duplicatedFields', () => {
 		expect(canDuplicateField({ name: 'orders', type: 'o2m', related_collection: 'hrm_tasks' })).toBe(true);
 		expect(canDuplicateField({ name: 'total', type: 'formula', store: true })).toBe(true);
 		expect(canDuplicateField({ name: 'note', type: 'text' })).toBe(true);
+	});
+});
+
+describe('withFieldHidden — the "⋯" menu\'s Hide/Show entry', () => {
+	const source: FieldDefinition[] = [
+		{ name: 'a', type: 'text' },
+		{ name: 'b', type: 'text', label: 'B' },
+	];
+
+	it('sets the flag, and showing again REMOVES it — one state, one shape', () => {
+		const hidden = withFieldHidden(source, 'a', true);
+		expect(hidden!.find((f) => f.name === 'a')?.hidden).toBe(true);
+
+		const shown = withFieldHidden(hidden!, 'a', false);
+		// Not `hidden: false` — the key is gone, so a never-hidden field and a
+		// re-shown one serialize identically.
+		expect(shown!.find((f) => f.name === 'a')).toEqual(source[0]);
+		expect('hidden' in shown!.find((f) => f.name === 'a')!).toBe(false);
+	});
+
+	it('leaves every other field untouched, by identity', () => {
+		const next = withFieldHidden(source, 'a', true);
+		expect(next![1]).toBe(source[1]);
+	});
+
+	it('returns null for a name that no longer exists — the caller skips the write', () => {
+		expect(withFieldHidden(source, 'gone', true)).toBeNull();
 	});
 });

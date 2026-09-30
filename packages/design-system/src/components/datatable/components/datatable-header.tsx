@@ -556,7 +556,16 @@ export function DataTableHeader<TData extends RowData>({
 									aria-orientation="vertical"
 									aria-label={`Resize ${typeof column.header === 'string' ? column.header : column.id} column`}
 									onPointerDown={resizeHeader.getResizeHandler() as React.PointerEventHandler}
-									onDoubleClick={() => colInstance.resetSize()}
+									onDoubleClick={() => {
+										// Reset to the column's DECLARED width. TanStack's own
+										// `resetSize()` deletes the id from sizing instead — and the
+										// measured-width sync then re-seeds that missing id from the
+										// DOM on the very next render, so the double-click was a
+										// visual no-op. A committed number is operator intent: the
+										// seed-only sync leaves it alone and the width persists.
+										const declared = colInstance.columnDef.size ?? 150;
+										table.setColumnSizing((prev) => ({ ...prev, [colInstance.id]: declared }));
+									}}
 									className={cn(
 										'absolute top-0 right-0 z-10 flex h-full w-2.5 cursor-col-resize touch-none items-center justify-center select-none',
 										colInstance.getIsResizing() &&
@@ -582,7 +591,7 @@ export function DataTableHeader<TData extends RowData>({
 						{/* Filler column — takes the spare width so the add-column cell
 						    lands on the table's right edge, not right after the last
 						    column. Collapses to 0 once the columns overflow. */}
-						<th aria-hidden="true" className={cn(addColumnSpacerClass, thBgClass, thStickyClass)} />
+						<th aria-hidden="true" className={cn(addColumnSpacerClass(enableColumnResizing), thBgClass, thStickyClass)} />
 						<th
 							data-slot="datatable-add-column"
 							className={cn('px-1', opaqueHeaderBgClass, thStickyClass, stickyHeader && 'border-b', columnBorderCellClass[borderStyle])}

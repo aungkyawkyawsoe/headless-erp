@@ -537,6 +537,14 @@ export interface FieldDefinition {
 	read_only?: boolean;
 	no_create?: boolean;
 	no_open?: boolean;
+	/**
+	 * The field is taken OFF the record form — the field "⋯" menu's "Hide field
+	 * on detail" (Directus `meta.hidden`). A field-level fact, not a layout one:
+	 * a field simply absent from the curated layout must still render when it is
+	 * added later, so "never curated" and "explicitly hidden" stay different
+	 * states. The layout keeps its placement, so showing it restores the position.
+	 */
+	hidden?: boolean;
 	widget?: string;
 	/** Conditional display (linkage rules) — show/disable/require the field when the condition holds. */
 	visible_when?: FieldCondition;

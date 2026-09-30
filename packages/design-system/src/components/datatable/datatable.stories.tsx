@@ -1253,8 +1253,8 @@ export const GroupedWithFooter: Story = {
 };
 
 /**
- * Column layout persistence — visibility / order / pinning are saved to
- * localStorage under `persistStateKey` and restored on the next visit.
+ * Column layout persistence — visibility / order / pinning / sizing are saved
+ * to localStorage under `persistStateKey` and restored on the next visit.
  * Toggle a column off in the header menu, reload the story, and it stays hidden.
  */
 export const PersistedLayout: Story = {

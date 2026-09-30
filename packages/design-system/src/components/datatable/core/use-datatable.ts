@@ -306,7 +306,11 @@ export function useDataTable<TData extends RowData>(
 		return [...initialPersisted.order, ...ids.filter((id) => !initialPersisted.order.includes(id))];
 	});
 
-	// ── Persist column layout (visibility / order / pinning) ──
+	// Column sizing — seeded from the persisted widths so a dragged column
+	// width survives the next mount (the resize handle writes through here).
+	const [columnSizing, setColumnSizing] = React.useState<Record<string, number>>(() => initialPersisted?.sizing ?? {});
+
+	// ── Persist column layout (visibility / order / pinning / sizing) ──
 	// Skips the initial render so defaults are never written back immediately.
 	const isFirstRenderRef = React.useRef(true);
 	React.useEffect(() => {
@@ -320,8 +324,9 @@ export function useDataTable<TData extends RowData>(
 			order: columnOrder,
 			// ColumnPinningState uses logical start/end regions (required arrays).
 			pinning: { start: columnPinning.start, end: columnPinning.end },
+			sizing: columnSizing,
 		});
-	}, [persistStateKey, columnVisibility, columnOrder, columnPinning]);
+	}, [persistStateKey, columnVisibility, columnOrder, columnPinning, columnSizing]);
 
 	// ── Row grouping ────────────────────────────────────
 	const [grouping, setGroupingState] = React.useState<GroupingState>(() => [...(defaultGrouping ?? [])]);
@@ -475,6 +480,7 @@ export function useDataTable<TData extends RowData>(
 			columnVisibility,
 			columnPinning,
 			columnOrder,
+			columnSizing,
 			expanded,
 			grouping,
 		},
@@ -506,6 +512,11 @@ export function useDataTable<TData extends RowData>(
 		onColumnVisibilityChange: setColumnVisibility,
 		onColumnPinningChange: setColumnPinning,
 		onColumnOrderChange: setColumnOrder,
+		// Controlled so the persist effect can read the live widths; the resize
+		// handle and the measured-width sync both land here.
+		onColumnSizingChange: ((updater: Updater<Record<string, number>>) => {
+			setColumnSizing((prev) => (typeof updater === 'function' ? updater(prev) : updater));
+		}) as import('@tanstack/react-table').OnChangeFn<import('@tanstack/react-table').ColumnSizingState>,
 		onGroupingChange: handleGroupingChange as import('@tanstack/react-table').OnChangeFn<GroupingState>,
 
 		onExpandedChange: ((updater: Updater<ExpandedState>) => {
