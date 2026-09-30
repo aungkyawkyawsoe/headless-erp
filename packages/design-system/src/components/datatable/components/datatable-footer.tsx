@@ -3,7 +3,14 @@
 import * as React from 'react';
 import { cn } from '@/utils';
 import { useProcessedData } from '../datatable-context';
-import { columnBorderCellClass, CONTROL_COLUMN_WIDTH, pinnedColumnBorderClass, pinnedCellStyle } from '../core/utils';
+import {
+	columnBorderCellClass,
+	CONTROL_COLUMN_WIDTH,
+	addColumnSpacerClass,
+	ADD_COLUMN_WIDTH,
+	pinnedColumnBorderClass,
+	pinnedCellStyle,
+} from '../core/utils';
 import type { BorderStyle, ColumnDef, Density } from '../core/types';
 import type { RowData } from '@tanstack/react-table';
 import type { LegacyColumn, LegacyTable } from '@tanstack/react-table/legacy';
@@ -14,6 +21,8 @@ interface DataTableFooterProps<TData extends RowData> {
 	enableRowSelection?: boolean;
 	enableRowExpansion?: boolean;
 	borderStyle?: BorderStyle;
+	/** Render the trailing filler + add-column cells that mirror the header's `+`. */
+	showAddColumn?: boolean;
 }
 
 const densityMap: Record<Density, string> = {
@@ -43,6 +52,7 @@ export function DataTableFooter<TData extends RowData>({
 	enableRowSelection = false,
 	enableRowExpansion = false,
 	borderStyle = 'row',
+	showAddColumn = false,
 }: DataTableFooterProps<TData>) {
 	const { table } = useProcessedData<TData>();
 
@@ -56,6 +66,7 @@ export function DataTableFooter<TData extends RowData>({
 	// selection checkbox to anchor the table (mirrors DataTableBody).
 	const expandSticky = enableRowExpansion && !enableRowSelection;
 	const controlOffset = (enableRowSelection ? CONTROL_COLUMN_WIDTH : 0) + (expandSticky ? CONTROL_COLUMN_WIDTH : 0);
+	const trailingOffset = showAddColumn ? ADD_COLUMN_WIDTH : 0;
 
 	const colMap = new Map(columns.map((c) => [c.id, c]));
 
@@ -74,7 +85,7 @@ export function DataTableFooter<TData extends RowData>({
 					)}
 					{footerGroup.headers.map((header) => {
 						const col = colMap.get(header.column.id);
-						const pinnedStyle = pinnedCellStyle<TData>(table, header.column.id, controlOffset);
+						const pinnedStyle = pinnedCellStyle<TData>(table, header.column.id, controlOffset, trailingOffset);
 						const pinnedBorderClass = pinnedColumnBorderClass<TData>(table, header.column.id);
 						const footer = header.column.columnDef.footer;
 						const renderFooter =
@@ -113,6 +124,18 @@ export function DataTableFooter<TData extends RowData>({
 							</td>
 						);
 					})}
+					{showAddColumn && (
+						<>
+							<td aria-hidden="true" className={cn(addColumnSpacerClass, borderCellClass[borderStyle])} />
+							{/* Sticky like the header's `+` cell — an opaque trailing gutter
+							    the footer's right-pinned cells sit inside of. */}
+							<td
+								aria-hidden="true"
+								className={cn('bg-background', borderCellClass[borderStyle])}
+								style={{ position: 'sticky', right: 0, zIndex: 1 }}
+							/>
+						</>
+					)}
 				</tr>
 			))}
 		</tfoot>

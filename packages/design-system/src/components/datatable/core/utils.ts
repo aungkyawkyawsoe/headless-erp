@@ -1,5 +1,5 @@
 import type { RowData } from '@tanstack/react-table';
-import type { LegacyReactTable } from '@tanstack/react-table/legacy';
+import type { LegacyColumn, LegacyReactTable } from '@tanstack/react-table/legacy';
 import type { BorderStyle, FilterOperator } from './types';
 
 /**
@@ -24,6 +24,44 @@ export function cssWidthToNumber(value?: string): number | undefined {
  * offset by this so they don't overlap the sticky control columns.
  */
 export const CONTROL_COLUMN_WIDTH = 40;
+
+/**
+ * Width (px) of the trailing add-column (`+`) cell that anchors the table's
+ * right edge — the same role the control columns play on the left, so
+ * right-pinned columns are offset by this to sit inside it.
+ */
+export const ADD_COLUMN_WIDTH = 32;
+
+/**
+ * Class of the filler column that sits between the last data column and the
+ * add-column cell: it absorbs the spare width so the `+` lands on the table's
+ * right edge instead of directly after the last column.
+ */
+export const addColumnSpacerClass = 'w-full';
+
+/**
+ * The columns the Columns list may offer: hideable, and carrying a header the
+ * menu can label.
+ *
+ * `forAddMenu` additionally drops columns that opted out with `hideInAddMenu` —
+ * a DERIVED relation column is toggled inside its relation's own picker, so a
+ * flat entry beside it would be a second door to one state.
+ */
+export function selectableColumns<TData extends RowData>(
+	table: LegacyReactTable<TData>,
+	options: { forAddMenu?: boolean } = {},
+): LegacyColumn<TData, unknown>[] {
+	return table
+		.getAllLeafColumns()
+		.filter(
+			(col) =>
+				col.getCanHide() &&
+				col.columnDef.header != null &&
+				col.columnDef.header !== '' &&
+				(typeof col.columnDef.header !== 'string' || col.columnDef.header.trim() !== '') &&
+				!(options.forAddMenu && (col.columnDef.meta as { hideInAddMenu?: boolean } | undefined)?.hideInAddMenu),
+		);
+}
 
 /**
  * Vertical (column) border class shared by the header and body cells so the
@@ -59,6 +97,12 @@ export function pinnedColumnBorderClass<TData extends RowData>(table: LegacyReac
  * Sticky positioning style for a pinned (left/right) cell — shared by the
  * header, body and footer so pinned columns stay aligned across all three.
  *
+ * `controlOffset` / `trailingOffset` are the widths of the sticky control cells
+ * that anchor the table's edges OUTSIDE TanStack's column model — the row
+ * selection / expansion columns on the left, the add-column (`+`) cell on the
+ * right. Pinned columns are offset past them so the controls always hold their
+ * edge.
+ *
  * Right-pinned columns must use `getAfter('end')` so their DOM order matches
  * their visual order: `getStart('end')` would reverse the order, and the
  * browser's sticky-shift limit would then stop the DOM-first right-pinned
@@ -68,6 +112,7 @@ export function pinnedCellStyle<TData extends RowData>(
 	table: LegacyReactTable<TData>,
 	columnId: string,
 	controlOffset = 0,
+	trailingOffset = 0,
 ): React.CSSProperties | undefined {
 	const col = table.getColumn(columnId);
 	if (!col) return undefined;
@@ -78,7 +123,7 @@ export function pinnedCellStyle<TData extends RowData>(
 	const offset = pinned === 'end' ? col.getAfter('end') : rect;
 	return {
 		position: 'sticky',
-		[pinned === 'start' ? 'left' : 'right']: `${offset + (pinned === 'start' ? controlOffset : 0)}px`,
+		[pinned === 'start' ? 'left' : 'right']: `${offset + (pinned === 'start' ? controlOffset : trailingOffset)}px`,
 		zIndex: 1,
 	};
 }

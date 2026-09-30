@@ -26,7 +26,12 @@ export function renderTemplate(template: string | undefined, obj: Record<string,
 	});
 }
 
-/** Conventional display columns of a related row, in priority order — used when no display_template resolves. */
+/** Conventional display columns of a related row, in priority order — used when no display_template resolves.
+ *
+ *  `display_number` sits LAST on purpose: it is the engine's own document-number
+ *  convention (every MRO document / master row writes it), so it is a safe last
+ *  resort for a target with no human-readable name column — while never outranking
+ *  a real name on master data that has both. */
 export const M2O_DISPLAY_FIELDS = [
 	'plate_no',
 	'name_mm',
@@ -44,6 +49,7 @@ export const M2O_DISPLAY_FIELDS = [
 	'description_en',
 	'description',
 	'ref',
+	'display_number',
 ];
 
 /** Label of an expanded m2o value ({ id, name_en, … }) — or null when nothing readable is present. */

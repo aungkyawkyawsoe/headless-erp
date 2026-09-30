@@ -7,6 +7,7 @@ import { KanbanBoard } from '@/kanban';
 import { ViewModeToggle } from '@/kanban/core/view-mode-toggle';
 import { DataTableInstanceContext } from './core/context';
 import { useDataTable } from './core/use-datatable';
+import { selectableColumns } from './core/utils';
 import { DataTableToolbar } from './components/datatable-toolbar';
 import { DataTableFilterBar } from './components/datatable-filter-bar';
 import { DataTableHeader } from './components/datatable-header';
@@ -70,6 +71,11 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 	const table = useDataTable<TData>(props);
 
 	const enableRowExpansion = Boolean(renderSubComponent || getSubRows || getRowCanExpand);
+
+	// The header-edge add-column (`+`) cell exists only while the table has a
+	// column to offer — a dead control otherwise. It is a property of the COLUMN
+	// SET, so the table owns the decision and the header/body/footer mirror it.
+	const showAddColumn = selectableColumns(table.table, { forAddMenu: true }).length > 0;
 
 	// Pinned state — gates the custom center-area scrollbar (the native
 	// horizontal scrollbar spans the full width, which looks wrong when
@@ -366,6 +372,8 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 										stickyHeader={stickyHeader}
 										borderStyle={borderStyle}
 										enableColumnResizing={columnResizingEnabled}
+										showAddColumn={showAddColumn}
+										labels={labels}
 									/>
 									<DataTableBody
 										columns={columns}
@@ -378,6 +386,7 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 										onRowClick={onRowClick}
 										borderStyle={borderStyle}
 										striped={striped}
+										showAddColumn={showAddColumn}
 									/>
 									{showFooter && (
 										<DataTableFooter
@@ -386,6 +395,7 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 											enableRowSelection={enableRowSelection}
 											enableRowExpansion={enableRowExpansion}
 											borderStyle={borderStyle}
+											showAddColumn={showAddColumn}
 										/>
 									)}
 								</table>

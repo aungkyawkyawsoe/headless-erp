@@ -25,6 +25,11 @@ describe('m2oLabel', () => {
 		expect(m2oLabel({})).toBeNull();
 		expect(m2oLabel({ id: 'abc-123' })).toBeNull(); // a bare id is not a label
 	});
+	it('labels a document by its display_number — the engine convention, last resort only', () => {
+		expect(m2oLabel({ id: 'i1', display_number: 'IN-2026-001' })).toBe('IN-2026-001');
+		// A real name still wins on master data that carries both.
+		expect(m2oLabel({ name_en: 'Air Filter', display_number: 'IM-0042' })).toBe('Air Filter');
+	});
 });
 
 describe('rowLabel', () => {

@@ -213,7 +213,13 @@ describe('useCollectionRecords — relation display picks', () => {
 	};
 
 	/** Exposes the relation column's header-menu choices and the raw fetch. */
-	function PickProbe({ refreshRows, onError }: { refreshRows: (slug: string | null | undefined) => void | Promise<void>; onError: (m: string | null) => void }) {
+	function PickProbe({
+		refreshRows,
+		onError,
+	}: {
+		refreshRows: (slug: string | null | undefined) => void | Promise<void>;
+		onError: (m: string | null) => void;
+	}) {
 		const records = useCollectionRecords({
 			token: 'tk',
 			selected: 'employees',
@@ -225,13 +231,22 @@ describe('useCollectionRecords — relation display picks', () => {
 			onError,
 		});
 		const options = records.tableColumns.find((c) => c.id === 'department')?.menuOptions ?? [];
+		const pickOptions = options.filter((o) => o.group !== 'Show as column');
+		const columnOptions = options.filter((o) => o.group === 'Show as column');
 		return (
 			<div>
-				<span data-testid="options">{options.map((o) => `${o.label}:${o.selected === true ? 'on' : 'off'}`).join('|')}</span>
+				<span data-testid="options">{pickOptions.map((o) => `${o.label}:${o.selected === true ? 'on' : 'off'}`).join('|')}</span>
+				<span data-testid="column-options">{columnOptions.map((o) => `${o.label}:${o.selected === true ? 'on' : 'off'}`).join('|')}</span>
+				<span data-testid="column-ids">{records.tableColumns.map((c) => c.id).join('|')}</span>
 				<button type="button" onClick={() => options.find((o) => o.id === 'code')?.onSelect()}>
 					pick-code
 				</button>
-				<button type="button" onClick={() => void records.fetchData(FETCH_PARAMS)}>fetch</button>
+				<button type="button" onClick={() => options.find((o) => o.id === 'column:code')?.onSelect()}>
+					add-code-column
+				</button>
+				<button type="button" onClick={() => void records.fetchData(FETCH_PARAMS)}>
+					fetch
+				</button>
 			</div>
 		);
 	}
@@ -258,6 +273,31 @@ describe('useCollectionRecords — relation display picks', () => {
 		const sent = mockListItems.mock.calls[mockListItems.mock.calls.length - 1][2] as { fields?: string };
 		expect(sent.fields).toContain('department.code');
 		expect(sent.fields).not.toContain('department.name_mm');
+	});
+
+	it('toggles a related field into a column of its own, persists it and re-reads the page', async () => {
+		localStorage.clear();
+		mockListItems.mockResolvedValue({ rows: [], meta: { limit: 25, has_more: false } } as never);
+		const refreshRows = vi.fn();
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+				<PickProbe refreshRows={refreshRows} onError={vi.fn()} />
+			</QueryClientProvider>,
+		);
+		expect(screen.getByTestId('column-ids').textContent).toBe('department');
+		expect(screen.getByTestId('column-options').textContent).toBe('Name (MM):off|Code:off');
+
+		click('add-code-column');
+		await waitFor(() => expect(screen.getByTestId('column-ids').textContent).toBe('department|department.code'));
+		expect(screen.getByTestId('column-options').textContent).toBe('Name (MM):off|Code:on');
+		// The toggle is per collection, keyed like the display pick, and the page re-reads.
+		expect(JSON.parse(localStorage.getItem('studio-relation-columns:employees') ?? '{}')).toEqual({ department: ['code'] });
+		expect(refreshRows).toHaveBeenCalledWith('employees');
+
+		click('fetch');
+		await waitFor(() => expect(mockListItems).toHaveBeenCalled());
+		const sent = mockListItems.mock.calls[mockListItems.mock.calls.length - 1][2] as { fields?: string };
+		expect(sent.fields).toContain('department.code');
 	});
 });
 

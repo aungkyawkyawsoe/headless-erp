@@ -6,7 +6,15 @@ import { Checkbox } from '@/checkbox';
 import { Skeleton } from '@/skeleton';
 import { ChevronRightIcon } from 'lucide-react';
 import { useProcessedData } from '../datatable-context';
-import { columnBorderCellClass, CONTROL_COLUMN_WIDTH, pinnedColumnBorderClass, pinnedCellStyle, formatAggregateValue } from '../core/utils';
+import {
+	ADD_COLUMN_WIDTH,
+	addColumnSpacerClass,
+	columnBorderCellClass,
+	CONTROL_COLUMN_WIDTH,
+	pinnedColumnBorderClass,
+	pinnedCellStyle,
+	formatAggregateValue,
+} from '../core/utils';
 import type { RowData } from '@tanstack/react-table';
 import type { BorderStyle, ColumnDef, DataTableLabels, Density } from '../core/types';
 
@@ -23,6 +31,12 @@ interface DataTableBodyProps<TData extends RowData> {
 	onRowClick?: (row: TData) => void;
 	borderStyle?: BorderStyle;
 	striped?: boolean;
+	/**
+	 * Render the trailing filler + add-column cells the header's `+` anchors —
+	 * every row needs them for the borders, zebra stripes and backgrounds to run
+	 * to the table's right edge.
+	 */
+	showAddColumn?: boolean;
 }
 
 const densityMap: Record<Density, string> = {
@@ -67,6 +81,29 @@ export function cellBackgroundClass(selected: boolean, rowBg: string): string {
 	);
 }
 
+/**
+ * Trailing filler + add-column cells — empty carriers that keep the row's
+ * borders, zebra stripe and background running to the table's right edge, under
+ * the header's `+` cell. `className` carries the row's own density/border style.
+ *
+ * The add-column cell is sticky at the scrollport's right edge (the header's own
+ * `+` cell is, so without this the button would float over whatever data slid
+ * under it) and therefore needs the row's opaque background, exactly like a
+ * right-pinned cell.
+ */
+function AddColumnCells({ className, background }: { className?: string; background: string }) {
+	return (
+		<>
+			<td aria-hidden="true" className={cn(addColumnSpacerClass, className)} />
+			<td
+				aria-hidden="true"
+				className={cn(className, 'transition-colors', background)}
+				style={{ position: 'sticky', right: 0, zIndex: 1 }}
+			/>
+		</>
+	);
+}
+
 export function DataTableBody<TData extends RowData>({
 	columns,
 	density,
@@ -77,6 +114,7 @@ export function DataTableBody<TData extends RowData>({
 	onRowClick,
 	borderStyle = 'row',
 	striped = false,
+	showAddColumn = false,
 }: DataTableBodyProps<TData>) {
 	const { table, isLoading, error, rows } = useProcessedData<TData>();
 
@@ -88,6 +126,8 @@ export function DataTableBody<TData extends RowData>({
 	// that anchor the left edge — left-pinned columns must be offset past them
 	// so they don't overlap the controls while scrolling.
 	const controlOffset = (enableRowSelection ? CONTROL_COLUMN_WIDTH : 0) + (expandSticky ? CONTROL_COLUMN_WIDTH : 0);
+	// Mirror of it on the right: the header's add-column cell anchors that edge.
+	const trailingOffset = showAddColumn ? ADD_COLUMN_WIDTH : 0;
 
 	// Use TanStack header groups — returns columns in pinned order
 	// (left-pinned first, center, right-pinned last) plus columnOrder & visibility.
@@ -98,7 +138,8 @@ export function DataTableBody<TData extends RowData>({
 		.filter(Boolean) as ColumnDef<TData>[];
 
 	// Total rendered cells per row — data columns plus leading control columns
-	const colSpan = visibleColumns.length + (enableRowSelection ? 1 : 0) + (enableRowExpansion ? 1 : 0);
+	// and the trailing filler + add-column cells.
+	const colSpan = visibleColumns.length + (enableRowSelection ? 1 : 0) + (enableRowExpansion ? 1 : 0) + (showAddColumn ? 2 : 0);
 
 	// ── Loading ──────────────────────────────────────────
 	if (isLoading) {
@@ -121,6 +162,9 @@ export function DataTableBody<TData extends RowData>({
 								<Skeleton className="h-4 w-[80%] rounded" />
 							</td>
 						))}
+						{showAddColumn && (
+							<AddColumnCells className={cn(densityMap[density], borderCellClass[borderStyle])} background="bg-background" />
+						)}
 					</tr>
 				))}
 			</tbody>
@@ -246,7 +290,7 @@ export function DataTableBody<TData extends RowData>({
 								</td>
 							)}
 							{visibleColumns.map((column) => {
-								const pinnedStyle = pinnedCellStyle<TData>(table, column.id, controlOffset);
+								const pinnedStyle = pinnedCellStyle<TData>(table, column.id, controlOffset, trailingOffset);
 								const pinnedBorderClass = pinnedColumnBorderClass<TData>(table, column.id);
 
 								// Grouped rows: the grouping column shows the group value + count;
@@ -328,6 +372,12 @@ export function DataTableBody<TData extends RowData>({
 									</td>
 								);
 							})}
+							{showAddColumn && (
+								<AddColumnCells
+									className={cn(densityMap[density], borderCellClass[borderStyle])}
+									background={cellBackgroundClass(selected, rowBg)}
+								/>
+							)}
 						</tr>
 						{renderSubComponent && row.getIsExpanded() && (
 							<tr data-slot="datatable-expanded-row" className={cn('bg-muted/20', borderRowClass[borderStyle])}>

@@ -51,11 +51,12 @@ export function itemsParamsFromFetch(
 	params: FetchParams = EMPTY_FETCH_PARAMS,
 	base: EntityListParams = {},
 	picks?: Record<string, string>,
+	extraColumns?: Record<string, string[]>,
 ): EntityListParams {
 	const out: EntityListParams = {
 		...base,
 		limit: params.pagination.pageSize,
-		fields: buildListFields(fields, relationLeafMap(fields, m2oSchemas, picks)),
+		fields: buildListFields(fields, relationLeafMap(fields, m2oSchemas, picks, extraColumns)),
 	};
 	if (params.cursor) {
 		out.cursor = params.cursor;
@@ -63,7 +64,7 @@ export function itemsParamsFromFetch(
 	}
 	if (params.sorting) out.sort = `${params.sorting.direction === 'desc' ? '-' : ''}${params.sorting.id}`;
 	if (params.globalFilter) out.search = params.globalFilter;
-	out.filters = serializeTableFilters(params.filters, fields, m2oSchemas, picks);
+	out.filters = serializeTableFilters(params.filters, fields, m2oSchemas, picks, extraColumns);
 	return out;
 }
 
@@ -110,10 +111,18 @@ export async function collectAllRows(token: string, slug: string, params: Entity
 	return rows;
 }
 
+/** The raw value a column shows for a row: its accessor when it has one (a
+ *  related-field column reads INTO the related row, `row.item_name.name_en`),
+ *  else the row's own keyed value (a schema field). */
+function rawValueOf(c: ColumnDef<Record<string, unknown>>, row: Record<string, unknown>): unknown {
+	return c.accessorFn ? c.accessorFn(row, 0) : row[c.id];
+}
+
 /**
  * Render rows × columns as CSV text (headers from `header`, cells via `renderCell`).
- * `leaves` names the related field each relation column displays, so an exported
- * cell reads exactly like the cell on screen.
+ * `leaves` is the column-id → related-field map (`relationLeafMap`), so an exported
+ * cell reads exactly like the cell on screen — the relation column's picked leaf,
+ * or a related field shown as its own column (`item_name.name_en`).
  */
 export function buildCsv(
 	rows: Record<string, unknown>[],
@@ -125,9 +134,13 @@ export function buildCsv(
 	const lines = [headers.join(',')];
 	for (const row of rows) {
 		const cells = columns.map((c) => {
-			const field = fieldByName.get(c.id);
-			const value = row[c.id];
-			const text = field ? renderCell(field, value, leaves?.get(c.id)) : value == null ? '' : String(value);
+			const own = fieldByName.get(c.id);
+			const leaf = leaves?.get(c.id);
+			const value = rawValueOf(c, row);
+			// A related-field column has no field of its own — its leaf renders the
+			// value by the leaf's OWN type (a select its option label, a datetime its
+			// Myanmar time), the same text the cell shows.
+			const text = own ? renderCell(own, value, leaf) : leaf ? renderCell(leaf, value) : value == null ? '' : String(value);
 			return escapeCsvCell(text);
 		});
 		lines.push(cells.join(','));

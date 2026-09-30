@@ -113,6 +113,28 @@ describe('buildListFields', () => {
 		expect(parts).not.toContain('department.plate_no');
 	});
 
+	it('projects each related field shown as its OWN column (the leaves map is keyed by column id)', () => {
+		const leaves = new Map<string, FieldDefinition>([
+			['department', { name: 'code', type: 'text' }],
+			['department.name_en', { name: 'name_en', type: 'text' }],
+			['department.name_mm', { name: 'name_mm', type: 'text' }],
+		]);
+		const parts = partsOf(buildListFields([{ name: 'department', type: 'm2o', related_collection: 'x' }], leaves));
+		expect(parts).toContain('department.id');
+		expect(parts).toContain('department.code');
+		expect(parts).toContain('department.name_en');
+		expect(parts).toContain('department.name_mm');
+		// Every column that reads this relation names its field — no candidates.
+		expect(parts).not.toContain('department.plate_no');
+	});
+
+	it('projects an added column even when the relation has no display leaf alongside it', () => {
+		const leaves = new Map<string, FieldDefinition>([['department.name_en', { name: 'name_en', type: 'text' }]]);
+		const parts = partsOf(buildListFields([{ name: 'department', type: 'm2o', related_collection: 'x' }], leaves));
+		expect(parts).toContain('department.name_en');
+		expect(parts).not.toContain('department.name_mm');
+	});
+
 	it('leaves a relation WITHOUT a pick on the conventional candidates', () => {
 		const leaves = new Map<string, FieldDefinition>([['department', { name: 'code', type: 'text' }]]);
 		const fields: FieldDefinition[] = [

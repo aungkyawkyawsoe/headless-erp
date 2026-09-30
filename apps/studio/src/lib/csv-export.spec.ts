@@ -118,6 +118,30 @@ describe('itemsParamsFromFetch', () => {
 		expect(out.fields).not.toContain('department.name_mm');
 		expect(out.filters).toEqual({ 'department.code': { operator: '_icontains', value: 'Mai' } });
 	});
+
+	it('projects and filters a related field added as its OWN column', () => {
+		const department: FieldDefinition = { name: 'department', type: 'm2o', related_collection: 'departments' };
+		const schemas = {
+			departments: {
+				id: '1',
+				name: 'Departments',
+				slug: 'departments',
+				table_name: 'cms_departments',
+				schema_json: {
+					fields: [
+						{ name: 'name_mm', type: 'text' },
+						{ name: 'name_en', type: 'text' },
+					],
+				},
+			} as unknown as import('./api').EntitySchema,
+		};
+		const filter: ActiveFilter = { id: 'department.name_en', operator: 'contains', value: 'Ops' };
+		const out = itemsParamsFromFetch([department], schemas, fetchParams({ filters: [filter] }), {}, undefined, {
+			department: ['name_en'],
+		});
+		expect(out.fields).toContain('department.name_en');
+		expect(out.filters).toEqual({ 'department.name_en': { operator: '_icontains', value: 'Ops' } });
+	});
 });
 
 describe('collectAllRows', () => {
@@ -225,5 +249,38 @@ describe('buildCsv', () => {
 			new Map([['department', { name: 'code', type: 'text' } as FieldDefinition]]),
 		);
 		expect(csv).toBe('department\nD-1');
+	});
+
+	it('exports a related field shown as its OWN column, read off the related row through its leaf', () => {
+		// A derived column has no field of the parent schema — its accessor reads into
+		// `row.department`, and its leaf renders the value by the leaf's OWN type
+		// (a select shows its option label, not the raw stored token).
+		const derived: ColumnDef<Record<string, unknown>> = {
+			id: 'department.code',
+			header: 'department · code',
+			accessorFn: (row) => (row.department as { code?: unknown } | null | undefined)?.code,
+		};
+		const csv = buildCsv(
+			[{ department: { id: 'd1', code: 'D-1', name_mm: 'ပြင်ဆင်ရေး' } }],
+			[derived],
+			fieldMapOf([]),
+			new Map([['department.code', { name: 'code', type: 'text' } as FieldDefinition]]),
+		);
+		expect(csv).toBe('department · code\nD-1');
+	});
+
+	it('renders a derived column’s leaf by its type — a select leaf shows its option label', () => {
+		const derived: ColumnDef<Record<string, unknown>> = {
+			id: 'department.status',
+			header: 'status',
+			accessorFn: (row) => (row.department as { status?: unknown } | null | undefined)?.status,
+		};
+		const csv = buildCsv(
+			[{ department: { status: 'done' } }],
+			[derived],
+			fieldMapOf([]),
+			new Map([['department.status', { name: 'status', type: 'select', options: [{ label: 'Done', value: 'done' }] } as FieldDefinition]]),
+		);
+		expect(csv).toBe('status\nDone');
 	});
 });

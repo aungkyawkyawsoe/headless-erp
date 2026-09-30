@@ -1,11 +1,12 @@
 /**
  * "Which field of the related row does this relation column show?" — the Studio
  * table's per-column display pick (the choice offered in the header menu's
- * Columns list).
+ * Columns list) — and "which of the related row's fields get a column of their
+ * own?" (the same menu's toggles, e.g. `item_name.name_en`).
  *
  * Stored per FOCUSED collection + relation field name in localStorage, so the
- * operator's pick survives a reload without touching the schema. An absent entry
- * means AUTOMATIC: the field's `display_template`, then the related row's
+ * operator's picks survive a reload without touching the schema. An absent display
+ * entry means AUTOMATIC: the field's `display_template`, then the related row's
  * conventional display columns (`record-label.ts` / `collection-table-filters.ts`
  * `displayLeafField`) — exactly how every relation column behaved before.
  *
@@ -18,7 +19,11 @@ import type { FieldDefinition } from './api';
 /** relation field name → the related field it displays. */
 export type RelationDisplayLeaves = Record<string, string>;
 
+/** relation field name → related field names shown as their OWN table columns. */
+export type RelationExtraColumns = Record<string, string[]>;
+
 const STORAGE_PREFIX = 'studio-relation-display:';
+const COLUMNS_PREFIX = 'studio-relation-columns:';
 
 /** Field types whose value is a relation/media blob rather than a readable label. */
 const NON_SCALAR_TYPES = new Set(['m2o', 'o2m', 'm2m', 'm2a', 'table', 'alias', 'presentation', 'divider', 'group']);
@@ -61,6 +66,50 @@ export function withRelationLeaf(leaves: RelationDisplayLeaves, fieldName: strin
 	if (!leaf) delete next[fieldName];
 	else next[fieldName] = leaf;
 	return next;
+}
+
+function columnsKeyOf(slug: string): string {
+	return `${COLUMNS_PREFIX}${slug}`;
+}
+
+/** The stored extra columns for a collection — `{}` when none / unreadable storage. */
+export function loadRelationColumns(slug: string | null | undefined): RelationExtraColumns {
+	if (!slug) return {};
+	try {
+		const raw = localStorage.getItem(columnsKeyOf(slug));
+		if (!raw) return {};
+		const parsed: unknown = JSON.parse(raw);
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+		const out: RelationExtraColumns = {};
+		for (const [name, leaves] of Object.entries(parsed as Record<string, unknown>)) {
+			if (!Array.isArray(leaves)) continue;
+			const names = leaves.filter((l): l is string => typeof l === 'string' && l.trim() !== '');
+			if (names.length > 0) out[name] = names;
+		}
+		return out;
+	} catch {
+		// Corrupt JSON / storage blocked — no related columns, table unchanged.
+		return {};
+	}
+}
+
+export function saveRelationColumns(slug: string, columns: RelationExtraColumns): void {
+	try {
+		if (Object.keys(columns).length === 0) localStorage.removeItem(columnsKeyOf(slug));
+		else localStorage.setItem(columnsKeyOf(slug), JSON.stringify(columns));
+	} catch {
+		// Private mode / quota — the columns still apply for this session.
+	}
+}
+
+/** The map after toggling one related field as its own column (`on` = show it). */
+export function withRelationColumn(columns: RelationExtraColumns, fieldName: string, leaf: string, on: boolean): RelationExtraColumns {
+	const current = columns[fieldName] ?? [];
+	const next = on ? (current.includes(leaf) ? current : [...current, leaf]) : current.filter((l) => l !== leaf);
+	const out = { ...columns };
+	if (next.length === 0) delete out[fieldName];
+	else out[fieldName] = next;
+	return out;
 }
 
 /**

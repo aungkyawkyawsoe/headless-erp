@@ -1,12 +1,21 @@
 // @vitest-environment jsdom
 /**
- * Relation display picks — the per-collection "which field of the related row
- * does this relation column show?" preference. Storage + the pickable-field rule
- * only; WHICH field a pick resolves to (and the stale-pick fallback) is pinned in
+ * Relation display preferences — the per-collection "which field of the related
+ * row does this relation column show?" pick and "which related fields get a
+ * column of their own?" toggles. Storage + the pickable-field rule only; WHICH
+ * field a pick resolves to (and the stale-pick fallback) is pinned in
  * collection-table-filters.spec.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadRelationLeaves, saveRelationLeaves, selectableDisplayFields, withRelationLeaf } from './relation-display';
+import {
+	loadRelationColumns,
+	loadRelationLeaves,
+	saveRelationColumns,
+	saveRelationLeaves,
+	selectableDisplayFields,
+	withRelationColumn,
+	withRelationLeaf,
+} from './relation-display';
 import type { FieldDefinition } from './api';
 
 beforeEach(() => localStorage.clear());
@@ -57,6 +66,55 @@ describe('relation display storage', () => {
 			throw new Error('blocked');
 		});
 		expect(() => saveRelationLeaves('orders', { a: 'b' })).not.toThrow();
+	});
+});
+
+describe('withRelationColumn', () => {
+	it('adds a related field as a column of its own without mutating the input', () => {
+		const before = { department: ['code'] };
+		expect(withRelationColumn(before, 'department', 'name_en', true)).toEqual({ department: ['code', 'name_en'] });
+		expect(withRelationColumn({}, 'department', 'code', true)).toEqual({ department: ['code'] });
+		expect(before).toEqual({ department: ['code'] });
+	});
+
+	it('is a no-op when the column is already on, and removes it with `on: false`', () => {
+		expect(withRelationColumn({ department: ['code'] }, 'department', 'code', true)).toEqual({ department: ['code'] });
+		expect(withRelationColumn({ department: ['code', 'name_en'] }, 'department', 'code', false)).toEqual({ department: ['name_en'] });
+	});
+
+	it('drops the relation entry when its last column is removed', () => {
+		expect(withRelationColumn({ department: ['code'], owner: ['full_name'] }, 'department', 'code', false)).toEqual({
+			owner: ['full_name'],
+		});
+	});
+});
+
+describe('relation column storage', () => {
+	it('round-trips the toggled columns per collection', () => {
+		saveRelationColumns('employees', { department: ['code', 'name_en'] });
+		expect(loadRelationColumns('employees')).toEqual({ department: ['code', 'name_en'] });
+		// The columns belong to the focused collection: another one starts clean.
+		expect(loadRelationColumns('orders')).toEqual({});
+	});
+
+	it('removes the entry when the last column is removed', () => {
+		saveRelationColumns('employees', { department: ['code'] });
+		saveRelationColumns('employees', {});
+		expect(loadRelationColumns('employees')).toEqual({});
+		expect(localStorage.getItem('studio-relation-columns:employees')).toBeNull();
+	});
+
+	it('drops unreadable entries and never throws on blocked storage', () => {
+		localStorage.setItem('studio-relation-columns:employees', '{not json');
+		expect(loadRelationColumns('employees')).toEqual({});
+		localStorage.setItem('studio-relation-columns:employees', JSON.stringify({ a: 'code', b: [7, '', 'code'], c: [] }));
+		expect(loadRelationColumns('employees')).toEqual({ b: ['code'] });
+		expect(loadRelationColumns(null)).toEqual({});
+		vi.restoreAllMocks();
+		vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+			throw new Error('blocked');
+		});
+		expect(() => saveRelationColumns('employees', { a: ['b'] })).not.toThrow();
 	});
 });
 

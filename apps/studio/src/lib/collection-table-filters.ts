@@ -64,10 +64,19 @@ export interface BuildColumnsOptions {
 	 *  is the related field this relation column displays (the picker's choice).
 	 *  Omit for the DataTable's raw cell rendering. */
 	renderCell?: (field: FieldDefinition, value: unknown, row: Record<string, unknown>, displayLeaf?: FieldDefinition) => ReactNode;
+	/** Cell renderer for a related field shown as its OWN column (`item_name.name_en`).
+	 *  Split from `renderCell` on purpose: the value belongs to the RELATED row, so
+	 *  this column is read-only — an inline editor here would write to a table this
+	 *  view does not own. */
+	renderRelatedCell?: (leaf: FieldDefinition, value: unknown) => ReactNode;
 	/** relation field name → the related field it was explicitly set to display. */
 	displayLeaves?: Record<string, string>;
 	/** Receives a display-field pick (`null` = back to automatic). */
 	onPickDisplayLeaf?: (fieldName: string, leaf: string | null) => void;
+	/** relation field name → related field names shown as their own columns. */
+	extraColumns?: Record<string, string[]>;
+	/** Receives a related-column toggle (`on` = show it as its own column). */
+	onToggleRelationColumn?: (fieldName: string, leaf: string, on: boolean) => void;
 }
 
 // ── Field-type sets ──────────────────────────────────────────────────────
@@ -211,12 +220,20 @@ export function displayLeafField(relationField: FieldDefinition, related: Entity
 	return null;
 }
 
-/** relation field name → the related field it displays, for the relation fields
- *  whose target schema has loaded. */
+/**
+ * column id → the related field that column reads, for every relation the target
+ * schema has loaded.
+ *
+ * Keyed by COLUMN id, not just the relation field: the relation's own column is
+ * keyed by the field name (`item_name`), and each related field shown as its own
+ * column by its derived id (`item_name.name_en`). One map therefore resolves any
+ * column — cell label, projection, filter leaf, CSV cell — to its one leaf.
+ */
 export function relationLeafMap(
 	fields: FieldDefinition[],
 	m2oSchemas: Record<string, EntitySchema>,
 	picks?: Record<string, string>,
+	extraColumns?: Record<string, string[]>,
 ): Map<string, FieldDefinition> {
 	const out = new Map<string, FieldDefinition>();
 	for (const f of fields) {
@@ -225,6 +242,10 @@ export function relationLeafMap(
 		if (!related) continue;
 		const leaf = displayLeafField(f, related, picks?.[f.name]);
 		if (leaf) out.set(f.name, leaf);
+		for (const name of extraColumns?.[f.name] ?? []) {
+			const extra = (related.schema_json.fields ?? []).find((x) => x.name === name);
+			if (extra) out.set(`${f.name}.${extra.name}`, extra);
+		}
 	}
 	return out;
 }
@@ -289,31 +310,55 @@ export function useRelatedSchema(token: string, slug: string | undefined | null)
  */
 /**
  * The Columns-list choices a relation column offers: back to automatic first,
- * then every field of the related collection a cell can state.
+ * then every field of the related collection a cell can state — and, below them,
+ * those same fields toggled into columns OF THEIR OWN (`item_name.name_en`),
+ * which is how an operator shows a related field without giving up the relation
+ * column's own display. Grouped so the two lists never read as one.
  */
-function displayFieldOptions(
+function relationMenuOptions(
 	relationField: FieldDefinition,
 	related: EntitySchema,
 	picked: string | undefined,
-	onPick: (fieldName: string, leaf: string | null) => void,
+	extra: readonly string[],
+	onPick: ((fieldName: string, leaf: string | null) => void) | undefined,
+	onToggle: ((fieldName: string, leaf: string, on: boolean) => void) | undefined,
 ): ColumnMenuOption[] {
-	// Named in the "Default" entry so the operator sees what clearing a pick falls
-	// back to — the automatic rule is otherwise invisible.
-	const automatic = displayLeafField(relationField, related);
-	return [
-		{
+	const leaves = selectableDisplayFields(related.schema_json.fields ?? []);
+	const out: ColumnMenuOption[] = [];
+	if (onPick) {
+		// Named in the "Default" entry so the operator sees what clearing a pick falls
+		// back to — the automatic rule is otherwise invisible.
+		const automatic = displayLeafField(relationField, related);
+		out.push({
 			id: '',
 			label: automatic ? `Default (${automatic.name})` : 'Default (automatic)',
+			group: 'Display field',
 			selected: !picked,
 			onSelect: () => onPick(relationField.name, null),
-		},
-		...selectableDisplayFields(related.schema_json.fields ?? []).map((leaf) => ({
-			id: leaf.name,
-			label: leaf.label || leaf.name,
-			selected: picked === leaf.name,
-			onSelect: () => onPick(relationField.name, leaf.name),
-		})),
-	];
+		});
+		for (const leaf of leaves) {
+			out.push({
+				id: leaf.name,
+				label: leaf.label || leaf.name,
+				group: 'Display field',
+				selected: picked === leaf.name,
+				onSelect: () => onPick(relationField.name, leaf.name),
+			});
+		}
+	}
+	if (onToggle) {
+		for (const leaf of leaves) {
+			const on = extra.includes(leaf.name);
+			out.push({
+				id: `column:${leaf.name}`,
+				label: leaf.label || leaf.name,
+				group: 'Show as column',
+				selected: on,
+				onSelect: () => onToggle(relationField.name, leaf.name, !on),
+			});
+		}
+	}
+	return out;
 }
 
 export function buildTableColumns(
@@ -321,7 +366,8 @@ export function buildTableColumns(
 	m2oSchemas: Record<string, EntitySchema>,
 	options: BuildColumnsOptions = {},
 ): ColumnDef<Record<string, unknown>>[] {
-	const { systemFieldNames, renderCell, displayLeaves, onPickDisplayLeaf } = options;
+	const { systemFieldNames, renderCell, renderRelatedCell, displayLeaves, onPickDisplayLeaf, extraColumns, onToggleRelationColumn } =
+		options;
 	const columns: ColumnDef<Record<string, unknown>>[] = [];
 
 	for (const f of fields) {
@@ -343,7 +389,16 @@ export function buildTableColumns(
 		// menu must show THAT (nothing is checked on a dangling choice) and, when the
 		// operator picks again, the new choice replaces it.
 		const pickApplied = pickedName && leaf?.name === pickedName ? pickedName : undefined;
-		const menuOptions = leaf && related && onPickDisplayLeaf ? displayFieldOptions(f, related, pickApplied, onPickDisplayLeaf) : undefined;
+		const chosen = extraColumns?.[f.name] ?? [];
+		// Offered whenever the related schema is known — NOT only when an automatic
+		// leaf resolved. A target with no conventional display column (every MRO
+		// document: `display_number`/`doc_status`, none of the `name*` candidates)
+		// resolves no leaf, and gating the picker on that left those columns showing
+		// '—' with no way to choose the field that would label them.
+		const menuOptions =
+			related && (onPickDisplayLeaf || onToggleRelationColumn)
+				? relationMenuOptions(f, related, pickApplied, chosen, onPickDisplayLeaf, onToggleRelationColumn)
+				: undefined;
 
 		columns.push({
 			id: f.name,
@@ -355,6 +410,35 @@ export function buildTableColumns(
 			...(renderCell ? { cell: ({ value, row }) => renderCell(f, value, row.original, leaf ?? undefined) } : {}),
 			...(kind ? { filter: filterDefFor(kind, f.name, f.label || f.name) } : {}),
 		});
+
+		// Related fields the operator toggled into columns of their own — read-only
+		// projections of the related row, right beside the relation column they came
+		// from. A stale toggle (the related field was renamed/removed) renders
+		// nothing, so the table degrades instead of showing a permanently blank column.
+		if (f.type === 'm2o' && related) {
+			for (const name of chosen) {
+				const relatedField = (related.schema_json.fields ?? []).find((x) => x.name === name);
+				if (!relatedField) continue;
+				const id = `${f.name}.${relatedField.name}`;
+				const label = `${f.label || f.name} · ${relatedField.label || relatedField.name}`;
+				const extraKind = filterableField(relatedField);
+				columns.push({
+					id,
+					accessorFn: (row) => (row[f.name] as Record<string, unknown> | null | undefined)?.[relatedField.name],
+					header: label,
+					// A dotted sort cannot be cursor-paged (the engine emits no next_cursor
+					// for nested sorts), so a sort here would silently stop the walk —
+					// deliberately unsortable rather than half-working.
+					enableSorting: false,
+					// Toggled from inside its relation's picker alone: the `+` (add
+					// column) menu must offer the related field ONCE, through the
+					// relation it belongs to, never as a flat entry of its own.
+					hideInAddMenu: true,
+					...(renderRelatedCell ? { cell: ({ value }) => renderRelatedCell(relatedField, value) } : {}),
+					...(extraKind ? { filter: filterDefFor(extraKind, id, label) } : {}),
+				});
+			}
+		}
 	}
 
 	return columns;
@@ -396,6 +480,7 @@ export function buildFilterFieldMap(
 	fields: FieldDefinition[],
 	m2oSchemas: Record<string, EntitySchema>,
 	picks?: Record<string, string>,
+	extraColumns?: Record<string, string[]>,
 ): Map<string, FilterFieldMeta> {
 	const meta = new Map<string, FilterFieldMeta>();
 
@@ -405,13 +490,23 @@ export function buildFilterFieldMap(
 		if (f.type === 'm2o' && f.related_collection) {
 			const related = m2oSchemas[f.related_collection];
 			const leaf = related ? displayLeafField(f, related, picks?.[f.name]) : null;
-			if (!leaf) continue;
-			const leafKind = filterableField(leaf);
-			if (!leafKind) continue;
-			const path = `${f.name}.${leaf.name}`;
-			// meta.id == f.name so the popover's ActiveFilter maps to the real column;
-			// meta.path carries the nested backend target, nullPath the FK for empty checks.
-			meta.set(f.name, filterFieldMeta(leaf, leafKind, path, f.name));
+			const leafKind = leaf ? filterableField(leaf) : null;
+			if (leaf && leafKind) {
+				const path = `${f.name}.${leaf.name}`;
+				// meta.id == f.name so the popover's ActiveFilter maps to the real column;
+				// meta.path carries the nested backend target, nullPath the FK for empty checks.
+				meta.set(f.name, filterFieldMeta(leaf, leafKind, path, f.name));
+			}
+			// A related field shown as its OWN column filters on that leaf directly
+			// (`filter[item_name.name_en][_icontains]=…`), with empty checks still on
+			// the FK — same rule as the relation column, one leaf further in.
+			for (const name of extraColumns?.[f.name] ?? []) {
+				const extra = (related?.schema_json.fields ?? []).find((x) => x.name === name);
+				const extraKind = extra ? filterableField(extra) : null;
+				if (!extra || !extraKind) continue;
+				const path = `${f.name}.${extra.name}`;
+				meta.set(path, filterFieldMeta(extra, extraKind, path, f.name));
+			}
 			continue;
 		}
 
@@ -431,9 +526,10 @@ export function serializeTableFilters(
 	fields: FieldDefinition[],
 	m2oSchemas: Record<string, EntitySchema>,
 	picks?: Record<string, string>,
+	extraColumns?: Record<string, string[]>,
 ): Record<string, EntityListFilter> | undefined {
 	if (filters.length === 0) return undefined;
-	const metaById = buildFilterFieldMap(fields, m2oSchemas, picks);
+	const metaById = buildFilterFieldMap(fields, m2oSchemas, picks, extraColumns);
 	const out: Record<string, EntityListFilter> = {};
 
 	for (const filter of filters) {

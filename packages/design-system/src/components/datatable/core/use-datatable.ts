@@ -95,6 +95,7 @@ function toTanStackColumn<TData extends RowData, TValue = unknown>(col: ColumnDe
 		defaultVisible: col.defaultVisible,
 		enableGrouping: col.enableGrouping,
 		menuOptions: col.menuOptions,
+		hideInAddMenu: col.hideInAddMenu,
 	};
 
 	const aggregationFn = col.aggregationFn == null ? undefined : (AGG_FN_ALIASES[col.aggregationFn] ?? col.aggregationFn);

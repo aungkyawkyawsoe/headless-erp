@@ -50,8 +50,9 @@ export interface ActiveFilter {
  * An extra choice a column offers inside the header menu's Columns list.
  *
  * A relation column uses it to answer "which field of the related row am I
- * showing?": the column keeps its own visibility entry, one level deeper, and
- * the choices ride beside it. A column without `menuOptions` keeps the plain
+ * showing?" — and, below that, which related fields to show as columns of their
+ * own: the column keeps its own visibility entry, one level deeper, and the
+ * choices ride beside it. A column without `menuOptions` keeps the plain
  * show/hide checkbox, so existing tables are unchanged.
  */
 export interface ColumnMenuOption {
@@ -59,6 +60,13 @@ export interface ColumnMenuOption {
 	label: string;
 	/** Marks the active choice (renders checked). */
 	selected?: boolean;
+	/**
+	 * Section the choice belongs to, rendered as a heading above it (the
+	 * relation column's menu shows a "Display field" pick — one choice — and a
+	 * "Show as column" toggle list — many). Consecutive options sharing a group
+	 * render under ONE heading; an option without one renders unlabelled.
+	 */
+	group?: string;
 	onSelect: () => void;
 }
 
@@ -143,6 +151,13 @@ export interface ColumnDef<TData extends RowData, TValue = unknown> {
 	 * the column keeps the flat show/hide checkbox.
 	 */
 	menuOptions?: ColumnMenuOption[];
+	/**
+	 * Keep this column out of the header-edge add-column (`+`) menu — for a
+	 * DERIVED column whose toggle already sits inside its relation's own picker
+	 * (a second entry would be a second door to one state). The per-column header
+	 * menu still lists it, so it stays hideable from its own header.
+	 */
+	hideInAddMenu?: boolean;
 }
 
 // ── Layout variants ─────────────────────────────────────
@@ -259,6 +274,8 @@ export interface DataTableLabels {
 	groupExpand?: string;
 	/** aria-label for collapsing a grouped row. Defaults to `"Collapse group"`. */
 	groupCollapse?: string;
+	/** aria-label for the header-edge add-column (`+`) button. Defaults to `"Add column"`. */
+	addColumn?: string;
 }
 
 // ── Kanban view configuration ────────────────────────────

@@ -24,6 +24,25 @@ const departments = schemaOf('departments', [
 const DEPARTMENT: FieldDefinition = { name: 'department', type: 'm2o', related_collection: 'departments' };
 const M2O_SCHEMAS = { departments };
 
+// A document-shaped target: none of the conventional display columns, so nothing
+// resolves automatically and `display_number` (the engine's own convention) is
+// the only label the row has.
+const inbounds = schemaOf('mro_inbounds', [
+	{ name: 'id', type: 'uuid' },
+	{ name: 'doc_status', type: 'text' },
+	{ name: 'display_number', type: 'text' },
+	{ name: 'purchase_date', type: 'date' },
+	{ name: 'supplier', type: 'm2o', related_collection: 'suppliers' },
+]);
+const SOURCE_INBOUND: FieldDefinition = { name: 'source_inbound', type: 'm2o', related_collection: 'mro_inbounds' };
+
+// A target with NO readable scalar at all — the picker must still be offered.
+const plain = schemaOf('plain', [
+	{ name: 'id', type: 'uuid' },
+	{ name: 'qty', type: 'number' },
+]);
+const PLAIN_REL: FieldDefinition = { name: 'thing', type: 'm2o', related_collection: 'plain' };
+
 const optionsOf = (columns: ColumnDef<Record<string, unknown>>[], id: string): ColumnMenuOption[] =>
 	columns.find((c) => c.id === id)?.menuOptions ?? [];
 
@@ -47,12 +66,35 @@ describe('displayLeafField', () => {
 	});
 });
 
+describe('buildTableColumns — a relation whose target has no conventional label', () => {
+	it('resolves display_number automatically', () => {
+		expect(displayLeafField(SOURCE_INBOUND, inbounds)?.name).toBe('display_number');
+	});
+
+	it('offers the picker even though nothing resolved before display_number', () => {
+		const options = optionsOf(
+			buildTableColumns([SOURCE_INBOUND], { mro_inbounds: inbounds }, { onPickDisplayLeaf: () => {} }),
+			'source_inbound',
+		);
+		expect(options[0]).toMatchObject({ label: 'Default (display_number)', selected: true });
+		expect(options.map((o) => o.id)).toEqual(['', 'doc_status', 'display_number', 'purchase_date']);
+	});
+
+	it('still offers the picker when NO field resolves automatically', () => {
+		expect(displayLeafField(PLAIN_REL, plain)).toBeNull();
+		const options = optionsOf(buildTableColumns([PLAIN_REL], { plain }, { onPickDisplayLeaf: () => {} }), 'thing');
+		expect(options[0]).toMatchObject({ label: 'Default (automatic)', selected: true });
+		expect(options.map((o) => o.id)).toEqual(['', 'qty']);
+	});
+});
+
 describe('buildTableColumns — relation display picker', () => {
 	it('offers automatic plus every readable related field, and nothing else', () => {
 		const options = optionsOf(buildTableColumns([DEPARTMENT], M2O_SCHEMAS, { onPickDisplayLeaf: () => {} }), 'department');
 		expect(options[0]).toMatchObject({ label: 'Default (name_mm)', selected: true });
 		// `id` and the relation array are not offerable; the label is the field's own.
 		expect(options.map((o) => o.id)).toEqual(['', 'name_mm', 'name_en', 'code', 'headcount']);
+		expect(options.every((o) => o.group === 'Display field')).toBe(true);
 		expect(options.find((o) => o.id === 'name_mm')?.label).toBe('Name (MM)');
 	});
 
@@ -115,5 +157,77 @@ describe('filter leaves follow the display pick', () => {
 		expect(serializeTableFilters([{ id: 'department', operator: 'contains', value: 'Mai' }], [DEPARTMENT], M2O_SCHEMAS)).toEqual({
 			'department.name_mm': { operator: '_icontains', value: 'Mai' },
 		});
+	});
+});
+
+describe('buildTableColumns — related fields as their own columns', () => {
+	const columnsOf = (options: Parameters<typeof buildTableColumns>[2] = {}) => buildTableColumns([DEPARTMENT], M2O_SCHEMAS, options);
+
+	it('appends a read-only column per toggled related field, right after the relation column', () => {
+		const renderRelatedCell = vi.fn(() => null);
+		const columns = columnsOf({ extraColumns: { department: ['name_en'] }, renderRelatedCell });
+		expect(columns.map((c) => c.id)).toEqual(['department', 'department.name_en']);
+		const derived = columns[1];
+		expect(derived.header).toBe('department · name_en');
+		// A dotted sort cannot be cursor-paged — the column must not offer one.
+		expect(derived.enableSorting).toBe(false);
+		// The cell reads the RELATED row's field…
+		const row = { id: 'e1', department: { id: 'd1', name_en: 'Ops' } };
+		expect(derived.accessorFn!(row, 0)).toBe('Ops');
+		// …and renders through the leaf, never through an inline editor that would
+		// write to the parent row.
+		derived.cell!({ value: 'Ops', row: { original: row, index: 0, getValue: () => 'Ops' }, index: 0 });
+		expect(renderRelatedCell).toHaveBeenCalledWith(expect.objectContaining({ name: 'name_en' }), 'Ops');
+	});
+
+	it('types the derived column’s filter by the leaf', () => {
+		const columns = columnsOf({ extraColumns: { department: ['headcount'] } });
+		expect(columns[1].filter).toMatchObject({ id: 'department.headcount', type: 'number', operator: 'equals' });
+	});
+
+	it('stays out of the add-column (+) menu — the related field is offered through its relation', () => {
+		const columns = columnsOf({ extraColumns: { department: ['name_en'] } });
+		expect(columns[0].hideInAddMenu).toBeUndefined();
+		expect(columns[1].hideInAddMenu).toBe(true);
+	});
+
+	it('drops a stale toggle instead of rendering a permanently blank column', () => {
+		expect(columnsOf({ extraColumns: { department: ['gone'] } }).map((c) => c.id)).toEqual(['department']);
+	});
+
+	it('offers every related field as a "Show as column" toggle reporting the NEXT state', () => {
+		const onToggle = vi.fn();
+		const options = optionsOf(columnsOf({ extraColumns: { department: ['code'] }, onToggleRelationColumn: onToggle }), 'department');
+		const toggles = options.filter((o) => o.group === 'Show as column');
+		expect(toggles.map((o) => o.id)).toEqual(['column:name_mm', 'column:name_en', 'column:code', 'column:headcount']);
+		expect(toggles.find((o) => o.id === 'column:code')).toMatchObject({ selected: true, label: 'code' });
+		expect(toggles.find((o) => o.id === 'column:name_en')).toMatchObject({ selected: false });
+		toggles.find((o) => o.id === 'column:name_en')!.onSelect();
+		expect(onToggle).toHaveBeenCalledWith('department', 'name_en', true);
+		toggles.find((o) => o.id === 'column:code')!.onSelect();
+		expect(onToggle).toHaveBeenCalledWith('department', 'code', false);
+	});
+});
+
+describe('filter leaves on a related field shown as its own column', () => {
+	it('targets the derived leaf in the backend path and keeps the FK for empty checks', () => {
+		const meta = buildFilterFieldMap([DEPARTMENT], M2O_SCHEMAS, undefined, { department: ['code'] }).get('department.code')!;
+		expect(meta.path).toBe('department.code');
+		expect(meta.nullPath).toBe('department');
+		expect(meta.rawType).toBe('text');
+	});
+
+	it('serializes an applied filter on the derived column', () => {
+		expect(
+			serializeTableFilters([{ id: 'department.code', operator: 'contains', value: 'Mai' }], [DEPARTMENT], M2O_SCHEMAS, undefined, {
+				department: ['code'],
+			}),
+		).toEqual({ 'department.code': { operator: '_icontains', value: 'Mai' } });
+	});
+
+	it('drops a filter whose derived column was removed (stale UI state)', () => {
+		expect(
+			serializeTableFilters([{ id: 'department.code', operator: 'contains', value: 'Mai' }], [DEPARTMENT], M2O_SCHEMAS),
+		).toBeUndefined();
 	});
 });

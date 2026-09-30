@@ -14,6 +14,7 @@ import {
 	EyeOffIcon,
 	Columns3Icon,
 	PinOffIcon,
+	PlusIcon,
 } from 'lucide-react';
 import {
 	DropdownMenu,
@@ -29,10 +30,17 @@ import {
 	DropdownMenuTrigger,
 } from '@/dropdown-menu';
 import { useProcessedData } from '../datatable-context';
-import { columnBorderCellClass, CONTROL_COLUMN_WIDTH, pinnedColumnBorderClass } from '../core/utils';
+import {
+	ADD_COLUMN_WIDTH,
+	addColumnSpacerClass,
+	columnBorderCellClass,
+	CONTROL_COLUMN_WIDTH,
+	pinnedColumnBorderClass,
+	selectableColumns,
+} from '../core/utils';
 import type { ColumnPinningState, RowData } from '@tanstack/react-table';
 import type { LegacyTable } from '@tanstack/react-table/legacy';
-import type { BorderStyle, ColumnDef, ColumnMenuOption } from '../core/types';
+import type { BorderStyle, ColumnDef, ColumnMenuOption, DataTableLabels } from '../core/types';
 
 interface DataTableHeaderProps<TData extends RowData> {
 	columns: ColumnDef<TData>[];
@@ -45,6 +53,14 @@ interface DataTableHeaderProps<TData extends RowData> {
 	borderStyle?: BorderStyle;
 	/** Render a drag handle on each header cell to resize the column */
 	enableColumnResizing?: boolean;
+	/**
+	 * Render the trailing add-column (`+`) cell. Owned by the table (it is a
+	 * property of its column set, not of one header) and mirrored into the body
+	 * and footer so the trailing cells and borders line up.
+	 */
+	showAddColumn?: boolean;
+	/** Custom labels for i18n */
+	labels?: DataTableLabels;
 }
 
 /**
@@ -66,15 +82,18 @@ function headerBgClass(stickyHeader?: boolean): string {
 /**
  * Pinned column sticky offset for header cells.
  * Combines horizontal pinning (left/right) with vertical stickiness (top) when stickyHeader is on.
- * `controlOffset` is the width of the sticky selection/expansion control columns
- * that sit to the left of the data columns (they are rendered outside TanStack's
- * column model, so `getStart('start')` does not include them).
+ * `controlOffset` / `trailingOffset` are the widths of the sticky control cells
+ * that anchor the table's edges outside TanStack's column model — the selection /
+ * expansion columns on the left (they are rendered outside it, so
+ * `getStart('start')` does not include them) and the add-column (`+`) cell on the
+ * right.
  */
 function pinnedHeaderStyle<TData extends RowData>(
 	table: LegacyTable<TData>,
 	columnId: string,
 	stickyHeader?: boolean,
 	controlOffset = 0,
+	trailingOffset = 0,
 ): React.CSSProperties | undefined {
 	const col = table.getColumn(columnId);
 	if (!col) return undefined;
@@ -89,9 +108,24 @@ function pinnedHeaderStyle<TData extends RowData>(
 	return {
 		position: 'sticky',
 		top: stickyHeader ? 0 : undefined,
-		[pinned === 'start' ? 'left' : 'right']: `${offset + (pinned === 'start' ? controlOffset : 0)}px`,
+		[pinned === 'start' ? 'left' : 'right']: `${offset + (pinned === 'start' ? controlOffset : trailingOffset)}px`,
 		zIndex: 3,
 	};
+}
+
+/**
+ * The menu's choices grouped by their section label, in order: consecutive
+ * options sharing a `group` form one block (rendered under a single heading),
+ * and an option without one forms its own unlabelled block.
+ */
+function menuOptionGroups(options: ColumnMenuOption[]): Array<{ group?: string; items: ColumnMenuOption[] }> {
+	const blocks: Array<{ group?: string; items: ColumnMenuOption[] }> = [];
+	for (const opt of options) {
+		const last = blocks[blocks.length - 1];
+		if (last && last.group === opt.group) last.items.push(opt);
+		else blocks.push({ group: opt.group, items: [opt] });
+	}
+	return blocks;
 }
 
 /** Column header menu content (Asc, Desc, Pin, Move, Hide, Columns) */
@@ -104,16 +138,6 @@ function HeaderMenuContent({ columnId }: { columnId: string }) {
 	const canPin = column.getCanPin();
 	const isPinnedLeft = column.getIsPinned() === 'start';
 	const isPinnedRight = column.getIsPinned() === 'end';
-
-	const hideableColumns = table
-		.getAllLeafColumns()
-		.filter(
-			(col) =>
-				col.getCanHide() &&
-				col.columnDef.header != null &&
-				col.columnDef.header !== '' &&
-				(typeof col.columnDef.header !== 'string' || col.columnDef.header.trim() !== ''),
-		);
 
 	const canSort = column.getCanSort();
 	const showMove = !isPinnedLeft && !isPinnedRight;
@@ -267,47 +291,70 @@ function HeaderMenuContent({ columnId }: { columnId: string }) {
 					<span>Columns</span>
 				</DropdownMenuSubTrigger>
 				<DropdownMenuSubContent className="w-44">
-					{hideableColumns.map((col) => {
-						const label = typeof col.columnDef.header === 'string' ? col.columnDef.header : col.id;
-						const menuOptions = (col.columnDef.meta as { menuOptions?: ColumnMenuOption[] } | undefined)?.menuOptions;
-						// A column carrying choices (a relation's display field) nests into its
-						// own submenu: show/hide first, then the choices — so picking WHAT a
-						// column shows sits with the column it belongs to.
-						if (!menuOptions?.length) {
-							return (
-								<DropdownMenuCheckboxItem key={col.id} checked={col.getIsVisible()} onCheckedChange={() => col.toggleVisibility()}>
-									{label}
-								</DropdownMenuCheckboxItem>
-							);
-						}
-						return (
-							<DropdownMenuSub key={col.id}>
-								{/* The parent Columns list opens on hover; this picker opens on CLICK —
-								    a nested hover chain would open it by accident on a pointer sweep
-								    past the entry, and a click makes the choice deliberate. */}
-								<DropdownMenuSubTrigger openOnHover={false} className="gap-2">
-									<span className="truncate">{label}</span>
-									{col.getIsVisible() && <CheckIcon className="ml-auto size-3.5 shrink-0 text-primary" />}
-								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-52">
-									<DropdownMenuCheckboxItem checked={col.getIsVisible()} onCheckedChange={() => col.toggleVisibility()}>
-										Show column
-									</DropdownMenuCheckboxItem>
+					<ColumnSelectionItems />
+				</DropdownMenuSubContent>
+			</DropdownMenuSub>
+		</>
+	);
+}
+
+/**
+ * The Columns-list entries — one visibility entry per selectable column, a
+ * column carrying `menuOptions` (a relation's display pick + its related-field
+ * column toggles) nesting into its own submenu.
+ *
+ * Rendered by the per-column header menu's Columns list AND by the header-edge
+ * `+` (add column) menu, so a column offers the same choices wherever it is
+ * found: the choices are declared once, on the column.
+ */
+function ColumnSelectionItems({ forAddMenu = false }: { forAddMenu?: boolean }) {
+	const { table } = useProcessedData();
+
+	return (
+		<>
+			{selectableColumns(table, { forAddMenu }).map((col) => {
+				const label = typeof col.columnDef.header === 'string' ? col.columnDef.header : col.id;
+				const menuOptions = (col.columnDef.meta as { menuOptions?: ColumnMenuOption[] } | undefined)?.menuOptions;
+				// A column carrying choices (a relation's display field) nests into its
+				// own submenu: show/hide first, then the choices — so picking WHAT a
+				// column shows sits with the column it belongs to.
+				if (!menuOptions?.length) {
+					return (
+						<DropdownMenuCheckboxItem key={col.id} checked={col.getIsVisible()} onCheckedChange={() => col.toggleVisibility()}>
+							{label}
+						</DropdownMenuCheckboxItem>
+					);
+				}
+				return (
+					<DropdownMenuSub key={col.id}>
+						{/* The parent Columns list opens on hover; this picker opens on CLICK —
+						    a nested hover chain would open it by accident on a pointer sweep
+						    past the entry, and a click makes the choice deliberate. */}
+						<DropdownMenuSubTrigger openOnHover={false} className="gap-2">
+							<span className="truncate">{label}</span>
+							{col.getIsVisible() && <CheckIcon className="ml-auto size-3.5 shrink-0 text-primary" />}
+						</DropdownMenuSubTrigger>
+						<DropdownMenuSubContent className="w-52">
+							<DropdownMenuCheckboxItem checked={col.getIsVisible()} onCheckedChange={() => col.toggleVisibility()}>
+								Show column
+							</DropdownMenuCheckboxItem>
+							{menuOptionGroups(menuOptions).map((block, i) => (
+								<React.Fragment key={block.group ?? i}>
 									<DropdownMenuSeparator />
 									<DropdownMenuGroup>
-										<DropdownMenuLabel>Display field</DropdownMenuLabel>
-										{menuOptions.map((opt) => (
+										{block.group && <DropdownMenuLabel>{block.group}</DropdownMenuLabel>}
+										{block.items.map((opt) => (
 											<DropdownMenuCheckboxItem key={opt.id} checked={opt.selected === true} onCheckedChange={() => opt.onSelect()}>
 												{opt.label}
 											</DropdownMenuCheckboxItem>
 										))}
 									</DropdownMenuGroup>
-								</DropdownMenuSubContent>
-							</DropdownMenuSub>
-						);
-					})}
-				</DropdownMenuSubContent>
-			</DropdownMenuSub>
+								</React.Fragment>
+							))}
+						</DropdownMenuSubContent>
+					</DropdownMenuSub>
+				);
+			})}
 		</>
 	);
 }
@@ -348,6 +395,8 @@ export function DataTableHeader<TData extends RowData>({
 	stickyHeader = false,
 	borderStyle = 'row',
 	enableColumnResizing = false,
+	showAddColumn = false,
+	labels,
 }: DataTableHeaderProps<TData>) {
 	const { table } = useProcessedData<TData>();
 
@@ -364,6 +413,10 @@ export function DataTableHeader<TData extends RowData>({
 	// Width of the sticky control columns (selection checkbox / expand toggle)
 	// that anchor the left edge — left-pinned columns must be offset past them.
 	const controlOffset = (enableRowSelection ? CONTROL_COLUMN_WIDTH : 0) + (expandSticky ? CONTROL_COLUMN_WIDTH : 0);
+
+	// Mirror of the left control offset: the add-column cell anchors the RIGHT
+	// edge, so right-pinned columns sit inside it.
+	const trailingOffset = showAddColumn ? ADD_COLUMN_WIDTH : 0;
 
 	// Use TanStack header groups — returns columns in pinned order
 	// (left-pinned first, center, right-pinned last) plus columnOrder & visibility.
@@ -458,7 +511,7 @@ export function DataTableHeader<TData extends RowData>({
 								minWidth: colWidth != null ? undefined : column.minWidth,
 								maxWidth: colWidth != null ? undefined : column.maxWidth,
 								textAlign: column.align,
-								...pinnedHeaderStyle<TData>(table, column.id, stickyHeader, controlOffset),
+								...pinnedHeaderStyle<TData>(table, column.id, stickyHeader, controlOffset, trailingOffset),
 								...(stickyHeader && !isPinned ? { position: 'sticky', top: 0, zIndex: 2 } : {}),
 							}}
 							aria-sort={isSorted === 'asc' ? 'ascending' : isSorted === 'desc' ? 'descending' : undefined}
@@ -524,6 +577,47 @@ export function DataTableHeader<TData extends RowData>({
 						</th>
 					);
 				})}
+				{showAddColumn && (
+					<>
+						{/* Filler column — takes the spare width so the add-column cell
+						    lands on the table's right edge, not right after the last
+						    column. Collapses to 0 once the columns overflow. */}
+						<th aria-hidden="true" className={cn(addColumnSpacerClass, thBgClass, thStickyClass)} />
+						<th
+							data-slot="datatable-add-column"
+							className={cn('px-1', opaqueHeaderBgClass, thStickyClass, stickyHeader && 'border-b', columnBorderCellClass[borderStyle])}
+							style={{
+								width: ADD_COLUMN_WIDTH,
+								position: 'sticky',
+								// The outermost trailing cell: it anchors the scrollport's
+								// right edge, and right-pinned columns sit at
+								// `right: ADD_COLUMN_WIDTH` — inside it, never over it.
+								right: 0,
+								top: stickyHeader ? 0 : undefined,
+								zIndex: 3,
+							}}
+						>
+							<DropdownMenu>
+								<DropdownMenuTrigger
+									render={
+										<button
+											type="button"
+											aria-label={labels?.addColumn ?? 'Add column'}
+											className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
+										>
+											<PlusIcon className="size-4" />
+										</button>
+									}
+								/>
+								{/* The same entries the Columns list shows, one door over: every
+								    hideable column, a relation nesting into its own picker. */}
+								<DropdownMenuContent align="end" className="w-52">
+									<ColumnSelectionItems forAddMenu />
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</th>
+					</>
+				)}
 			</tr>
 		</thead>
 	);

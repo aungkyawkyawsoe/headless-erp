@@ -40,9 +40,12 @@ function templateKeys(template: string | undefined): string[] {
  *                       field's `display_template` keys. Unknown names are
  *                       dropped server-side (`projectColumns` filters against the
  *                       real columns), so this is correct even before the related
- *                       schema has loaded. A relation the operator pointed at ONE
- *                       field (`leaves`) projects just that field — the cell reads
- *                       one column, so the candidates would be ~18 wasted entries;
+ *                       schema has loaded. A relation the operator pointed at
+ *                       fields (`leaves`, keyed by column id — the relation's own
+ *                       column and any related field shown as a column of its own,
+ *                       `item_name.name_en`) projects just those fields — the cell
+ *                       reads one column, so the candidates would be ~18 wasted
+ *                       entries;
  *   - `<rel>.id`      — relation ARRAYS (o2m/m2m/table) arrive id-only: enough for
  *                       the cell to show a related-row COUNT without pulling rows.
  *
@@ -76,14 +79,19 @@ export function buildListFields(fields: FieldDefinition[], leaves?: ReadonlyMap<
 	for (const f of fields) {
 		if (f.type === 'm2o') {
 			add(`${f.name}.id`);
-			// A relation the operator pointed at ONE related field (the display pick)
-			// projects exactly that field — the conventional candidates are dead
-			// weight for a cell that reads one column.
-			const leaf = leaves?.get(f.name);
-			if (leaf) {
-				add(`${f.name}.${leaf.name}`);
-				continue;
+			// Every column this relation feeds — its own display leaf and each related
+			// field the operator added as a column of its own (keys `item_name` and
+			// `item_name.name_en`) — projects exactly those fields; the conventional
+			// candidates are dead weight for cells that read named columns.
+			let projected = false;
+			if (leaves) {
+				for (const [id, leaf] of leaves) {
+					if (id !== f.name && !id.startsWith(`${f.name}.`)) continue;
+					add(`${f.name}.${leaf.name}`);
+					projected = true;
+				}
 			}
+			if (projected) continue;
 			for (const key of templateKeys(f.display_template)) add(`${f.name}.${key}`);
 			fallback.push(`${f.name}.`);
 		} else if (f.type === 'o2m' || f.type === 'm2m' || f.type === 'table') {
