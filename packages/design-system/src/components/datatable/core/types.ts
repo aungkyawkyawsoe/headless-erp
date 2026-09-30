@@ -113,6 +113,14 @@ export interface ColumnDef<TData extends RowData, TValue = unknown> {
 	enableReordering?: boolean;
 	/** Allow this column to be resized via its header handle. Defaults to true. */
 	enableResizing?: boolean;
+	/**
+	 * Render the header as content only — no sort/menu dropdown wrapper.
+	 * Set `false` on a column whose header IS a control (a master toggle, a bulk
+	 * action): the default wrapper is a `<button>` trigger, so a control inside it
+	 * would nest buttons and open the menu on every click.
+	 * Defaults to true.
+	 */
+	enableHeaderMenu?: boolean;
 }
 
 // ── Layout variants ─────────────────────────────────────
@@ -212,6 +220,8 @@ export interface DataTableInstance<TData extends RowData> {
 
 export interface DataTableLabels {
 	searchPlaceholder?: string;
+	/** Accessible label for the toolbar's search input. */
+	searchLabel?: string;
 	noResults?: string;
 	empty?: string;
 	filters?: string;
@@ -316,6 +326,21 @@ export interface DataTableProps<TData extends RowData> {
 	pageSize?: number;
 	/** Called when the user changes the page size */
 	onPageSizeChange?: (pageSize: number) => void;
+	/**
+	 * Controlled global filter. When provided, the toolbar's search box reports
+	 * every change through `onGlobalFilterChange` and the table keeps no copy of
+	 * its own — one owner for the term.
+	 */
+	globalFilter?: string;
+	/** Called with the new value as the operator types in (and clears) the toolbar search box. */
+	onGlobalFilterChange?: (value: string) => void;
+	/**
+	 * The CALLER owns the filter predicate: the rows passed via `data` are already
+	 * the filtered set, so the table must not filter them again — a second,
+	 * different rule would silently subtract rows the caller counted on.
+	 * Implied in server mode (`fetchData`), where the server filtered already.
+	 */
+	manualFiltering?: boolean;
 	/** Initial sort state */
 	defaultSorting?: SortState | null;
 	/**
@@ -328,8 +353,21 @@ export interface DataTableProps<TData extends RowData> {
 	defaultColumnPinning?: ColumnPinningState;
 	/** Show the toolbar (search + filter trigger + actions) */
 	showToolbar?: boolean;
+	/**
+	 * Show the filter popover trigger. Hide it where no column declares a
+	 * `filter` — the popover would open onto nothing.
+	 * @default true
+	 */
+	showFilters?: boolean;
 	/** Show active filter chips bar */
 	showFilterBar?: boolean;
+	/**
+	 * Show the cursor pagination. `false` also stops client mode from slicing
+	 * rows into pages, so the whole filtered set renders — a caller whose bulk
+	 * actions act on "the rows on screen" really sees all of them.
+	 * @default true
+	 */
+	showPagination?: boolean;
 	/** Density preset */
 	density?: Density;
 	/** Row key accessor — defaults to "id" */

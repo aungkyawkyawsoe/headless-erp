@@ -1,23 +1,26 @@
 /**
  * The Roles & Access matrix — pure derivations.
  *
- * These pin what the tab shows ABOVE the table (the governance tiles) and ON it
- * (the tri-state column master toggles + the per-row governance note), because a
- * summary that disagrees with the grid it summarizes is worse than none.
+ * These pin what the tab shows ON its one table (the tri-state column master
+ * toggles + the per-row governance note) and what its two views share: the
+ * collections matrix and the app board derive from the SAME tri-state and dirty
+ * rules, so the two cannot drift into separate interaction languages.
  */
 import { describe, expect, it } from 'vitest';
 import type { RolePermission } from './api';
 import {
 	columnState,
 	columnToggleValue,
+	dirtyCount,
 	emptyPermission,
 	fieldLockCount,
 	governanceBadges,
 	grantedFlagCount,
 	hasGrant,
 	isPermDirty,
-	matrixStats,
 	rowRuleCount,
+	sameBoard,
+	triState,
 } from './role-matrix';
 
 /** A permission row with only the fields under test set. */
@@ -69,8 +72,15 @@ describe('fieldLockCount / rowRuleCount', () => {
 	});
 });
 
-describe('columnState', () => {
-	it('is none for an empty column, all when every row is on, some in between', () => {
+describe('triState / columnState', () => {
+	it('is none for an empty set, all when every value is on, some in between', () => {
+		expect(triState([])).toBe('none');
+		expect(triState([false, false])).toBe('none');
+		expect(triState([true, true])).toBe('all');
+		expect(triState([true, false])).toBe('some');
+	});
+
+	it('reads a flag column through that same rule', () => {
 		expect(columnState([], 'can_read')).toBe('none');
 		expect(columnState([perm('a'), perm('b')], 'can_read')).toBe('none');
 		expect(columnState([perm('a', { can_read: true }), perm('b', { can_read: true })], 'can_read')).toBe('all');
@@ -103,32 +113,47 @@ describe('isPermDirty', () => {
 	});
 });
 
-describe('matrixStats', () => {
-	const rows = [
-		perm('a', { can_read: true, can_write: true }),
-		perm('b', { can_read: true, row_filters: JSON.stringify({ conditions: [{}], combiner: 'and' }) }),
-		perm('c', { field_restrictions: JSON.stringify(['x', 'y']) }),
-		perm('d'),
-	];
+describe('dirtyCount', () => {
+	const rows = [perm('a', { can_read: true }), perm('b'), perm('c', { can_write: true })];
+	const baseline = Object.fromEntries(rows.map((r) => [r.collection_slug, { ...r }]));
 
-	it('summarizes granted / flags / rules / locks in one pass', () => {
-		const stats = matrixStats(rows, {});
-		expect(stats.total).toBe(4);
-		// `c` carries a field lock but NO flags, so it is not a granted collection.
-		expect(stats.granted).toBe(2);
-		expect(stats.flags).toBe(3); // 2 + 1 + 0 + 0
-		expect(stats.rowRules).toBe(1);
-		expect(stats.fieldLocks).toBe(1);
-		expect(stats.dirty).toBe(0);
+	it('is 0 when every draft matches its persisted baseline', () => {
+		expect(dirtyCount(rows, baseline)).toBe(0);
 	});
 
-	it('counts rows whose draft differs from the baseline', () => {
-		const baseline = Object.fromEntries(rows.map((r) => [r.collection_slug, { ...r }]));
-		const stats = matrixStats(rows, baseline);
-		expect(stats.dirty).toBe(0);
-		// One flag flipped on one row.
-		const edited = rows.map((r) => (r.collection_slug === 'd' ? { ...r, can_read: true } : r));
-		expect(matrixStats(edited, baseline).dirty).toBe(1);
+	it('counts each edited row once, not each edited flag', () => {
+		const edited = rows.map((r) => (r.collection_slug === 'c' ? { ...r, can_read: true, can_delete: true } : r));
+		expect(dirtyCount(edited, baseline)).toBe(1);
+		// Every row diverges from its own baseline → three dirty rows.
+		expect(
+			dirtyCount(
+				rows.map((r) => ({ ...r, can_read: !Boolean(r.can_read) })),
+				baseline,
+			),
+		).toBe(3);
+	});
+
+	it('treats a row with no baseline at all as clean (nothing to differ from)', () => {
+		const partial = { a: { ...rows[0] } };
+		const edited = [{ ...rows[0], can_read: false }, { ...rows[1] }];
+		expect(dirtyCount(edited, partial)).toBe(1);
+	});
+});
+
+describe('sameBoard', () => {
+	it('treats `null` as the unrestricted board, which no list ever equals', () => {
+		expect(sameBoard(null, null)).toBe(true);
+		expect(sameBoard(['a'], null)).toBe(false);
+		expect(sameBoard(null, ['a'])).toBe(false);
+		// An empty list is NOT unrestricted — it opens nothing.
+		expect(sameBoard([], null)).toBe(false);
+		expect(sameBoard([], [])).toBe(true);
+	});
+
+	it('compares a list as a set, so ordering never reads as an edit', () => {
+		expect(sameBoard(['a', 'b'], ['b', 'a'])).toBe(true);
+		expect(sameBoard(['a', 'b'], ['a'])).toBe(false);
+		expect(sameBoard(['a'], ['a', 'b'])).toBe(false);
 	});
 });
 

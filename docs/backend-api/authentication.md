@@ -38,14 +38,18 @@ below. An optional `device_id` in the login request is stored on the token's row
 
 > The admin user's email is the value of `ADMIN_USERNAME` env var (default: `admin`).
 
-> 🔒 **A `disabled` account is refused at login, indistinguishably from a wrong
-> password.** `AuthService.login` rejects a row whose `status !== 'active'` with the
-> SAME `401 Invalid email or password` as a bad password, so the response cannot be
-> used to enumerate which accounts exist or are switched off. Disabling is therefore
-> a real revocation on both sides: no token is minted, and any token already issued
-> dies on its next request (`verifyToken` applies the same check). Re-enabling takes
-> effect just as immediately. Set it with `PUT /api/users/:id`
-> (`{"status": "disabled"}`) — see `users-roles-permissions.md`.
+> 🔒 **A non-active account is refused at login, indistinguishably from a wrong
+> password.** The lifecycle vocabulary is `active | invited | suspended`
+> (migration `049_users_status_vocabulary`; `invited` = the account exists but no
+> credential was ever set). `AuthService.login` rejects a row whose
+> `status !== 'active'` with the SAME `401 Invalid email or password` as a bad
+> password, so the response cannot be used to enumerate which accounts exist or
+> are switched off. Suspending is therefore a real revocation on both sides: no
+> token is minted, and any token already issued dies on its next request
+> (`verifyToken` applies the same check). Re-activating takes effect just as
+> immediately; activating an invited account requires the password in the same
+> write. Set it with `PUT /api/users/:id` (`{"status": "suspended"}`) — see
+> `users-roles-permissions.md` §_The account lifecycle_.
 
 ### The account acts as an employee (`_users.employee_id`)
 

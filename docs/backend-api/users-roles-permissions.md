@@ -27,10 +27,12 @@ curl -X POST http://localhost:8788/api/users \
   -d '{"email": "editor@example.com", "password": "secret123", "full_name": "Editor One", "role_id": "<role-id>"}'
 ```
 
-**Validation:** valid email, password >= 6 chars, `full_name` required. An
-`employee_id` (see below) must name a LIVE `directory` row — a link to a
-missing or deactivated employee is refused with `400`, because the resulting
-account could never sign in.
+**Validation:** valid email, `full_name` required, password >= 6 chars when
+sent. The password is OPTIONAL: omit it and the account is created `invited` —
+it exists, but nobody can sign in until an admin activates it with a credential
+(see the lifecycle below). An `employee_id` (see below) must name a LIVE
+`directory` row — a link to a missing or deactivated employee is refused with
+`400`, because the resulting account could never sign in.
 
 **Response `201`:**
 
@@ -43,14 +45,43 @@ account could never sign in.
 
 ### Update User
 
-`PUT /api/users/:id` — fields: `email`, `password`, `full_name`, `role_id`, `employee_id`, `status` (`active`/`disabled`).
+`PUT /api/users/:id` — fields: `email`, `password`, `full_name`, `role_id`, `employee_id`, `status` (`active`/`invited`/`suspended`).
 
-**`status: "disabled"` is a real revocation.** The account is refused at
+**`status: "suspended"` is a real revocation** — and so is `invited` for an
+account that never got a credential. A non-active account is refused at
 `POST /api/auth/login` (no token is minted) and any token already issued is
 rejected on its next request — and the failure is reported as
 `401 Invalid email or password`, identical to a wrong password, so it cannot be
-used to enumerate accounts. Re-enabling takes effect just as immediately.
+used to enumerate accounts. Re-activating takes effect just as immediately.
 See `authentication.md`.
+
+### The account lifecycle — `active | invited | suspended`
+
+ONE vocabulary for the sign-in switch (migration `049_users_status_vocabulary`
+retired `disabled` into `suspended`):
+
+| Status      | Meaning                                                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `active`    | Can sign in. Activating REQUIRES a credential in the same write.                                                                           |
+| `invited`   | The account exists and holds a role, but no credential was ever set — it cannot sign in until an admin activates it with a password. The Directus invite shape. |
+| `suspended` | Revoked. Refused at login, and an already-minted token dies on its next request.                                                           |
+
+- **Anything ≠ `active` is denied at BOTH sign-in gates** — `login` (no token at
+  all) and `verifyToken` (an existing token) — with the identical
+  `401 Invalid email or password` a wrong password gets, so the endpoint is not
+  an account-state oracle.
+- **`invited` is stored, not implied**: `_users.password_hash` is NOT NULL, so an
+  invited row carries the marker `invited:no-password` (mirroring the Telegram
+  path's `telegram:no-password`). No password can verify against it — fail-closed.
+- **Activation demands the password in the SAME write** — `PUT {"status":
+  "active"}` on an invited row is refused with `400 This account has no password
+  yet — set one to activate it` and nothing is written; send `{"status":
+  "active", "password": "..."}`. An `active` account with no way in would be a
+  lie.
+- **A status outside the vocabulary is refused at BOTH write seams** (create and
+  update) with `400 status must be one of: active, invited, suspended`.
+- **Reversible**: re-activating a suspended account (which already has a
+  password) needs no credential and restores sign-in immediately.
 
 > ⚠️ **Each field is applied only when truthy**, and a role is therefore never
 > un-assigned: `PUT` with `role_id: null` leaves the stored role untouched. An
@@ -102,7 +133,7 @@ accounts, and the identities the Telegram login route provisions — and carries
 | Signs in via | `Password` (an email + password account) or `Telegram` (directory-gated) |
 | Employee     | The `directory` row the account acts as, or `Not linked`                 |
 | Role         | The `_roles` name for the row's `role_id`                                |
-| Status       | `active` / `disabled` — the sign-in switch, see above                    |
+| Status       | `active` / `invited` / `suspended` — the sign-in switch, see above       |
 | Last sign-in | `Never` when the account has not signed in yet                           |
 | Created      | `created_at`                                                             |
 
@@ -127,8 +158,24 @@ Guarantees the UI holds to:
   switch — which DOES stick — remains. It offers no employee control either: its
   employee is whatever its address names, and a second editable link would give
   one fact two sources of truth.
-- **An operator cannot disable their own account.** That would revoke the session
-  they are using, and recovery is another admin, not this screen.
+- **The lifecycle VIEWS live in the section's panel** — Directus's sidebar shape.
+  `components/idp/ViewsPanel.tsx` (the `{ kind: 'views' }` panel kind) lists
+  `Active Users` (the default; the bare URL IS this view) | `Suspended Users` |
+  `Invited Users` | `All Users`, in that order, from ONE list
+  (`lib/user-view.ts` `USER_VIEWS`). A row click is VIEW STATE — `?view=` via
+  `useViewState().update` (replace), never a path — so switching views leaves no
+  history trail; the deliberate divergence from Directus's real
+  `/admin/users/:role` paths, held to the Studio URL/history contract. The empty
+  state names the active view (`No invited accounts.`). **Studio Admin →
+  Settings → Users has no panel**, so there the SAME `?view=` filter rides the
+  table toolbar as a segmented `ToggleGroup` (the `viewsInToolbar` prop) — one
+  state, two affordances, never two implementations.
+- **The editor's Status select is the ONE control for the state** — `invited` is
+  its default for a NEW account with no password, typing a password flips it to
+  `active`, and a row with no stored status reads as `unknown` (never writable).
+- **An operator cannot change their OWN account's status.** The Status select is
+  disabled on the self row — it would revoke the session they are using, and
+  recovery is another admin, not this screen.
 - **A deployment with no `directory` collection still works** (the factory
   core, `DOMAIN_MODULES=none`): the employee read degrades, the picker is
   disabled, and the table says so — accounts stay administrable.

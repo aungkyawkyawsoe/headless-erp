@@ -65,7 +65,7 @@ Mirror the `hr`/`store` route shape (Hono + `requireAuth`, `success`/`fail`, `Pe
 
 ### Step 2.1 — Catalog page
 
-New Studio page (mirror `AppsPage.tsx`): read-only grid over `GET /api/idp/catalog` — owner, version, environment status, docs link, search/filter.
+New Studio page (mirror `IdpCatalogPage.tsx`): read-only grid over `GET /api/idp/catalog` — owner, version, environment status, docs link, search/filter.
 
 ### Step 2.2 — App detail page
 

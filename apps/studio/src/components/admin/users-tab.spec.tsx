@@ -15,6 +15,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
@@ -61,16 +62,27 @@ const TELEGRAM_ROW = {
 	last_login: null,
 	created_at: '2026-08-02 09:00:00',
 };
-/** A password account that has been blocked, LINKED to an employee. */
+/** A password account that has been suspended, LINKED to an employee. */
 const STORE_ROW = {
 	id: 'u-store',
 	email: 'store@mmbics.com',
 	full_name: 'Mya Mya',
 	role_id: 'r-store',
-	status: 'disabled' as const,
+	status: 'suspended' as const,
 	employee_id: 'e-store',
 	last_login: '2026-08-20 03:15:00',
 	created_at: '2026-08-03 09:00:00',
+};
+/** An account lined up but not yet usable — no credential exists for it. */
+const INVITED_ROW = {
+	id: 'u-inv',
+	email: 'invited@mmbics.com',
+	full_name: 'Nu Nu',
+	role_id: 'r-emp',
+	status: 'invited' as const,
+	employee_id: null,
+	last_login: null,
+	created_at: '2026-08-04 09:00:00',
 };
 /** The bootstrap admin — no employee link at all (a legitimate state). */
 const ADMIN_ROW_UNLINKED = { ...ADMIN_ROW, employee_id: null };
@@ -92,11 +104,26 @@ const EMP_TG: SpecEmployee = { id: 'e-aung', name_mm: 'အောင်ကျေ�
 const EMP_SPARE: SpecEmployee = { id: 'e-spare', name_mm: null, name_en: 'Zaw Zaw', etg_id: null };
 const EMPLOYEES: SpecEmployee[] = [EMP_STORE, EMP_TG, EMP_SPARE];
 
-function renderTab(currentEmail?: string) {
+/** The view is URL state — show what the router sees after each pick. */
+function LocationProbe() {
+	const { search } = useLocation();
+	return <span data-testid="url">{search}</span>;
+}
+
+/**
+ * Render the tab under a Router — required now that the directory's view is
+ * URL-backed (`?view=`). The DEFAULT entry is `?view=all`, so every test that
+ * spans the fixture's accounts (the suspended Storekeeper included) sees them;
+ * the view tests below pass their own entry, and one pins the bare-URL landing.
+ */
+function renderTab(currentEmail?: string, entry = '/idp/users?view=all', viewsInToolbar = false) {
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	return render(
 		<QueryClientProvider client={client}>
-			<UsersTab token="tk" currentEmail={currentEmail} />
+			<MemoryRouter initialEntries={[entry]}>
+				<UsersTab token="tk" currentEmail={currentEmail} viewsInToolbar={viewsInToolbar} />
+				<LocationProbe />
+			</MemoryRouter>
 		</QueryClientProvider>,
 	);
 }
@@ -125,6 +152,12 @@ function openEdit(email: string) {
 }
 
 const textbox = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
+
+/** Type into the shared table's toolbar search box. It DEBOUNCES the term (300 ms)
+ *  before the caller's predicate sees it, so the caller must await the row set. */
+function searchUsers(value: string) {
+	fireEvent.change(textbox('Search users'), { target: { value } });
+}
 const roleSelect = () => screen.getByLabelText('Role') as HTMLSelectElement;
 /** The employee link is a SEARCHABLE picker (a Combobox, not a `<select>`). */
 const employeeInput = () => screen.getByLabelText('Employee') as HTMLInputElement;
@@ -166,14 +199,14 @@ async function pickEmployee(term: string, option: RegExp): Promise<void> {
 	if (term) fireEvent.change(input, { target: { value: term } });
 	clickOption(await screen.findByRole('option', { name: option }, { timeout: 2000 }));
 }
-const saveButton = () => screen.getByRole('button', { name: /save changes/i });
-/** base-ui renders the box as a `<span role="checkbox">` and expresses disabled
- *  state as `aria-disabled` (there is no `.disabled` property). Matched on the
- *  label so any mirrored hidden input cannot make a unique query ambiguous. */
-const disableBox = () =>
-	screen.getAllByRole('checkbox').find((el) => el.getAttribute('aria-label') === 'Disabled — block sign-in') as HTMLElement;
-const boxChecked = () => disableBox().getAttribute('aria-checked');
-const boxDisabled = () => disableBox().getAttribute('aria-disabled') === 'true';
+/** The ONE Save — the form header's circular ✓, icon-only (the role form's own
+ *  shape), so it is found by its aria-label rather than by text. */
+const saveButton = () => screen.getByRole('button', { name: 'Save' });
+/** …and the ✕ beside it, the only way out of the whole-surface form. */
+const closeButton = () => screen.getByRole('button', { name: 'Close' });
+/** The lifecycle control — a real `<select>` (the Directus shape), so its state
+ *  is read off `.value` and `.disabled`, not an aria attribute. */
+const statusSelect = () => screen.getByLabelText('Status') as HTMLSelectElement;
 
 /**
  * The directory read the tab makes, dispatched on the params it was called with —
@@ -243,23 +276,27 @@ describe('UsersTab — the table', () => {
 		const store = within(rowOf('Mya Mya'));
 		expect(store.getByText('Password')).toBeTruthy();
 		expect(store.getByText('Storekeeper')).toBeTruthy();
-		expect(store.getByText('Disabled')).toBeTruthy();
+		expect(store.getByText('Suspended')).toBeTruthy();
 		// SQLite's CURRENT_TIMESTAMP-style timestamp reads as UTC, not as local time.
 		expect(store.getByText('2026-08-20 03:15')).toBeTruthy();
 	});
 
 	it('counts every account, and searches them by role as well as by name', async () => {
 		await renderLoaded();
-		expect(screen.getByText('3')).toBeTruthy();
+		// The count rides the table's OWN pagination (rows 0–3 of the 3 accounts) —
+		// there is no title bar above it repeating the number.
+		expect(screen.getByText('0–3')).toBeTruthy();
 
-		fireEvent.change(textbox('Search users'), { target: { value: 'storekeeper' } });
+		// The shared toolbar owns the search box; the widget owns the predicate, so a
+		// role NAME matches even though no column holds it.
+		searchUsers('storekeeper');
 
+		await waitFor(() => expect(screen.queryByText('Aung Kyaw')).toBeNull());
 		expect(screen.getByText('Mya Mya')).toBeTruthy();
-		expect(screen.queryByText('Aung Kyaw')).toBeNull();
 		expect(screen.queryByText('Administrator')).toBeNull();
 
-		fireEvent.change(textbox('Search users'), { target: { value: '' } });
-		expect(screen.getByText('Aung Kyaw')).toBeTruthy();
+		searchUsers('');
+		await waitFor(() => expect(screen.getByText('Aung Kyaw')).toBeTruthy());
 	});
 
 	it('never renders a credential column', async () => {
@@ -269,18 +306,67 @@ describe('UsersTab — the table', () => {
 		// "Signs in via" one that legitimately reads `Password` for an account.
 		expect(screen.queryByRole('columnheader', { name: /^password$/i })).toBeNull();
 	});
+
+	it('lands on Active for a bare URL — the Directus default view', async () => {
+		// `/idp/users` with no param is Directus's `/admin/users`: Active Users.
+		renderTab(undefined, '/idp/users');
+		expect(await screen.findByText('dev@mmbics.com')).toBeTruthy();
+		// The suspended account is not in the Active view — it is reached through
+		// its own view, not by misreading the default.
+		expect(screen.queryByText('Mya Mya')).toBeNull();
+	});
+
+	it('filters to the view the URL names — the views are filters over ONE read', async () => {
+		renderTab(undefined, '/idp/users?view=suspended');
+		expect(await screen.findByText('Mya Mya')).toBeTruthy();
+		expect(screen.queryByText('Aung Kyaw')).toBeNull();
+		expect(screen.queryByText('dev@mmbics.com')).toBeNull();
+	});
+
+	it('reads an out-of-vocabulary value as the default rather than showing nothing', async () => {
+		renderTab(undefined, '/idp/users?view=banana');
+		expect(await screen.findByText('dev@mmbics.com')).toBeTruthy();
+		expect(screen.queryByText('Mya Mya')).toBeNull();
+	});
+
+	it('names the empty VIEW — "no matches" would blame the search box', async () => {
+		renderTab(undefined, '/idp/users?view=invited');
+		expect(await screen.findByText(/no invited accounts/i)).toBeTruthy();
+	});
+
+	it('renders the toolbar toggle only for a surface that asks for it (Studio Admin)', async () => {
+		// The portal carries the views in its panel; a second control here would be
+		// the same filter twice.
+		await renderLoaded();
+		expect(screen.queryByRole('button', { name: 'Suspended Users' })).toBeNull();
+
+		cleanup();
+		renderTab(undefined, '/studio', true);
+		expect(await screen.findByText('dev@mmbics.com')).toBeTruthy();
+		// Pressing a view moves BOTH the URL (one state) and the rows.
+		fireEvent.click(screen.getByRole('button', { name: 'Suspended Users' }));
+		await waitFor(() => expect(screen.getByTestId('url').textContent).toBe('?view=suspended'));
+		expect(await screen.findByText('Mya Mya')).toBeTruthy();
+		expect(screen.queryByText('Aung Kyaw')).toBeNull();
+		// Back to the default and the canonical bare URL returns (the param is
+		// deleted, never written).
+		fireEvent.click(screen.getByRole('button', { name: 'Active Users' }));
+		await waitFor(() => expect(screen.getByTestId('url').textContent).toBe(''));
+		expect(await screen.findByText('Aung Kyaw')).toBeTruthy();
+	});
 });
 
 describe('UsersTab — creating an account', () => {
-	it('POSTs the email, name, password and the default Employee role', async () => {
+	it('POSTs the email, name, password, the default Employee role and the derived Active status', async () => {
 		await renderLoaded();
 		fireEvent.click(screen.getByRole('button', { name: /new user/i }));
 
 		fireEvent.change(textbox('Email'), { target: { value: 'new@mmbics.com' } });
 		fireEvent.change(textbox('Full name'), { target: { value: 'New Person' } });
 		fireEvent.change(textbox('Password'), { target: { value: 'a-good-password' } });
-		// The role is deliberately left alone — Employee is the pre-selected default.
-		fireEvent.click(screen.getByRole('button', { name: /create user/i }));
+		// The status is left alone — a password makes the account Active by the
+		// SAME rule the select displays.
+		fireEvent.click(saveButton());
 
 		await waitFor(() => expect(mockCreateUser).toHaveBeenCalledTimes(1));
 		expect(mockCreateUser).toHaveBeenCalledWith('tk', {
@@ -288,10 +374,50 @@ describe('UsersTab — creating an account', () => {
 			password: 'a-good-password',
 			full_name: 'New Person',
 			role_id: 'r-emp',
+			status: 'active',
 			// Left unlinked on purpose — an admin/HR login is a legitimate account
 			// shape, so the field defaults to none rather than inventing one.
 			employee_id: null,
 		});
+	});
+
+	it('creates an INVITED account when no password is given — the status select says so live', async () => {
+		await renderLoaded();
+		fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+
+		// Before a password exists the select itself reads Invited — the displayed
+		// rule and the payload are the same rule, so nothing has to be guessed.
+		expect(statusSelect().value).toBe('invited');
+
+		fireEvent.change(textbox('Email'), { target: { value: 'new@mmbics.com' } });
+		fireEvent.change(textbox('Full name'), { target: { value: 'New Person' } });
+		fireEvent.click(saveButton());
+
+		await waitFor(() => expect(mockCreateUser).toHaveBeenCalledTimes(1));
+		// No password KEY at all — an invited account is defined by having none.
+		expect(mockCreateUser).toHaveBeenCalledWith('tk', {
+			email: 'new@mmbics.com',
+			password: undefined,
+			full_name: 'New Person',
+			role_id: 'r-emp',
+			status: 'invited',
+			employee_id: null,
+		});
+	});
+
+	it('refuses an ACTIVE account with no password, and says what to do', async () => {
+		await renderLoaded();
+		fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+
+		fireEvent.change(textbox('Email'), { target: { value: 'new@mmbics.com' } });
+		fireEvent.change(textbox('Full name'), { target: { value: 'New Person' } });
+		// Picking Active explicitly overrides the derived Invited — and an active
+		// account without a credential is a login that could never succeed.
+		fireEvent.change(statusSelect(), { target: { value: 'active' } });
+		fireEvent.click(saveButton());
+
+		expect(await screen.findByText(/a password is required for an active account/i)).toBeTruthy();
+		expect(mockCreateUser).not.toHaveBeenCalled();
 	});
 
 	it('refuses a password shorter than the API floor without making a request', async () => {
@@ -301,7 +427,7 @@ describe('UsersTab — creating an account', () => {
 		fireEvent.change(textbox('Email'), { target: { value: 'new@mmbics.com' } });
 		fireEvent.change(textbox('Full name'), { target: { value: 'New Person' } });
 		fireEvent.change(textbox('Password'), { target: { value: 'short' } });
-		fireEvent.click(screen.getByRole('button', { name: /create user/i }));
+		fireEvent.click(saveButton());
 
 		expect(await screen.findByText(/at least 6 characters/i)).toBeTruthy();
 		expect(mockCreateUser).not.toHaveBeenCalled();
@@ -315,7 +441,7 @@ describe('UsersTab — creating an account', () => {
 		fireEvent.change(textbox('Email'), { target: { value: 'new@mmbics.com' } });
 		fireEvent.change(textbox('Full name'), { target: { value: 'New Person' } });
 		fireEvent.change(textbox('Password'), { target: { value: 'a-good-password' } });
-		fireEvent.click(screen.getByRole('button', { name: /create user/i }));
+		fireEvent.click(saveButton());
 
 		expect(await screen.findByText(/already exists/i)).toBeTruthy();
 		// Still on the form, with what the operator typed intact.
@@ -338,27 +464,48 @@ describe('UsersTab — editing a password account', () => {
 		expect(mockUpdateUser).toHaveBeenCalledWith('tk', 'u-store', { role_id: 'r-emp' });
 	});
 
-	it('writes nothing when the form was not touched', async () => {
+	it('dims the ✓ until a writable field differs from the row', async () => {
 		await renderLoaded();
 		openEdit('store@mmbics.com');
 
+		// The role form's own rule: the circular ✓ is disabled while the draft
+		// equals the row — a save that would write nothing cannot be clicked.
+		expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
+		// Even a forced click writes nothing (the guard is behind the gate too).
 		fireEvent.click(saveButton());
-
-		expect(await screen.findByText(/nothing changed/i)).toBeTruthy();
 		expect(mockUpdateUser).not.toHaveBeenCalled();
+
+		fireEvent.change(textbox('Full name'), { target: { value: 'Store Manager' } });
+		expect((saveButton() as HTMLButtonElement).disabled).toBe(false);
 	});
 
-	it('re-enables a blocked account through the status control', async () => {
+	it('re-activates a suspended account through the status control', async () => {
 		await renderLoaded();
 		openEdit('store@mmbics.com');
 
-		expect(boxChecked()).toBe('true');
-		fireEvent.click(disableBox());
-		expect(boxChecked()).toBe('false');
+		expect(statusSelect().value).toBe('suspended');
+		fireEvent.change(statusSelect(), { target: { value: 'active' } });
 		fireEvent.click(saveButton());
 
 		await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledTimes(1));
 		expect(mockUpdateUser).toHaveBeenCalledWith('tk', 'u-store', { status: 'active' });
+	});
+
+	it('activates an INVITED account by choosing Active and setting a password', async () => {
+		mockListUsers.mockResolvedValue([ADMIN_ROW_UNLINKED, TELEGRAM_ROW, INVITED_ROW]);
+		renderTab();
+		await screen.findByText('Nu Nu');
+		openEdit('invited@mmbics.com');
+
+		expect(statusSelect().value).toBe('invited');
+		fireEvent.change(statusSelect(), { target: { value: 'active' } });
+		fireEvent.change(textbox('Password'), { target: { value: 'a-good-password' } });
+		fireEvent.click(saveButton());
+
+		await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledTimes(1));
+		// Both halves in ONE request — the state that lets them in, and the
+		// credential the API requires before it will grant it.
+		expect(mockUpdateUser).toHaveBeenCalledWith('tk', 'u-inv', { status: 'active', password: 'a-good-password' });
 	});
 
 	it('sets a new password without touching anything else', async () => {
@@ -391,9 +538,10 @@ describe('UsersTab — which employee an account acts as', () => {
 	it('finds an account by the employee it acts as', async () => {
 		await renderLoaded();
 
-		fireEvent.change(textbox('Search users'), { target: { value: 'မမြး' } });
+		searchUsers('မမြး');
+
+		await waitFor(() => expect(screen.queryByText('Aung Kyaw')).toBeNull());
 		expect(screen.getByText('Mya Mya')).toBeTruthy();
-		expect(screen.queryByText('Aung Kyaw')).toBeNull();
 	});
 
 	it('links and un-links an account, sending null to un-link (not an omitted field)', async () => {
@@ -485,8 +633,8 @@ describe('UsersTab — which employee an account acts as', () => {
 
 	it('degrades instead of breaking when the deployment has no employee directory', async () => {
 		// A factory-core deployment has no configured directory — the server
-		// advertises `identity.directory_collection: null`, so the tab shows no
-		// employee column and says so.
+		// advertises `identity.directory_collection: null`, so no employee read is
+		// issued and the accounts stay administrable.
 		mockGetServerMeta.mockResolvedValue({
 			platform: 'mmbix-headless',
 			version: '0.0.0',
@@ -495,14 +643,19 @@ describe('UsersTab — which employee an account acts as', () => {
 		mockListItems.mockRejectedValue(new Error('Collection "directory" not found'));
 		await renderLoaded();
 
-		expect(await screen.findByText(/no employee directory/i)).toBeTruthy();
+		// Every account still lists…
+		expect(screen.getByText('Mya Mya')).toBeTruthy();
+
+		// …and the reason the picker is closed is stated AT the control it closes,
+		// never as a bare disabled field.
 		openEdit('store@mmbics.com');
 		expect(employeeInput().disabled).toBe(true);
+		expect(screen.getByText(/no employee directory/i)).toBeTruthy();
 	});
 });
 
 describe('UsersTab — the editor takes the whole surface', () => {
-	it('unmounts the list instead of floating over it, and Cancel brings the list back', async () => {
+	it('unmounts the list instead of floating over it, and the header ✕ brings the list back', async () => {
 		await renderLoaded();
 		const editor = openEdit('store@mmbics.com');
 
@@ -513,33 +666,41 @@ describe('UsersTab — the editor takes the whole surface', () => {
 		// The account being edited is named by the editor itself.
 		expect(within(editor).getByText('store@mmbics.com')).toBeTruthy();
 
-		fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+		// The actions are the role form's own chrome: the circular ✓ and ✕ in the
+		// header — no back button and no bottom bar to duplicate them.
+		expect(closeButton()).toBeTruthy();
+		expect(saveButton()).toBeTruthy();
+		expect(screen.queryByRole('button', { name: /^cancel$/i })).toBeNull();
+
+		fireEvent.click(closeButton());
 
 		expect(await screen.findByRole('table')).toBeTruthy();
 		expect(screen.queryByRole('region')).toBeNull();
-		expect(screen.queryByRole('button', { name: /save changes/i })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 	});
 
-	it('offers the create form its own fields — and no state control it could not use', async () => {
+	it('offers the create form the Status control — how an invite is expressed — and no checkbox', async () => {
 		await renderLoaded();
 		fireEvent.click(screen.getByRole('button', { name: /new user/i }));
 
 		const editor = screen.getByRole('region', { name: /new user/i });
 		expect(within(editor).getByLabelText('Password')).toBeTruthy();
-		// A brand-new account has no stored state to flip, so the control is ABSENT
-		// rather than a checkbox that would change nothing.
+		// The lifecycle control is how a create is expressed as an invite, and it
+		// reads the DERIVED state before any password exists.
+		expect(statusSelect().value).toBe('invited');
+		// The old two-state checkbox is gone — one vocabulary, one control.
 		expect(screen.queryByRole('checkbox')).toBeNull();
 	});
 });
 
 describe('UsersTab — the operator cannot lock themselves out', () => {
-	it('offers no way to disable the account the session is signed in as', async () => {
+	it('offers no way to change the status of the account the session is signed in as', async () => {
 		await renderLoaded('dev@mmbics.com');
 		openEdit('dev@mmbics.com');
 
 		expect(await screen.findByText(/your own account/i)).toBeTruthy();
-		expect(boxDisabled()).toBe(true);
-		expect(await screen.findByText(/cannot disable the account you are signed in with/i)).toBeTruthy();
+		expect(statusSelect().disabled).toBe(true);
+		expect(await screen.findByText(/cannot change the status of the account you are signed in with/i)).toBeTruthy();
 	});
 
 	it('honours that block even if the control is forced, and writes no status', async () => {
@@ -547,13 +708,15 @@ describe('UsersTab — the operator cannot lock themselves out', () => {
 		openEdit('dev@mmbics.com');
 
 		// The behavioural guarantee behind the disabled state: whatever the DOM
-		// attribute says, the form cannot end up asking for a self-disable.
-		fireEvent.click(disableBox());
+		// says, the form cannot end up asking for a self-status change. Forcing the
+		// select AND editing a writable field reaches Submit — and what it writes
+		// is the name alone.
+		fireEvent.change(statusSelect(), { target: { value: 'suspended' } });
+		fireEvent.change(textbox('Full name'), { target: { value: 'Dev Admin' } });
 		fireEvent.click(saveButton());
 
-		expect(await screen.findByText(/nothing changed/i)).toBeTruthy();
-		expect(boxChecked()).toBe('false');
-		expect(mockUpdateUser).not.toHaveBeenCalled();
+		await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledTimes(1));
+		expect(mockUpdateUser).toHaveBeenCalledWith('tk', 'u-admin', { full_name: 'Dev Admin' });
 	});
 
 	it('still allows a non-status edit on your own account', async () => {
@@ -571,7 +734,7 @@ describe('UsersTab — the operator cannot lock themselves out', () => {
 		await renderLoaded('Dev@MmBics.com');
 		openEdit('dev@mmbics.com');
 
-		expect(boxDisabled()).toBe(true);
+		expect(statusSelect().disabled).toBe(true);
 	});
 });
 
@@ -589,14 +752,17 @@ describe('UsersTab — a Telegram-provisioned account', () => {
 		expect(screen.getByText(/re-read from the directory on every Telegram sign-in/i)).toBeTruthy();
 	});
 
-	it('still blocks sign-in, and writes nothing but the status', async () => {
+	it('still suspends, and writes nothing but the status — the directory owns the rest', async () => {
 		await renderLoaded();
 		openEdit('tg-42@telegram.local');
 
-		fireEvent.click(disableBox());
+		// The status control DOES stick for these rows, unlike the name and role the
+		// login route re-syncs on every sign-in — so it is offered.
+		expect(statusSelect().disabled).toBe(false);
+		fireEvent.change(statusSelect(), { target: { value: 'suspended' } });
 		fireEvent.click(saveButton());
 
 		await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledTimes(1));
-		expect(mockUpdateUser).toHaveBeenCalledWith('tk', 'u-tg', { status: 'disabled' });
+		expect(mockUpdateUser).toHaveBeenCalledWith('tk', 'u-tg', { status: 'suspended' });
 	});
 });

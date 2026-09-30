@@ -426,28 +426,40 @@ export function DataTableHeader<TData extends RowData>({
 							}}
 							aria-sort={isSorted === 'asc' ? 'ascending' : isSorted === 'desc' ? 'descending' : undefined}
 						>
-							<DropdownMenu>
-								<DropdownMenuTrigger
-									render={
-										<button
-											type="button"
-											className="flex w-full min-w-0 cursor-pointer items-center gap-1 transition-colors hover:text-foreground"
-										>
-											<span className="-ml-1 truncate rounded px-1 font-semibold capitalize transition-colors group-hover:bg-muted-foreground/10">
-												{typeof column.header === 'function'
-													? colInstance
-														? column.header({ column: colInstance })
-														: null
-													: String(column.header)}
-											</span>
-											{canSort && <SortIndicator sorted={isSorted ?? false} />}
-										</button>
-									}
-								/>
-								<DropdownMenuContent align="start" className="w-44">
-									<HeaderMenuContent columnId={column.id} />
-								</DropdownMenuContent>
-							</DropdownMenu>
+							{column.enableHeaderMenu === false ? (
+								// A header that IS a control renders bare — the default wrapper is a
+								// menu-trigger <button>, so a control inside it would nest buttons.
+								typeof column.header === 'function' ? (
+									colInstance ? (
+										column.header({ column: colInstance })
+									) : null
+								) : (
+									String(column.header)
+								)
+							) : (
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<button
+												type="button"
+												className="flex w-full min-w-0 cursor-pointer items-center gap-1 transition-colors hover:text-foreground"
+											>
+												<span className="-ml-1 truncate rounded px-1 font-semibold capitalize transition-colors group-hover:bg-muted-foreground/10">
+													{typeof column.header === 'function'
+														? colInstance
+															? column.header({ column: colInstance })
+															: null
+														: String(column.header)}
+												</span>
+												{canSort && <SortIndicator sorted={isSorted ?? false} />}
+											</button>
+										}
+									/>
+									<DropdownMenuContent align="start" className="w-44">
+										<HeaderMenuContent columnId={column.id} />
+									</DropdownMenuContent>
+								</DropdownMenu>
+							)}
 							{canResize && resizeHeader && colInstance && (
 								<div
 									role="separator"

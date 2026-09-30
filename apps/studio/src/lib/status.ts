@@ -70,6 +70,8 @@ const TONE_BY_STATUS: Record<string, StatusTone> = {
 	promoted: 'info',
 	queued: 'info',
 	deployed: 'info',
+	// Account lifecycle: invited = lined up, has not accepted yet — in motion.
+	invited: 'info',
 	// warning — needs attention, not yet a failure
 	review: 'warning',
 	pending_review: 'warning',
@@ -89,6 +91,8 @@ const TONE_BY_STATUS: Record<string, StatusTone> = {
 	canceled: 'danger',
 	rolled_back: 'danger',
 	disabled: 'danger',
+	// Account lifecycle: suspended = blocked from signing in.
+	suspended: 'danger',
 	blocked: 'danger',
 	revoked: 'danger',
 	denied: 'danger',

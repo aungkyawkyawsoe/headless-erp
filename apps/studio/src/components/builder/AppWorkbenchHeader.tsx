@@ -8,7 +8,6 @@ import { Avatar, AvatarFallback, Button } from '@mmbix/design-system';
 import { Braces, ChevronLeft, Settings, Table2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { appColor } from '@mmbix/ui-views';
-import { isIdpManagedModule } from '../../lib/idp';
 import { popBack } from '../../lib/view-state';
 import { APP_SECTIONS, type AppSection } from '../../lib/app-sections';
 import type { ModuleDetail } from '../../lib/api';
@@ -39,16 +38,16 @@ export function AppWorkbenchHeader({
 	return (
 		<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem' }}>
 			{/* Top-left back control — clicking the module identity (or the chevron)
-			 * leaves the workbench for the Apps ModuleGrid (or the IDP catalog for
-			 * IDP-managed modules). popBack pops the entry we were pushed from when
-			 * one exists (grid/catalog), else replaces to the destination — it never
-			 * stacks a second copy of the destination under this screen. */}
+			 * leaves the workbench for the catalog, which lists every app now that
+			 * the launcher grid is gone. popBack pops the entry we were pushed from
+			 * when one exists (portal/catalog), else replaces to the destination —
+			 * it never stacks a second copy of the destination under this screen. */}
 			<Button
 				variant="ghost"
 				style={{ padding: '0.25rem 0.5rem', marginLeft: '-0.5rem', height: 'auto' }}
-				title={isIdpManagedModule(mod.slug) ? 'Back to IDP catalog' : 'Back to apps'}
-				aria-label={isIdpManagedModule(mod.slug) ? 'Back to IDP catalog' : 'Back to apps'}
-				onClick={() => popBack(navigate, isIdpManagedModule(mod.slug) ? '/idp/catalog' : '/')}
+				title="Back to apps"
+				aria-label="Back to apps"
+				onClick={() => popBack(navigate, '/idp/catalog')}
 			>
 				<ChevronLeft size={16} style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }} />
 				<Avatar size="default" variant="square">

@@ -62,58 +62,61 @@
 	--mmbix-tone-danger-border: #fca5a5;
 }
 
-/* ── Dark theme — the same token set with a slate + teal palette, activated by the
- * ThemeProvider's `.dark` class on <html>. Imported after the design-system CSS, so
- * these win over the DS `.dark` defaults; the `--mmbix-*` copies cover inline styles
- * in the Studio that resolve the token directly. */
+/* ── Dark theme — harmonized with the embedded API reference (Scalar's dark ramp) so the
+ * chrome and the docs read as ONE surface: neutral near-black pages (#0f0f0f), raised
+ * cards/popovers/rows (#1a1a1a), controls (#272727), #2d2d2d hairlines, #e7e7e7 / #a4a4a4
+ * text. Teal stays the brand accent (primary, ring, the rail's active bar) — matching the
+ * teal light theme. Activated by the ThemeProvider's `.dark` class on <html>. Imported
+ * after the design-system CSS, so these win over the DS `.dark` defaults; the `--mmbix-*`
+ * copies cover inline styles in the Studio that resolve the token directly. */
 .dark {
 	color-scheme: dark;
-	--background: #0b1220;
-	--foreground: #e2e8f0;
-	--card: #111c2e;
-	--card-foreground: #e2e8f0;
-	--popover: #111c2e;
-	--popover-foreground: #e2e8f0;
+	--background: #0f0f0f;
+	--foreground: #e7e7e7;
+	--card: #1a1a1a;
+	--card-foreground: #e7e7e7;
+	--popover: #1a1a1a;
+	--popover-foreground: #e7e7e7;
 	--primary: #14b8a6;
 	--primary-foreground: #042f2e;
-	--secondary: #1e293b;
-	--secondary-foreground: #e2e8f0;
-	--muted: #1e293b;
-	--muted-foreground: #94a3b8;
-	--accent: #0f3d3a;
-	--accent-foreground: #5eead4;
+	--secondary: #272727;
+	--secondary-foreground: #e7e7e7;
+	--muted: #1a1a1a;
+	--muted-foreground: #a4a4a4;
+	--accent: #272727;
+	--accent-foreground: #e7e7e7;
 	--destructive: #ef4444;
 	--destructive-foreground: #ffffff;
-	--border: #263449;
-	--input: #334155;
-	--input-bg: #0b1220;
+	--border: #2d2d2d;
+	--input: #2d2d2d;
+	--input-bg: #1a1a1a;
 	--ring: #2dd4bf;
-	--sidebar: #0b1220;
-	--sidebar-foreground: #e2e8f0;
+	--sidebar: #0f0f0f;
+	--sidebar-foreground: #e7e7e7;
 	--sidebar-primary: #0d9488;
 	--sidebar-primary-foreground: #042f2e;
-	--sidebar-accent: #0f3d3a;
-	--sidebar-accent-foreground: #5eead4;
-	--sidebar-border: #263449;
+	--sidebar-accent: #1a1a1a;
+	--sidebar-accent-foreground: #e7e7e7;
+	--sidebar-border: #2d2d2d;
 	--sidebar-ring: #2dd4bf;
 
 	/* Inline styles in the Studio resolve these (same dark values as above). */
-	--mmbix-background: #0b1220;
-	--mmbix-foreground: #e2e8f0;
-	--mmbix-card: #111c2e;
+	--mmbix-background: #0f0f0f;
+	--mmbix-foreground: #e7e7e7;
+	--mmbix-card: #1a1a1a;
 	--mmbix-primary: #14b8a6;
 	--mmbix-primary-foreground: #042f2e;
-	--mmbix-muted: #1e293b;
-	--mmbix-muted-foreground: #94a3b8;
-	--mmbix-accent: #0f3d3a;
-	--mmbix-border: #263449;
+	--mmbix-muted: #1a1a1a;
+	--mmbix-muted-foreground: #a4a4a4;
+	--mmbix-accent: #1a1a1a;
+	--mmbix-border: #2d2d2d;
 	--mmbix-ring: #2dd4bf;
-	--mmbix-input: #334155;
+	--mmbix-input: #2d2d2d;
 
 	/* Status tones — dark variants (see the light block for the contract). */
-	--mmbix-tone-neutral-fg: #cbd5e1;
-	--mmbix-tone-neutral-bg: #1e293b;
-	--mmbix-tone-neutral-border: #334155;
+	--mmbix-tone-neutral-fg: #a4a4a4;
+	--mmbix-tone-neutral-bg: #1a1a1a;
+	--mmbix-tone-neutral-border: #2d2d2d;
 	--mmbix-tone-info-fg: #93c5fd;
 	--mmbix-tone-info-bg: #172554;
 	--mmbix-tone-info-border: #1e3a8a;
@@ -185,4 +188,22 @@ main [data-slot='datatable-container'] {
 	min-width: 0;
 	max-width: 100%;
 	overflow: auto;
+}
+
+/* ── The shell fills the app frame; the content column owns the scroll ──
+ * App.tsx pins the authed frame to the viewport (`100svh` — the same unit the
+ * design-system chrome uses for its `h-svh` rail/sidebar). A shell left to grow
+ * with its content therefore outgrows that frame: on a long page the wrapper
+ * stretches to the content height while every rail/sidebar/header/status-bar
+ * element stays viewport-pinned inside a taller row. Pin the wrapper to the
+ * frame and hand the scroll to the content column instead, so the whole shell
+ * is exactly one viewport tall and a long page scrolls UNDER the chrome.
+ * Studio-only: the frame is what makes the constraint (see App.tsx). */
+[data-slot='sidebar-wrapper'] {
+	height: 100%;
+	min-height: 0;
+}
+[data-slot='sidebar-wrapper'] > [data-slot='sidebar-inset'] {
+	min-height: 0;
+	overflow-y: auto;
 }

@@ -24,7 +24,7 @@ import {
 	fieldTypesQuery,
 	idpCatalogQuery,
 	idpDeploymentsQuery,
-	idpEnvironmentsQuery,
+	idpScorecardQuery,
 	itemsQuery,
 	moduleQuery,
 	modulesQuery,
@@ -71,7 +71,6 @@ vi.mock('./api', () => ({
 	getIdpUsage: vi.fn(async () => ({ days: 30 })),
 	listIdpTemplates: vi.fn(async () => []),
 	listIdpDeployments: vi.fn(async () => []),
-	listIdpEnvironments: vi.fn(async () => []),
 	getDeploymentHistory: vi.fn(async () => []),
 	listRoles: vi.fn(async () => [{ id: '1', name: 'editor' }]),
 	getCollectionPolicies: vi.fn(async () => ({ cache: { enabled: true, ttl_s: 60 } })),
@@ -90,7 +89,7 @@ const modulesMock = vi.mocked(api.listModules);
 const moduleMock = vi.mocked(api.getModule);
 const idpCatalogMock = vi.mocked(api.getIdpCatalog);
 const idpDeploymentsMock = vi.mocked(api.listIdpDeployments);
-const idpEnvironmentsMock = vi.mocked(api.listIdpEnvironments);
+const idpScorecardMock = vi.mocked(api.getIdpScorecard);
 const rolesMock = vi.mocked(api.listRoles);
 const policiesMock = vi.mocked(api.getCollectionPolicies);
 const apiKeysMock = vi.mocked(api.listApiKeys);
@@ -285,19 +284,19 @@ describe('invalidation scoping — module + IDP subtrees', () => {
 	it('invalidateIdp refetches the IDP subtree but leaves the schema plane alone', async () => {
 		await client.fetchQuery(idpCatalogQuery(token));
 		await client.fetchQuery(idpDeploymentsQuery(token));
-		await client.fetchQuery(idpEnvironmentsQuery(token));
+		await client.fetchQuery(idpScorecardQuery(token));
 		await client.fetchQuery(collectionQuery(token, 'a'));
 		expect(idpCatalogMock).toHaveBeenCalledTimes(1);
 
 		await invalidateIdp(client);
 		await client.fetchQuery(idpCatalogQuery(token));
 		await client.fetchQuery(idpDeploymentsQuery(token));
-		await client.fetchQuery(idpEnvironmentsQuery(token));
+		await client.fetchQuery(idpScorecardQuery(token));
 		await client.fetchQuery(collectionQuery(token, 'a'));
 
 		expect(idpCatalogMock).toHaveBeenCalledTimes(2);
 		expect(idpDeploymentsMock).toHaveBeenCalledTimes(2);
-		expect(idpEnvironmentsMock).toHaveBeenCalledTimes(2);
+		expect(idpScorecardMock).toHaveBeenCalledTimes(2);
 		expect(schemaMock).toHaveBeenCalledTimes(1); // untouched — disjoint subtree
 	});
 

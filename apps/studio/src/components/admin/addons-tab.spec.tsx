@@ -99,4 +99,20 @@ describe('AddonsTab', () => {
 		fireEvent.click(install);
 		await waitFor(() => expect(mockInstall).toHaveBeenCalledWith('tk', 'crm'));
 	});
+
+	it('narrows the catalog through the shared table’s search box', async () => {
+		renderTab();
+		await screen.findByText('Internal Developer Platform');
+
+		// The shared DataTable's toolbar owns the search input; the widget owns the
+		// predicate (manualFiltering), so exactly the matching row survives.
+		fireEvent.change(screen.getByLabelText('Search add-ons'), { target: { value: 'crm' } });
+
+		await waitFor(() => expect(screen.queryByText('Internal Developer Platform')).toBeNull());
+		expect(screen.getByText('CRM')).toBeTruthy();
+		// A term that matches nothing says WHICH term missed — never "this build
+		// ships no add-ons", which would be a different (and false) statement.
+		fireEvent.change(screen.getByLabelText('Search add-ons'), { target: { value: 'zzz' } });
+		expect(await screen.findByText('No add-on matches “zzz”.')).toBeTruthy();
+	});
 });

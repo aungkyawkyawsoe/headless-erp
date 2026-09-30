@@ -66,7 +66,7 @@ export default function IdpPoliciesPage({ token, user }: { token: string; user: 
 	];
 
 	return (
-		<IdpShell token={token} user={user} breadcrumbs={[{ href: '#/idp', label: 'IDP' }, { label: 'Policies' }]} activeNav="policies">
+		<IdpShell token={token} user={user} breadcrumbs={[{ href: '#/idp', label: 'IDP' }, { label: 'Policies' }]}>
 			<div style={WRAPPER}>
 				{error && (
 					<Alert variant="destructive">

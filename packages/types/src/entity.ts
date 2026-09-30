@@ -324,7 +324,10 @@ export interface UserRecord {
 	password_hash: string;
 	full_name: string;
 	role_id: string;
-	status: 'active' | 'disabled';
+	/** Lifecycle state — `active` signs in, `invited` has no credential yet,
+	 *  `suspended` is blocked. Anything ≠ `active` is denied at login/token
+	 *  verification (fail-closed). See `USER_STATUSES` in the API's auth service. */
+	status: 'active' | 'invited' | 'suspended';
 	/** The directory row this account acts as — the web-sign-in identity.
 	 *  Null for the bootstrap admin and for Telegram accounts, whose acting
 	 *  employee is derived from the token's `tg-<id>` email instead. */

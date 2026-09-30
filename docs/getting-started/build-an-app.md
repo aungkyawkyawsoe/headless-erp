@@ -199,13 +199,13 @@ client should re-read `/auth/me` on resume. Deep dive:
 
 ## 8. The two UIs
 
-| Route         | Surface                                                                                                |
-| ------------- | ------------------------------------------------------------------------------------------------------ |
-| `/`           | Apps gallery                                                                                           |
-| `/apps/:slug` | **App workbench** — schema designer, page canvas, menus, layouts, **Policy panel**, **Generate panel** |
-| `/studio`     | Studio admin — users, roles, config, DS exports, add-ons, API keys, **Operations** telemetry           |
-| `/idp/*`      | IDP portal — catalog, environments, deployments, usage, policies, audit, access, users                 |
-| `/api-docs`   | Scalar API reference                                                                                   |
+| Route            | Surface                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `/`              | Redirects to the IDP portal — sign-in lands on the rail + panel shell, not a launcher grid             |
+| `/apps/:slug`    | **App workbench** — schema designer, page canvas, menus, layouts, **Policy panel**, **Generate panel** |
+| `/studio`        | Studio admin — users, roles, config, DS exports, add-ons, API keys, **Operations** telemetry           |
+| `/idp/*`         | IDP portal — catalog, environments, deployments, usage, policies, audit, access, users, API docs       |
+| `/idp/api-docs`  | Scalar API reference (a rail section of the portal; `/api-docs` redirects here)                        |
 
 The Studio is **RBAC-aware** (a non-admin never sees a control the API would 403) and code-split (the entry
 bundle is ~20 kB).

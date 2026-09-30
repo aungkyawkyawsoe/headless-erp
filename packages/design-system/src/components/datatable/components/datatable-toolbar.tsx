@@ -26,6 +26,8 @@ interface DataTableToolbarProps<TData extends RowData> {
 	pagination?: React.ReactNode;
 	/** Icon-only [Table | Kanban] view-mode toggle rendered at the far top-right. */
 	viewModeToggle?: React.ReactNode;
+	/** Render the per-column filter popover. Defaults to `true`. */
+	showFilters?: boolean;
 }
 
 export function DataTableToolbar<TData extends RowData>({
@@ -42,6 +44,7 @@ export function DataTableToolbar<TData extends RowData>({
 	createLabel,
 	pagination,
 	viewModeToggle,
+	showFilters = true,
 }: DataTableToolbarProps<TData>) {
 	const [inputValue, setInputValue] = React.useState(globalFilter);
 	const debounceRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -78,6 +81,7 @@ export function DataTableToolbar<TData extends RowData>({
 					onValueChange={handleSearchChange}
 					onClear={handleSearchClear}
 					placeholder={labels?.searchPlaceholder ?? 'Search...'}
+					aria-label={labels?.searchLabel}
 					className="z-20 mt-1 w-50"
 					inputClassName="h-7!"
 				/>
@@ -103,7 +107,15 @@ export function DataTableToolbar<TData extends RowData>({
 					</Button>
 				)}
 				{/* ── Filter popover button ──────────────── */}
-				<DataTableFilterPopover columns={columns} activeFilters={filters} labels={labels} onApply={onSetFilters} onClear={onClearFilters} />
+				{showFilters && (
+					<DataTableFilterPopover
+						columns={columns}
+						activeFilters={filters}
+						labels={labels}
+						onApply={onSetFilters}
+						onClear={onClearFilters}
+					/>
+				)}
 				{/* ── View-mode toggle — right slot, beside the filter button ── */}
 				{viewModeToggle}
 				{toolbarActions}

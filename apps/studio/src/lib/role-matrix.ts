@@ -1,18 +1,21 @@
 /**
  * Role/access matrix — the pure logic behind the Roles & Access tab.
  *
- * The tab renders a per-collection permission matrix (one row per collection, one
- * column per flag) plus a governance summary. Everything numeric or conditional in
- * that view is derived HERE so it can be tested without a DOM — the component only
- * renders it.
+ * The tab renders TWO tables in one shape, switched by the button group in the
+ * table's label area: the per-collection permission matrix (one row per
+ * collection, one column per flag) and the role's app board (one row per app,
+ * one Open column). Everything numeric or conditional in either view is derived
+ * HERE so it can be tested without a DOM — the component only renders it.
  *
  * Design notes:
  *   • The six flags are the engine's `_role_permissions` columns; they live here so
- *     the header, the summary and the payload can never drift into three lists.
+ *     the header and the payload can never drift into two lists.
  *   • `field_restrictions` is a JSON whitelist ('*' / null = every field visible);
  *     `row_filters` is a JSON `{ conditions, combiner }`. Both are stored as opaque
  *     strings, so every read parses defensively — a malformed value is "no rule",
  *     never a thrown render.
+ *   • The app board is the role's `app_access` — ONE field, so it diffs as a whole
+ *     (`sameBoard`) rather than per row, unlike the per-collection rows.
  */
 import type { RolePermission } from './api';
 
@@ -84,22 +87,6 @@ export function rowRuleCount(p: RolePermission): number {
 	}
 }
 
-/** Governance summary for the matrix — the tiles above the table. */
-export interface MatrixStats {
-	/** Collections in the library. */
-	total: number;
-	/** Collections with at least one flag on. */
-	granted: number;
-	/** Total flag ticks across every row. */
-	flags: number;
-	/** Collections carrying at least one row-level condition. */
-	rowRules: number;
-	/** Collections carrying a field whitelist. */
-	fieldLocks: number;
-	/** Collections with at least one unsaved edit (drafts differing from baseline). */
-	dirty: number;
-}
-
 /**
  * The per-flag state of a column across the rows on screen — the tri-state a
  * master checkbox shows. Computed over the VISIBLE rows so "toggle all" acts on
@@ -107,12 +94,17 @@ export interface MatrixStats {
  */
 export type ColumnState = 'all' | 'some' | 'none';
 
-export function columnState(perms: readonly RolePermission[], flag: FlagKey): ColumnState {
-	if (perms.length === 0) return 'none';
+/** The tri-state of a boolean column, in column order (the one rule for both tables). */
+export function triState(values: readonly boolean[]): ColumnState {
+	if (values.length === 0) return 'none';
 	let on = 0;
-	for (const p of perms) if (Boolean(p[flag])) on++;
+	for (const v of values) if (v) on++;
 	if (on === 0) return 'none';
-	return on === perms.length ? 'all' : 'some';
+	return on === values.length ? 'all' : 'some';
+}
+
+export function columnState(perms: readonly RolePermission[], flag: FlagKey): ColumnState {
+	return triState(perms.map((p) => Boolean(p[flag])));
 }
 
 /** The value a master toggle should write: flip to on unless the column is already fully on. */
@@ -134,21 +126,24 @@ function normalize(v: string | null | undefined): string {
 	return v ?? '';
 }
 
+/** How many rows carry unsaved edits (draft ≠ the persisted baseline). O(rows). */
+export function dirtyCount(perms: readonly RolePermission[], baseline: Record<string, RolePermission>): number {
+	let n = 0;
+	for (const p of perms) if (isPermDirty(p, baseline[p.collection_slug])) n++;
+	return n;
+}
+
 /**
- * Derive the whole summary in ONE pass over the library (O(collections)), given the
- * drafts and the baseline they are compared against.
+ * Is the app board the same as the persisted one? `null` is the unrestricted
+ * board (every app) and a list is exactly those app ids; order is irrelevant.
+ * `null` never equals a list, because the unrestricted board also covers apps
+ * that do not exist yet.
  */
-export function matrixStats(perms: readonly RolePermission[], baseline: Record<string, RolePermission>): MatrixStats {
-	const stats: MatrixStats = { total: perms.length, granted: 0, flags: 0, rowRules: 0, fieldLocks: 0, dirty: 0 };
-	for (const p of perms) {
-		const flagCount = grantedFlagCount(p);
-		if (flagCount > 0) stats.granted++;
-		stats.flags += flagCount;
-		if (rowRuleCount(p) > 0) stats.rowRules++;
-		if (fieldLockCount(p) > 0) stats.fieldLocks++;
-		if (isPermDirty(p, baseline[p.collection_slug])) stats.dirty++;
-	}
-	return stats;
+export function sameBoard(a: readonly string[] | null, b: readonly string[] | null): boolean {
+	if (a === null || b === null) return a === b;
+	if (a.length !== b.length) return false;
+	const set = new Set(a);
+	return b.every((id) => set.has(id));
 }
 
 /** The governance note shown per row — the "Attributes & RLS" column. */

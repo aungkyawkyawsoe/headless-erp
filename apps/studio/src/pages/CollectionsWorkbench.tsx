@@ -1,82 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import {
-	Alert,
-	AlertDescription,
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogMedia,
-	AlertDialogTitle,
-	Badge,
-	Button,
-	Card,
-	CardContent,
-	confirmDialog,
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-	Input,
-	Label,
-	SearchBox,
-} from '@mmbix/design-system';
+import { useParams } from 'react-router-dom';
+import { Alert, AlertDescription, Badge, Button, confirmDialog } from '@mmbix/design-system';
 import { DataTable } from '@mmbix/design-system/datatable';
-import { ArchiveRestore, Braces, ChevronLeft, Database, Download, Eye, EyeOff, Gauge, Hash, Plus, Table2, Trash2, Zap } from 'lucide-react';
+import { ArchiveRestore, Braces, Download, Gauge, Hash, Table2, Trash2, Zap } from 'lucide-react';
 import AddFieldDialog from '../components/AddFieldDialog';
 import FieldTypesPanel from '../components/FieldTypesPanel';
 import PolicyPanel from '../components/PolicyPanel';
 import RecordDetailView from '../components/RecordDetailView';
 import RecordFormDialog from '../components/RecordFormDialog';
-import StudioLayout, { SideSection } from '../components/StudioLayout';
-import {
-	createCollection,
-	deleteCollection,
-	setCollectionHidden,
-	updateCollectionFields,
-	updateCollectionMeta,
-	SYSTEM_FIELD_NAMES,
-	namingSeriesExample,
-	type CollectionSummary,
-	type EntitySchema,
-	type FieldDefinition,
-	type FieldTypeDef,
-} from '../lib/api';
+import StudioLayout from '../components/StudioLayout';
+import IdpShell from '../components/IdpShell';
+import { updateCollectionFields, updateCollectionMeta, SYSTEM_FIELD_NAMES, namingSeriesExample, type EntitySchema, type FieldDefinition, type FieldTypeDef } from '../lib/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { codeHooksQuery, collectionQuery, collectionsQuery, serverHooksQuery } from '../lib/queries';
-import { invalidateCollectionList, invalidateRows } from '../lib/query-client';
+import { invalidateRows } from '../lib/query-client';
 import { qk } from '../lib/query-keys';
 import { writeLockOf, isRowFrozen, partitionFrozenRows, frozenRowsReason } from '../lib/write-lock';
 import { useStore } from '@tanstack/react-store';
-import { setRegistryQuery, setShowHiddenCollections, studioUiStore } from '../lib/studio-store';
+import { studioUiStore } from '../lib/studio-store';
 import { messageOf } from '../lib/errors';
 import { useFieldTypes } from '../lib/use-field-types';
 import { isHiddenCollection } from '../lib/idp';
-import { popBack, useViewState } from '../lib/view-state';
+import { useViewState } from '../lib/view-state';
 import { useM2oSchemas } from '../lib/collection-table-filters';
 import { useCollectionRecords } from '../lib/use-collection-records';
 import ExportDialog from '../components/ExportDialog';
-import { CollectionsPaneToggle } from '../components/collections/workbench-parts';
 import { HooksDialog, hooksForCollection } from '../components/collections/HooksDialog';
 import { DocNoDialog } from '../components/collections/DocNoDialog';
 import { PanelDialog } from '../components/collections/PanelDialog';
 import { FieldPropertiesDrawer } from '../components/collections/FieldPropertiesDrawer';
 import { SchemaFieldGrid } from '../components/collections/SchemaFieldGrid';
-import { CollectionsRegistryList } from '../components/collections/RegistryList';
 
 /**
  * CollectionsWorkbench — the schema registry as a full app-workbench, reusing
- * the SAME layout the catalog details use (StudioLayout 3-pane shell):
+ * the SAME layout the catalog details use (StudioLayout 3-pane shell).
  *
- *   left:   all non-system, non-IDP collections + New collection. Collections
- *           flagged meta.hidden (engine list-visibility flag) stay out unless
- *           the eye toggle reveals them — data/schema access is unaffected.
+ *   panel:  the collections registry (CollectionsPanel) — every non-system,
+ *           non-IDP collection, the reveal-hidden toggle and New collection.
+ *           Collections flagged meta.hidden (engine list-visibility flag) stay
+ *           out unless the eye toggle reveals them — data/schema access is
+ *           unaffected.
  *   center: the focused collection — table view (records) ⇄ schema view (fields)
  *   right:  the backend field-type palette (add fields straight from here)
  *
@@ -84,8 +47,7 @@ import { CollectionsRegistryList } from '../components/collections/RegistryList'
  * tables usable by any app. System (`_`), IDP-internal (`idp_`) and user-hidden
  * (meta.hidden) collections are excluded from the default list.
  */
-export default function CollectionsWorkbench({ token }: { token: string }) {
-	const navigate = useNavigate();
+export default function CollectionsWorkbench({ token, user }: { token: string; user: { email: string; full_name: string } }) {
 	const { slug } = useParams<{ slug: string }>();
 	// All URL reads/writes go through the shared useViewState hook (lib/view-state.ts):
 	// ?collection= & ?view= describe view state on this one route, so writes REPLACE the
@@ -97,10 +59,8 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	// Write-action errors only — read errors come from the queries themselves.
 	const [actionError, setActionError] = useState<string | null>(null);
 
-	// Left-pane registry filters are CLIENT state (TanStack Store), not server
-	// state and not URL state, so they survive a remount / route change without
-	// polluting history.
-	const modelQuery = useStore(studioUiStore, (s) => s.registryQuery);
+	// The registry's reveal-hidden filter is CLIENT state (TanStack Store): the
+	// panel owns the toggle, this page only honors it when listing.
 	const showHidden = useStore(studioUiStore, (s) => s.showHiddenCollections);
 
 	// Selection + view are URL-backed (?collection= & ?view=) so reloads keep state.
@@ -128,9 +88,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	const codeHooksError = messageOf(codeHooksQ.error);
 	// A read failure (registry / schema / hooks) OR a write-action failure.
 	const error = actionError ?? messageOf(collectionsQ.error) ?? messageOf(schemaQ.error) ?? hooksError ?? codeHooksError;
-	// When true, the center's "Back to Collections" keeps the empty "Select a
-	// collection" landing instead of auto-picking the first collection again.
-	const stayOnCollectionList = useRef(false);
 	const [view, setViewState] = useState<'table' | 'schema'>(rawView === 'table' ? 'table' : 'schema');
 	const setView = useCallback(
 		(v: 'table' | 'schema') => {
@@ -146,49 +103,33 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [slug]);
 
-	const selectCollection = useCallback(
-		(slug: string | null) => {
-			updateViewState((p) => {
-				if (slug) {
-					p.set('collection', slug);
-					stayOnCollectionList.current = false;
-				} else {
-					p.delete('collection');
-				}
-				p.delete('row');
-			});
-			setOpenRecord(null);
-			setOpenSchema(null);
-			setSelectedRows([]);
-			setCreateOpen(false);
-			setCreateTarget(null);
-			setCreatePrefill(null);
-			setHooksOpen(false);
-			setPolicyOpen(false);
-		},
-		// setSelectedRows is a stable useState setter (exposed by useCollectionRecords) —
-		// listing it here would be a TDZ read, since the hook is declared further down.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[updateViewState],
-	);
-
-	/** Center-header "← Collections": clear the focus so the registry list shows. */
-	const goBackToCollections = useCallback(() => {
-		stayOnCollectionList.current = true;
-		selectCollection(null);
-	}, [selectCollection]);
-
 	// ── Derived registry rows ──────────────────────────────────
 	// Engine-system/IDP collections are excluded above; user-hidden ones
 	// (meta.hidden) only surface when the reveal toggle is on.
 	const visibleCollections = useMemo(() => (showHidden ? collections : collections.filter((c) => !c.hidden)), [collections, showHidden]);
 
-	// Default-select the first VISIBLE collection (hidden ones must never be auto-opened)
-	// — unless the user just asked to go back to the collection list (stay on landing).
+	// Default-select the first VISIBLE collection (hidden ones must never be auto-opened).
 	useEffect(() => {
-		if (stayOnCollectionList.current) return;
-		if (!selected && visibleCollections.length > 0) selectCollection(visibleCollections[0].slug);
-	}, [visibleCollections, selected, selectCollection]);
+		if (!selected && visibleCollections.length > 0) updateViewState((p) => p.set('collection', visibleCollections[0].slug));
+	}, [visibleCollections, selected, updateViewState]);
+
+	// The selection can now change from OUTSIDE this page (the side panel writes the
+	// same `?collection=` param), so the transient views that belong to a collection
+	// are cleared by a watcher on the resolved value — not by a click handler, which
+	// the panel's clicks never reach.
+	useEffect(() => {
+		setOpenRecord(null);
+		setOpenSchema(null);
+		setSelectedRows([]);
+		setCreateOpen(false);
+		setCreateTarget(null);
+		setCreatePrefill(null);
+		setHooksOpen(false);
+		setPolicyOpen(false);
+		// setSelectedRows is a stable useState setter (exposed by useCollectionRecords)
+		// declared further down — listing it here would be a TDZ read.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [selected]);
 
 	const selectedModel = collections.find((c) => c.slug === selected) ?? null;
 	const collectionName = selectedModel?.name ?? selectedSchema?.name ?? selected ?? '';
@@ -253,11 +194,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	const selectedPartition = useMemo(() => partitionFrozenRows(writeLock, selectedRows), [writeLock, selectedRows]);
 
 	// New Collection dialog state.
-	const [newOpen, setNewOpen] = useState(false);
-	const [newName, setNewName] = useState('');
-	const [newDescription, setNewDescription] = useState('');
-	const [newNaming, setNewNaming] = useState('');
-	const [newBusy, setNewBusy] = useState(false);
 	// Doc No. (naming series) editor — per-collection auto-numbering pattern.
 	const [docNoOpen, setDocNoOpen] = useState(false);
 	const [docNoValue, setDocNoValue] = useState('');
@@ -277,10 +213,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	// them under "rewrites this collection"). The dialog groups the same way; the
 	// button label only needs the total.
 	const hookTotal = useMemo(() => hooksForCollection(hooks, codeHooks, selected).hookTotal, [hooks, codeHooks, selected]);
-
-	// Collection pending deletion — confirmed via AlertDialog before DELETE /api/collections/:slug.
-	const [deleteTarget, setDeleteTarget] = useState<CollectionSummary | null>(null);
-	const [deleteBusy, setDeleteBusy] = useState(false);
 
 	// Add-field flow — palette pick (right pane) → type-aware property dialog.
 	const [draftDef, setDraftDef] = useState<FieldTypeDef | null>(null);
@@ -311,33 +243,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 
 	// ── handlers ────────────────────────────────────────────────────────────
 
-	async function createModel(e: React.FormEvent) {
-		e.preventDefault();
-		if (!newName.trim() || newBusy || namingSeriesExample(newNaming) === false) return;
-		setNewBusy(true);
-		try {
-			const created = await createCollection(token, newName.trim(), {
-				description: newDescription.trim() || undefined,
-				naming_series: newNaming.trim() || undefined,
-			});
-			setNewName('');
-			setNewDescription('');
-			setNewNaming('');
-			setNewOpen(false);
-			// Seed the new collection's cache so focusing it renders instantly, then
-			// refresh the registry list (the ONLY thing this write changed).
-			queryClient.setQueryData(qk.collection(created.slug), created);
-			await invalidateCollectionList(queryClient);
-			selectCollection(created.slug);
-		} catch (err) {
-			setActionError(err instanceof Error ? err.message : 'Create failed');
-		} finally {
-			setNewBusy(false);
-		}
-	}
-
-	// Doc No. (naming series) — live previews for the create + existing-collection dialogs.
-	const newNamingExample = namingSeriesExample(newNaming);
+	// Doc No. (naming series) — live preview for the per-collection editor.
 	const docNoExample = namingSeriesExample(docNoValue);
 
 	// Open the Doc No. editor seeded with the collection's CURRENT pattern.
@@ -370,44 +276,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			setActionError(err instanceof Error ? err.message : 'Failed to update Doc No.');
 		} finally {
 			setDocNoBusy(false);
-		}
-	}
-
-	// Permanently delete a collection (schema + data table dropped server-side).
-	async function confirmDeleteCollection() {
-		if (!deleteTarget || deleteBusy) return;
-		setDeleteBusy(true);
-		try {
-			const removedSlug = deleteTarget.slug;
-			await deleteCollection(token, removedSlug);
-			setDeleteTarget(null);
-			// If the deleted collection was focused, clear the selection before refreshing.
-			if (selected === removedSlug) selectCollection(null);
-			// Drop the deleted collection's cached schema + rows, then refresh the list.
-			queryClient.removeQueries({ queryKey: qk.collection(removedSlug) });
-			queryClient.removeQueries({ queryKey: qk.rows(removedSlug) });
-			await invalidateCollectionList(queryClient);
-		} catch (err) {
-			setActionError(err instanceof Error ? err.message : 'Delete failed');
-			setDeleteTarget(null);
-		} finally {
-			setDeleteBusy(false);
-		}
-	}
-
-	/** meta.hidden — hide/show a collection in this schema-registry list (records/schema stay fully editable). */
-	async function updateCollectionVisibility(c: CollectionSummary, hidden: boolean) {
-		try {
-			await setCollectionHidden(token, c.slug, hidden);
-			// Optimistic: the toggle is instant, and the authoritative list + schema
-			// revalidate in the background.
-			queryClient.setQueryData<CollectionSummary[]>(qk.collections(), (prev) =>
-				prev?.map((x) => (x.slug === c.slug ? { ...x, hidden } : x)),
-			);
-			void queryClient.invalidateQueries({ queryKey: qk.collection(c.slug) });
-			setActionError(null);
-		} catch (e) {
-			setActionError(e instanceof Error ? e.message : 'Update failed');
 		}
 	}
 
@@ -548,59 +416,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 		setOpenSchema(schema ?? null);
 	}
 
-	const left =
-		loading && collections.length === 0 ? (
-			<div style={{ padding: '1rem', color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Loading collections…</div>
-		) : (
-			<div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
-				<SideSection
-					title="Collections"
-					action={
-						<div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-							<CollectionsPaneToggle />
-							<Button
-								variant="ghost"
-								size="icon-xs"
-								title={showHidden ? 'Hide hidden collections' : 'Reveal hidden collections'}
-								onClick={() => setShowHiddenCollections(!showHidden)}
-							>
-								{showHidden ? <EyeOff size={14} /> : <Eye size={14} />}
-							</Button>
-							<Button
-								variant="ghost"
-								size="icon-xs"
-								title="New collection"
-								onClick={() => {
-									setNewName('');
-									setNewDescription('');
-									setNewNaming('');
-									setNewOpen(true);
-								}}
-							>
-								<Plus size={14} />
-							</Button>
-						</div>
-					}
-				>
-					<SearchBox
-						value={modelQuery}
-						onValueChange={setRegistryQuery}
-						placeholder="Search collections…"
-						style={{ marginBottom: 8, width: '100%' }}
-					/>
-				</SideSection>
-				<CollectionsRegistryList
-					collections={collections}
-					visibleCollections={visibleCollections}
-					selected={selected}
-					modelQuery={modelQuery}
-					onSelect={selectCollection}
-					onToggleVisibility={(c, hidden) => void updateCollectionVisibility(c, hidden)}
-					onRequestDelete={(c) => setDeleteTarget(c)}
-				/>
-			</div>
-		);
-
 	const right = (
 		<div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
 			<FieldTypesPanel
@@ -622,63 +437,17 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 	const center =
 		!selected || !selectedSchema ? (
 			!selected ? (
-				// No collection focused → the Collections registry overview (the back target).
-				<div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem', minHeight: 0 }}>
-					<div style={{ maxWidth: 860, margin: '0 auto' }}>
-						<div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
-							<h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0 }}>Collections</h2>
-							<Badge variant="outline">{visibleCollections.length}</Badge>
-						</div>
-
-						{visibleCollections.length === 0 ? (
-							<p style={{ margin: 0, color: 'var(--mmbix-muted-foreground, #6b7280)', fontSize: '0.85rem' }}>
-								No collections here yet — create one to start designing fields and records.
-							</p>
-						) : (
-							<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
-								{visibleCollections.map((c) => (
-									<Card
-										key={c.id}
-										title={`Open ${c.name}`}
-										style={{ padding: 0, cursor: 'pointer' }}
-										onClick={() => selectCollection(c.slug)}
-									>
-										<CardContent style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.7rem 0.75rem' }}>
-											<span
-												style={{
-													width: 32,
-													height: 32,
-													borderRadius: 8,
-													background: 'var(--mmbix-muted, #f3f4f6)',
-													color: 'var(--mmbix-muted-foreground, #6b7280)',
-													display: 'inline-flex',
-													alignItems: 'center',
-													justifyContent: 'center',
-													flexShrink: 0,
-												}}
-											>
-												<Database size={15} />
-											</span>
-											<div style={{ minWidth: 0, flex: 1 }}>
-												<div
-													style={{
-														fontSize: '0.88rem',
-														fontWeight: 600,
-														whiteSpace: 'nowrap',
-														overflow: 'hidden',
-														textOverflow: 'ellipsis',
-													}}
-												>
-													{c.name}
-												</div>
-												<div style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #94a3b8)' }}>{c.slug}</div>
-											</div>
-										</CardContent>
-									</Card>
-								))}
-							</div>
-						)}
-					</div>
+				// No collection focused — the LIST lives in the side panel now, so the
+				// canvas states the one action that resolves this state (Data-Ink: no
+				// second copy of the registry here).
+				<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0, padding: '1.25rem' }}>
+					<p style={{ margin: 0, color: 'var(--mmbix-muted-foreground, #6b7280)', fontSize: '0.85rem', textAlign: 'center' }}>
+						{loading
+							? 'Loading collections…'
+							: visibleCollections.length === 0
+								? 'No collections yet — create one from the Collections panel on the left.'
+								: 'Select a collection in the panel on the left to design its fields and records.'}
+					</p>
 				</div>
 			) : (
 				// A collection is chosen but its schema is still loading — lightweight placeholder.
@@ -784,16 +553,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 						</Alert>
 					)}
 					<div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: '0.75rem', paddingLeft: '0.75rem' }}>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							title="Back to Collections"
-							aria-label="Back to Collections"
-							onClick={goBackToCollections}
-						>
-							<ChevronLeft size={16} />
-						</Button>
 						<h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>{collectionName}</h2>
 						<Badge variant="outline">{visibleFields.length} fields</Badge>
 						<div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -902,7 +661,7 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 									)}
 									<Button
 										size="sm"
-										variant={trashMode ? 'default' : 'outline'}
+										variant={trashMode ? 'secondary' : 'outline'}
 										title={trashMode ? 'Showing deleted records' : 'Show deleted records'}
 										onClick={() => {
 											setTrashMode((v) => !v);
@@ -945,16 +704,6 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 					</Alert>
 				)}
 				<div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: '1rem' }}>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						title="Back to Collections"
-						aria-label="Back to Collections"
-						onClick={goBackToCollections}
-					>
-						<ChevronLeft size={16} />
-					</Button>
 					<h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>{collectionName}</h2>
 					<Badge variant="outline">{visibleFields.length} fields</Badge>
 					<div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -991,252 +740,154 @@ export default function CollectionsWorkbench({ token }: { token: string }) {
 			</div>
 		);
 
-	if (loading && collections.length === 0)
-		return (
-			<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-				<p style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }}>Loading collections…</p>
-			</div>
-		);
-
 	return (
 		<>
-			<StudioLayout
-				storageKey="collections-registry"
-				header={
-					<div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem' }}>
-						<Button
-							variant="ghost"
-							style={{ padding: '0.25rem 0.5rem', marginLeft: '-0.5rem', height: 'auto' }}
-							title="Back to IDP"
-							aria-label="Back to IDP"
-							onClick={() => popBack(navigate, '/idp')}
-						>
-							<ChevronLeft size={16} style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }} />
-							<span
-								style={{
-									width: 28,
-									height: 28,
-									borderRadius: 8,
-									background: 'var(--mmbix-muted, #f3f4f6)',
-									color: 'var(--mmbix-muted-foreground, #6b7280)',
-									display: 'inline-flex',
-									alignItems: 'center',
-									justifyContent: 'center',
-									flexShrink: 0,
-								}}
+			<IdpShell
+				token={token}
+				user={user}
+				breadcrumbs={[
+					{ href: '#/idp', label: 'IDP' },
+					{ href: '#/idp/collections', label: 'Collections' },
+				]}
+				headerChildren={
+					selectedModel && (
+						// Table / Schema toggle — this page's own view state (?view=), so it
+						// rides the header instead of the global chrome.
+						<div style={{ display: 'flex', gap: 2, padding: '0.2rem', borderRadius: 8, background: 'var(--mmbix-muted, #f3f4f6)' }}>
+							<Button
+								variant={view === 'table' ? 'secondary' : 'ghost'}
+								size="sm"
+								title="Table view"
+								onClick={() => setView('table')}
+								style={{ width: 28, padding: 0 }}
 							>
-								<Database size={15} />
+								<Table2 size={14} />
+							</Button>
+							<Button
+								variant={view === 'schema' ? 'secondary' : 'ghost'}
+								size="sm"
+								title="Schema view"
+								onClick={() => setView('schema')}
+								style={{ width: 28, padding: 0 }}
+							>
+								<Braces size={14} />
+							</Button>
+						</div>
+					)
+				}
+			>
+				<StudioLayout
+					storageKey="collections-registry"
+					// Field palette is schema-designer furniture — hide it in table (data)
+					// view so records get the full canvas width.
+					right={view === 'schema' ? right : undefined}
+					footer={
+						<div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
+							<span>
+								<strong>{collections.length}</strong> collections
 							</span>
-							<span style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>Collections</span>
-						</Button>
-
-						{/* Right-aligned controls — Table / Schema view toggle appears when a collection is focused */}
-						<div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: 'auto' }}>
-							{selectedModel && (
-								<div
-									style={{
-										display: 'flex',
-										gap: 2,
-										padding: '0.2rem',
-										borderRadius: 8,
-										background: 'var(--mmbix-muted, #f3f4f6)',
-									}}
-								>
-									<Button
-										variant={view === 'table' ? 'default' : 'ghost'}
-										size="sm"
-										title="Table view"
-										onClick={() => setView('table')}
-										style={{ width: 28, padding: 0 }}
-									>
-										<Table2 size={14} />
-									</Button>
-									<Button
-										variant={view === 'schema' ? 'default' : 'ghost'}
-										size="sm"
-										title="Schema view"
-										onClick={() => setView('schema')}
-										style={{ width: 28, padding: 0 }}
-									>
-										<Braces size={14} />
-									</Button>
-								</div>
-							)}
-							{/* Convenience create — same dialog as the left pane "+" */}
-							<Button size="sm" title="New collection" onClick={() => setNewOpen(true)} style={{ gap: 6 }}>
-								<Plus size={14} /> New collection
-							</Button>
+							<span style={{ marginLeft: 'auto' }}>
+								The right panel lists every field type the engine supports — every collection is a real backend table.
+							</span>
 						</div>
-					</div>
-				}
-				left={left}
-				// Field palette is schema-designer furniture — hide it in table (data)
-				// view so records get the full canvas width.
-				right={view === 'schema' ? right : undefined}
-				footer={
-					<div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-						<span>
-							<strong>{collections.length}</strong> collections
-						</span>
-						<span style={{ marginLeft: 'auto' }}>
-							The right panel lists every field type the engine supports — every collection is a real backend table.
-						</span>
-					</div>
-				}
-			>
-				{center}
-			</StudioLayout>
-
-			{/* Auto-numbering Doc No. — the collection's naming-series pattern (prefix +
-			 * optional `#` counter width). The engine assigns display_number at create;
-			 * empty pattern turns numbering off. */}
-			<DocNoDialog
-				open={docNoOpen}
-				onOpenChange={setDocNoOpen}
-				id="cw-docno-pattern"
-				name={collectionName}
-				value={docNoValue}
-				onValueChange={setDocNoValue}
-				example={docNoExample}
-				busy={docNoBusy}
-				onCancel={() => setDocNoOpen(false)}
-				onSave={() => void saveDocNo()}
-			/>
-
-			{/* Lifecycle hooks — read-only viewer. TWO kinds of hooks can fire on a
-			 * collection: COMPILED code hooks (TS registered in the worker at boot —
-			 * e.g. veh-relink, shown from GET /api/hook-registry) and DECLARATIVE
-			 * rules (`_server_functions` rows, GET /api/server-functions). Code hooks
-			 * that REWRITE the focused collection while firing elsewhere (fleet
-			 * relink → vehicles pointers) appear under their own group so the
-			 * viewer never answers "Hooks (0)" for a table another hook keeps fresh. */}
-			<HooksDialog
-				open={hooksOpen}
-				onOpenChange={setHooksOpen}
-				collectionName={collectionName}
-				selected={selected}
-				hooks={hooks}
-				codeHooks={codeHooks}
-				hooksLoading={hooksLoading}
-				codeHooksLoading={codeHooksLoading}
-				hooksError={hooksError}
-				codeHooksError={codeHooksError}
-			/>
-
-			{/* Runtime feature policies — the headless control plane. Surfaced here
-			 * because this is where collections are curated; the app-module detail page
-			 * hosts the same panel. Writes PUT /api/collections/:slug/policies. */}
-			<PanelDialog
-				open={policyOpen}
-				onOpenChange={setPolicyOpen}
-				title="Runtime Policies"
-				description={<>Enable / configure engine behaviors for “{collectionName}” at runtime — no code, no redeploy.</>}
-				contentStyle={{ width: 480 }}
-			>
-				{selected && <PolicyPanel token={token} slug={selected} schema={selectedSchema ?? null} />}
-			</PanelDialog>
-
-			{/* New Collection — module-free: a fresh real table, no app binding. */}
-			<Dialog open={newOpen} onOpenChange={setNewOpen}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>New Collection</DialogTitle>
-						<DialogDescription>Create a collection — it becomes a real table in the backend, usable by any app.</DialogDescription>
-					</DialogHeader>
-					<form onSubmit={(e) => void createModel(e)}>
-						<div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.25rem 0' }}>
-							<Label htmlFor="cw-name">Name</Label>
-							<Input id="cw-name" autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Customers" />
-							<Label htmlFor="cw-desc">Description</Label>
-							<Input id="cw-desc" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Optional" />
-							<Label htmlFor="cw-naming">Doc No. format (optional)</Label>
-							<Input id="cw-naming" value={newNaming} onChange={(e) => setNewNaming(e.target.value)} placeholder="e.g. OUT- or OUT-####" />
-							<div style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #64748b)', lineHeight: 1.4 }}>
-								{newNamingExample === null
-									? 'Off — new records get no Doc No.'
-									: newNamingExample === false
-										? 'Invalid — end with “-”, then up to 10 “#” (e.g. OUT-#### → OUT-0001).'
-										: `First new record → ${newNamingExample}`}
-							</div>
-						</div>
-						<DialogFooter>
-							<Button type="button" variant="ghost" onClick={() => setNewOpen(false)}>
-								Cancel
-							</Button>
-							<Button type="submit" disabled={!newName.trim() || newBusy || newNamingExample === false}>
-								{newBusy ? 'Creating…' : 'Create collection'}
-							</Button>
-						</DialogFooter>
-					</form>
-				</DialogContent>
-			</Dialog>
-
-			{/* Error banner fallback when no center pane is open */}
-			{/* Type-aware field properties — opens after picking a type in the right pane. */}
-			<AddFieldDialog
-				def={draftDef}
-				collectionName={collectionName}
-				currentCollection={selected ?? ''}
-				collections={collections}
-				fields={fields}
-				schemas={dialogSchemas}
-				token={token}
-				onCreate={addField}
-				onClose={() => setDraftDef(null)}
-			/>
-
-			{/* Edit-field properties — the field “⋯” menu. Directus-style right drawer.
-				 Changes auto-save (debounced) to the backend. */}
-			<FieldPropertiesDrawer
-				field={editField}
-				fields={fields}
-				fieldTypes={fieldTypes}
-				token={token}
-				onUpdate={(name, patch) => updateField(name, patch)}
-				onRemove={(name) => {
-					if (editSaveTimer.current) {
-						clearTimeout(editSaveTimer.current);
-						editSaveTimer.current = null;
 					}
-					void removeField(name);
-				}}
-				onClose={() => {
-					flushPendingEdits();
-					setEditField(null);
-				}}
-			/>
-
-			{/* Error banner fallback when no center pane is open */}
-			{!selected && error && (
-				<Alert
-					variant="destructive"
-					style={{ position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)', zIndex: 50, maxWidth: 480 }}
 				>
-					<AlertDescription>{error}</AlertDescription>
-				</Alert>
-			)}
+					{center}
+				</StudioLayout>
 
-			{/* Delete collection — destructive: drops the schema + data table server-side. */}
-			<AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-				<AlertDialogContent size="sm">
-					<AlertDialogHeader>
-						<AlertDialogMedia className="bg-destructive/10 text-destructive dark:bg-destructive/20 dark:text-destructive">
-							<Trash2 />
-						</AlertDialogMedia>
-						<AlertDialogTitle>Delete “{deleteTarget?.name}”?</AlertDialogTitle>
-						<AlertDialogDescription>
-							This permanently deletes the “{deleteTarget?.name}” collection and its data table (all records) from the system. This action
-							cannot be undone.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction variant="destructive" disabled={deleteBusy} onClick={() => void confirmDeleteCollection()}>
-							{deleteBusy ? 'Deleting…' : 'Delete collection'}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+				{/* Auto-numbering Doc No. — the collection's naming-series pattern (prefix +
+				 * optional `#` counter width). The engine assigns display_number at create;
+				 * empty pattern turns numbering off. */}
+				<DocNoDialog
+					open={docNoOpen}
+					onOpenChange={setDocNoOpen}
+					id="cw-docno-pattern"
+					name={collectionName}
+					value={docNoValue}
+					onValueChange={setDocNoValue}
+					example={docNoExample}
+					busy={docNoBusy}
+					onCancel={() => setDocNoOpen(false)}
+					onSave={() => void saveDocNo()}
+				/>
+
+				{/* Lifecycle hooks — read-only viewer. TWO kinds of hooks can fire on a
+				 * collection: COMPILED code hooks (TS registered in the worker at boot —
+				 * e.g. veh-relink, shown from GET /api/hook-registry) and DECLARATIVE
+				 * rules (`_server_functions` rows, GET /api/server-functions). Code hooks
+				 * that REWRITE the focused collection while firing elsewhere (fleet
+				 * relink → vehicles pointers) appear under their own group so the
+				 * viewer never answers "Hooks (0)" for a table another hook keeps fresh. */}
+				<HooksDialog
+					open={hooksOpen}
+					onOpenChange={setHooksOpen}
+					collectionName={collectionName}
+					selected={selected}
+					hooks={hooks}
+					codeHooks={codeHooks}
+					hooksLoading={hooksLoading}
+					codeHooksLoading={codeHooksLoading}
+					hooksError={hooksError}
+					codeHooksError={codeHooksError}
+				/>
+
+				{/* Runtime feature policies — the headless control plane. Surfaced here
+				 * because this is where collections are curated; the app-module detail page
+				 * hosts the same panel. Writes PUT /api/collections/:slug/policies. */}
+				<PanelDialog
+					open={policyOpen}
+					onOpenChange={setPolicyOpen}
+					title="Runtime Policies"
+					description={<>Enable / configure engine behaviors for “{collectionName}” at runtime — no code, no redeploy.</>}
+					contentStyle={{ width: 480 }}
+				>
+					{selected && <PolicyPanel token={token} slug={selected} schema={selectedSchema ?? null} />}
+				</PanelDialog>
+
+				{/* Type-aware field properties — opens after picking a type in the right pane. */}
+				<AddFieldDialog
+					def={draftDef}
+					collectionName={collectionName}
+					currentCollection={selected ?? ''}
+					collections={collections}
+					fields={fields}
+					schemas={dialogSchemas}
+					token={token}
+					onCreate={addField}
+					onClose={() => setDraftDef(null)}
+				/>
+
+				{/* Edit-field properties — the field “⋯” menu. Directus-style right drawer.
+					 Changes auto-save (debounced) to the backend. */}
+				<FieldPropertiesDrawer
+					field={editField}
+					fields={fields}
+					fieldTypes={fieldTypes}
+					token={token}
+					onUpdate={(name, patch) => updateField(name, patch)}
+					onRemove={(name) => {
+						if (editSaveTimer.current) {
+							clearTimeout(editSaveTimer.current);
+							editSaveTimer.current = null;
+						}
+						void removeField(name);
+					}}
+					onClose={() => {
+						flushPendingEdits();
+						setEditField(null);
+					}}
+				/>
+
+				{/* Error banner fallback when no center pane is open */}
+				{!selected && error && (
+					<Alert
+						variant="destructive"
+						style={{ position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)', zIndex: 50, maxWidth: 480 }}
+					>
+						<AlertDescription>{error}</AlertDescription>
+					</Alert>
+				)}
+			</IdpShell>
 		</>
 	);
 }

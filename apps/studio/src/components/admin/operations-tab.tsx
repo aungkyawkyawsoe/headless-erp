@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@mmbix/design-system';
+import { Badge, Button } from '@mmbix/design-system';
+import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
 import { Activity, Play } from 'lucide-react';
 import { collectionsQuery, operationsQuery, schedulerTasksQuery } from '../../lib/queries';
 import {
@@ -18,10 +19,10 @@ import StatusBadge from '../StatusBadge';
  *
  * Surfaces the index advisor: the mode (auto/propose), every composite index it
  * auto-created/proposed, and the hot filter shapes it is observing. Read-only
- * telemetry — the backend route is admin-gated and never exposes row data. */
+ * telemetry — the backend route is admin-gated and never exposes row data.
+ * Every table here is the SHARED `DataTable` (search box in the toolbar, sticky
+ * header, empty state) — the same component every other Studio surface uses. */
 
-const th = { textAlign: 'left' as const, padding: '0.25rem 0.5rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', fontWeight: 600 };
-const td = { padding: '0.35rem 0.5rem', verticalAlign: 'top' as const, whiteSpace: 'normal' as const };
 const mono = { fontFamily: 'ui-monospace, monospace' } as const;
 const field = {
 	fontSize: '0.74rem',
@@ -32,11 +33,51 @@ const field = {
 	color: 'var(--mmbix-foreground, #0f172a)',
 } as const;
 
+/** A telemetry row carries no id of its own — the row key is derived (table + index). */
+type IndexRow = { key: string; table: string; columns: string[] };
+
+type CandidateRow = IndexRow & { count: number };
+
+/** The table/columns pair the journal and the candidates both render. */
+function indexColumns<T extends IndexRow>(extra: ColumnDef<T>[]): ColumnDef<T>[] {
+	return [
+		{
+			id: 'table',
+			header: 'Table',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => <span style={mono}>{row.original.table}</span>,
+		},
+		{
+			id: 'columns',
+			header: 'Columns',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => <span style={mono}>{row.original.columns.join(', ')}</span>,
+		},
+		...extra,
+	];
+}
+
+const journalColumns = indexColumns<IndexRow>([]);
+const candidateColumns = indexColumns<CandidateRow>([
+	{
+		id: 'count',
+		header: 'Seen',
+		enableSorting: false,
+		enableHeaderMenu: false,
+		cell: ({ row }) => <span>{row.original.count}</span>,
+	},
+]);
+
 export function OperationsTab({ token }: { token: string }) {
 	const opsQ = useQuery(operationsQuery(token));
 	const report = opsQ.data ?? null;
 	const journal = useMemo(() => report?.journal ?? [], [report]);
 	const candidates = useMemo(() => report?.candidates ?? [], [report]);
+	// Stable row identity for the row engine — a telemetry row has no id column.
+	const journalRows = useMemo<IndexRow[]>(() => journal.map((e, i) => ({ ...e, key: `${e.table}-${i}` })), [journal]);
+	const candidateRows = useMemo<CandidateRow[]>(() => candidates.map((c, i) => ({ ...c, key: `${c.table}-${i}` })), [candidates]);
 
 	// Generation-gate telemetry — how many proposals sit in each review state.
 	// `retry:false` + success-only rendering means a deployment with the
@@ -75,51 +116,36 @@ export function OperationsTab({ token }: { token: string }) {
 					<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-muted-foreground, #64748b)', margin: '0 0 0.3rem' }}>
 						Created / proposed indexes
 					</h4>
-					{journal.length === 0 ? (
+					{journalRows.length === 0 ? (
 						<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>None yet.</p>
 					) : (
-						<Table style={{ width: '100%', fontSize: '0.74rem', marginBottom: '0.9rem' }}>
-							<TableHeader>
-								<TableRow>
-									<TableHead style={th}>Table</TableHead>
-									<TableHead style={th}>Columns</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{journal.map((e, i) => (
-									<TableRow key={`${e.table}-${i}`}>
-										<TableCell style={{ ...td, ...mono }}>{e.table}</TableCell>
-										<TableCell style={{ ...td, ...mono }}>{e.columns.join(', ')}</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
+						<DataTable<IndexRow>
+							columns={journalColumns}
+							data={journalRows}
+							rowKey="key"
+							density="compact"
+							stickyHeader
+							showToolbar={false}
+							showPagination={false}
+							className="mb-3"
+						/>
 					)}
 
 					<h4 style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--mmbix-muted-foreground, #64748b)', margin: '0 0 0.3rem' }}>
 						Hot filter shapes
 					</h4>
-					{candidates.length === 0 ? (
+					{candidateRows.length === 0 ? (
 						<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>None observed.</p>
 					) : (
-						<Table style={{ width: '100%', fontSize: '0.74rem' }}>
-							<TableHeader>
-								<TableRow>
-									<TableHead style={th}>Table</TableHead>
-									<TableHead style={th}>Columns</TableHead>
-									<TableHead style={th}>Seen</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{candidates.map((c, i) => (
-									<TableRow key={`${c.table}-${i}`}>
-										<TableCell style={{ ...td, ...mono }}>{c.table}</TableCell>
-										<TableCell style={{ ...td, ...mono }}>{c.columns.join(', ')}</TableCell>
-										<TableCell style={td}>{c.count}</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
+						<DataTable<CandidateRow>
+							columns={candidateColumns}
+							data={candidateRows}
+							rowKey="key"
+							density="compact"
+							stickyHeader
+							showToolbar={false}
+							showPagination={false}
+						/>
 					)}
 
 					{genQ.isSuccess && (
@@ -177,6 +203,39 @@ function ruleLabel(rule: IntegrityRuleViolation['rule']): string {
 	}
 }
 
+/** Sample rows summarised as ids (the engine returns row objects, not a row page). */
+function sampleRows(rows: Array<Record<string, unknown>>): string {
+	if (rows.length === 0) return '—';
+	const ids = rows.slice(0, 3).map((row) => String(row.id ?? JSON.stringify(row)));
+	return `${ids.join(', ')}${rows.length > 3 ? ` +${rows.length - 3}` : ''}`;
+}
+
+type RuleRow = IntegrityRuleViolation & { key: string };
+
+const ruleColumns: ColumnDef<RuleRow>[] = [
+	{
+		id: 'rule',
+		header: 'Rule',
+		enableSorting: false,
+		enableHeaderMenu: false,
+		cell: ({ row }) => <span style={mono}>{ruleLabel(row.original.rule)}</span>,
+	},
+	{
+		id: 'violations',
+		header: 'Violations',
+		enableSorting: false,
+		enableHeaderMenu: false,
+		cell: ({ row }) => <Badge variant={row.original.count > 0 ? 'destructive' : 'outline'}>{row.original.count}</Badge>,
+	},
+	{
+		id: 'rows',
+		header: 'Sample rows',
+		enableSorting: false,
+		enableHeaderMenu: false,
+		cell: ({ row }) => <span style={{ ...mono, color: 'var(--mmbix-muted-foreground, #6b7280)' }}>{sampleRows(row.original.rows)}</span>,
+	},
+];
+
 function Integrity({ token }: { token: string }) {
 	const collectionsQ = useQuery(collectionsQuery(token));
 	const collections = useMemo(
@@ -207,6 +266,8 @@ function Integrity({ token }: { token: string }) {
 
 	const results = report?.results ?? [];
 	const errors = report?.errors ?? [];
+	// Stable row identity — a rule result has no id column of its own.
+	const ruleRows = useMemo<RuleRow[]>(() => results.map((r, i) => ({ ...r, key: `${r.rule?.type ?? 'rule'}-${i}` })), [results]);
 	// The API reports truncation PER RULE (`results[].truncated`); there is no
 	// top-level flag, so the summary surfaces it when any rule hit its bound.
 	const truncated = results.some((r) => r.truncated);
@@ -281,36 +342,18 @@ function Integrity({ token }: { token: string }) {
 						{truncated && <Badge variant="outline">truncated — more rows exist</Badge>}
 					</div>
 
-					{results.length === 0 ? (
+					{ruleRows.length === 0 ? (
 						<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>No rules ran.</p>
 					) : (
-						<Table style={{ width: '100%', fontSize: '0.74rem' }}>
-							<TableHeader>
-								<TableRow>
-									<TableHead style={th}>Rule</TableHead>
-									<TableHead style={th}>Violations</TableHead>
-									<TableHead style={th}>Sample rows</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{results.map((r, i) => (
-									<TableRow key={`${r.rule?.type ?? 'rule'}-${i}`}>
-										<TableCell style={{ ...td, ...mono }}>{ruleLabel(r.rule)}</TableCell>
-										<TableCell style={td}>
-											<Badge variant={r.count > 0 ? 'destructive' : 'outline'}>{r.count}</Badge>
-										</TableCell>
-										<TableCell style={{ ...td, ...mono, color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-											{r.rows.length === 0
-												? '—'
-												: `${r.rows
-														.slice(0, 3)
-														.map((row) => String(row.id ?? JSON.stringify(row)))
-														.join(', ')}${r.rows.length > 3 ? ` +${r.rows.length - 3}` : ''}`}
-										</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
+						<DataTable<RuleRow>
+							columns={ruleColumns}
+							data={ruleRows}
+							rowKey="key"
+							density="compact"
+							stickyHeader
+							showToolbar={false}
+							showPagination={false}
+						/>
 					)}
 
 					{errors.length > 0 && (
@@ -343,15 +386,27 @@ function when(iso: string | null | undefined): string {
 	return Number.isNaN(ms) ? '—' : new Date(ms).toISOString().replace('T', ' ').slice(0, 16);
 }
 
+function cadenceOf(task: SchedulerTaskRow): string {
+	return task.cron ?? (task.repeat_ms ? `${Math.round(task.repeat_ms / 1000)}s` : 'once');
+}
+
 function SchedulerJobs({ token }: { token: string }) {
 	const qc = useQueryClient();
 	const jobsQ = useQuery(schedulerTasksQuery(token));
 	const jobs = jobsQ.data ?? [];
-	const [busy, setBusy] = useState<string | null>(null);
+	const [query, setQuery] = useState('');
+	const [busyId, setBusyId] = useState<string | null>(null);
 	const [failure, setFailure] = useState<string | null>(null);
 
+	// Caller-owned predicate — the rows below are already the filtered set.
+	const shown = useMemo(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return jobs;
+		return jobs.filter((t) => `${t.name ?? ''} ${t.id} ${t.type} ${t.status}`.toLowerCase().includes(q));
+	}, [jobs, query]);
+
 	async function runNow(task: SchedulerTaskRow) {
-		setBusy(task.id);
+		setBusyId(task.id);
 		setFailure(null);
 		try {
 			// The api helper throws on a non-2xx envelope, so the catch IS the
@@ -360,11 +415,83 @@ function SchedulerJobs({ token }: { token: string }) {
 		} catch (err) {
 			setFailure(err instanceof Error ? err.message : 'run failed');
 		} finally {
-			setBusy(null);
+			setBusyId(null);
 			// The task row changed (status, run_count, last_result) — re-read it.
 			await qc.invalidateQueries({ queryKey: qk.schedulerTasks() });
 		}
 	}
+
+	// The columns close over the section's `busyId`/`runNow`, so one row's run
+	// cannot look like another's.
+	const jobColumns: ColumnDef<SchedulerTaskRow>[] = [
+		{
+			id: 'job',
+			header: 'Job',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => (
+				<div>
+					<div>{row.original.name ?? row.original.id}</div>
+					<div style={{ ...mono, color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{row.original.type}</div>
+				</div>
+			),
+		},
+		{
+			id: 'status',
+			header: 'Status',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => <StatusBadge status={row.original.status} />,
+		},
+		{
+			id: 'cadence',
+			header: 'Cadence',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => <span style={mono}>{cadenceOf(row.original)}</span>,
+		},
+		{
+			id: 'next',
+			header: 'Next run',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => <span>{when(row.original.run_at)}</span>,
+		},
+		{
+			id: 'runs',
+			header: 'Runs',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => <span>{row.original.run_count}</span>,
+		},
+		{
+			id: 'last',
+			header: 'Last result / error',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row }) => (
+				<span
+					style={{
+						color: row.original.last_error ? 'var(--mmbix-tone-danger-fg, #dc2626)' : 'var(--mmbix-muted-foreground, #6b7280)',
+					}}
+				>
+					{row.original.last_error ?? (row.original.last_result ? 'ok' : '—')}
+				</span>
+			),
+		},
+		{
+			id: 'actions',
+			header: '',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			align: 'right',
+			cell: ({ row }) => (
+				<Button size="sm" variant="outline" disabled={busyId === row.original.id} onClick={() => void runNow(row.original)}>
+					<Play size={11} /> {busyId === row.original.id ? 'Running…' : 'Run now'}
+				</Button>
+			),
+		},
+	];
 
 	return (
 		<section style={{ marginBottom: '1rem' }}>
@@ -376,53 +503,24 @@ function SchedulerJobs({ token }: { token: string }) {
 					{failure}
 				</p>
 			)}
-			{jobsQ.isLoading ? (
-				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>Loading jobs…</p>
-			) : jobs.length === 0 ? (
-				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
-					No jobs declared. A manifest `schedules` entry creates one.
-				</p>
-			) : (
-				<Table style={{ width: '100%', fontSize: '0.74rem' }}>
-					<TableHeader>
-						<TableRow>
-							<TableHead style={th}>Job</TableHead>
-							<TableHead style={th}>Status</TableHead>
-							<TableHead style={th}>Cadence</TableHead>
-							<TableHead style={th}>Next run</TableHead>
-							<TableHead style={th}>Runs</TableHead>
-							<TableHead style={th}>Last result / error</TableHead>
-							<TableHead style={th} />
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{jobs.map((t) => (
-							<TableRow key={t.id}>
-								<TableCell style={td}>
-									<div>{t.name ?? t.id}</div>
-									<div style={{ ...td, ...mono, color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>{t.type}</div>
-								</TableCell>
-								<TableCell style={td}>
-									<StatusBadge status={t.status} />
-								</TableCell>
-								<TableCell style={{ ...td, ...mono }}>{t.cron ?? (t.repeat_ms ? `${Math.round(t.repeat_ms / 1000)}s` : 'once')}</TableCell>
-								<TableCell style={td}>{when(t.run_at)}</TableCell>
-								<TableCell style={td}>{t.run_count}</TableCell>
-								<TableCell
-									style={{ ...td, color: t.last_error ? 'var(--mmbix-tone-danger-fg, #dc2626)' : 'var(--mmbix-muted-foreground, #6b7280)' }}
-								>
-									{t.last_error ?? (t.last_result ? 'ok' : '—')}
-								</TableCell>
-								<TableCell style={td}>
-									<Button size="sm" variant="outline" disabled={busy === t.id} onClick={() => void runNow(t)}>
-										<Play size={11} /> {busy === t.id ? 'Running…' : 'Run now'}
-									</Button>
-								</TableCell>
-							</TableRow>
-						))}
-					</TableBody>
-				</Table>
-			)}
+			<DataTable<SchedulerTaskRow>
+				columns={jobColumns}
+				data={shown}
+				rowKey="id"
+				globalFilter={query}
+				onGlobalFilterChange={setQuery}
+				manualFiltering
+				density="compact"
+				stickyHeader
+				showFilters={false}
+				showPagination={false}
+				isLoading={jobsQ.isLoading}
+				labels={{
+					searchPlaceholder: 'Search jobs',
+					searchLabel: 'Search jobs',
+					empty: jobs.length === 0 ? 'No jobs declared. A manifest `schedules` entry creates one.' : `No job matches “${query}”.`,
+				}}
+			/>
 		</section>
 	);
 }

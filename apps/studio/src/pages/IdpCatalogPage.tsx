@@ -30,7 +30,7 @@ export default function IdpCatalogPage({ token, user }: { token: string; user: {
 
 	// Catalog + the full module list (for the Manage App dialog's selector) are
 	// keyed queries — a revisit is instant and the module list is shared with the
-	// launcher grid and the app workbench.
+	// portal's module switcher and the app workbench.
 	const catalogQ = useQuery(idpCatalogQuery(token));
 	const modulesQ = useQuery(modulesQuery(token));
 	const catalog = catalogQ.data ?? [];
@@ -138,7 +138,7 @@ export default function IdpCatalogPage({ token, user }: { token: string; user: {
 	];
 
 	return (
-		<IdpShell token={token} user={user} breadcrumbs={[{ href: '#/idp', label: 'IDP' }, { label: 'Catalog' }]} activeNav="catalog">
+		<IdpShell token={token} user={user} breadcrumbs={[{ href: '#/idp', label: 'IDP' }, { label: 'Catalog' }]}>
 			<div style={WRAPPER}>
 				{error && (
 					<Alert variant="destructive">

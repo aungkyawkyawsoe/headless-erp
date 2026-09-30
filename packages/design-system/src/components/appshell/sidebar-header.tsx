@@ -12,6 +12,16 @@ export interface SidebarHeaderProps {
 	modules: Module[];
 	activeModule: Module;
 	onModuleChange: (module: Module) => void;
+	/**
+	 * Whether the module switcher exists at all: the picker button AND the
+	 * full-screen module grid it opens. Defaults to `true`.
+	 *
+	 * Set `false` on a surface whose navigation does not include switching
+	 * modules (a single-purpose portal, say). The header then renders NOTHING —
+	 * not an empty row — and does NOT bind ⌘K, so the shortcut is left to
+	 * whoever owns it there.
+	 */
+	showModuleSwitcher?: boolean;
 	/** Whether to enable the global Cmd+K / Ctrl+K shortcut for the module switcher. Defaults to `true`. */
 	enableModuleShortcut?: boolean;
 	/** Keyboard key for the module switcher shortcut. Defaults to `"k"`. */
@@ -24,6 +34,7 @@ export function SidebarHeader({
 	modules: _modules,
 	activeModule,
 	onModuleChange,
+	showModuleSwitcher = true,
 	enableModuleShortcut = true,
 	moduleShortcutKey = 'k',
 	moduleSwitcherProps,
@@ -35,7 +46,7 @@ export function SidebarHeader({
 
 	// Global keyboard shortcut: Cmd+K / Ctrl+K
 	React.useEffect(() => {
-		if (!enableModuleShortcut) return;
+		if (!enableModuleShortcut || !showModuleSwitcher) return;
 
 		const handler = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === moduleShortcutKey.toLowerCase()) {
@@ -45,7 +56,11 @@ export function SidebarHeader({
 		};
 		window.addEventListener('keydown', handler);
 		return () => window.removeEventListener('keydown', handler);
-	}, [enableModuleShortcut, moduleShortcutKey]);
+	}, [enableModuleShortcut, showModuleSwitcher, moduleShortcutKey]);
+
+	// No switcher, no header row: the picker button would open nothing, and the
+	// remaining content has no other reason to be there.
+	if (!showModuleSwitcher) return null;
 
 	if (collapsed) {
 		return (

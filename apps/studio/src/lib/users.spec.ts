@@ -104,10 +104,11 @@ describe('employee labels', () => {
 	});
 });
 
-describe('userStateOf — three values, not two', () => {
-	it('reads the two stored states', () => {
+describe('userStateOf — four values, not two', () => {
+	it('reads the three stored lifecycle states', () => {
 		expect(userStateOf({ status: 'active' })).toBe('active');
-		expect(userStateOf({ status: 'disabled' })).toBe('disabled');
+		expect(userStateOf({ status: 'invited' })).toBe('invited');
+		expect(userStateOf({ status: 'suspended' })).toBe('suspended');
 	});
 
 	// The claim is "this account can sign in" — a missing value must not assert it.
@@ -159,7 +160,7 @@ describe('filterUsers', () => {
 		user({ id: 'u1', email: 'dev@mmbics.com', full_name: 'Administrator', role_id: 'r1' }),
 		user({ id: 'u2', email: 'tg-42@telegram.local', full_name: 'Aung Kyaw', role_id: 'r2' }),
 		user({ id: 'u3', email: 'store@mmbics.com', full_name: 'Mya Mya', role_id: 'r3' }),
-		user({ id: 'u4', email: 'former@mmbics.com', full_name: 'Former Staff', role_id: null, status: 'disabled' }),
+		user({ id: 'u4', email: 'former@mmbics.com', full_name: 'Former Staff', role_id: null, status: 'suspended' }),
 	];
 	const roleNameOf = (id?: string | null) => (id === 'r1' ? 'Administrator' : id === 'r2' ? 'Employee' : id === 'r3' ? 'Storekeeper' : '');
 

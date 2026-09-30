@@ -34,6 +34,11 @@ describe('statusTone', () => {
 		expect(statusTone('installed')).toBe('positive');
 	});
 
+	it('colours the account lifecycle — invited is in motion, suspended is blocked', () => {
+		expect(statusTone('invited')).toBe('info');
+		expect(statusTone('suspended')).toBe('danger');
+	});
+
 	it('denies by default — an unknown/blank status is neutral, never guessed', () => {
 		expect(statusTone('banana')).toBe('neutral');
 		expect(statusTone('')).toBe('neutral');

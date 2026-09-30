@@ -65,11 +65,34 @@ function decorateRole(raw: RoleRecord): RoleRecord {
 
 // ─── Types ─────────────────────────────────────────────
 
+/**
+ * The account lifecycle vocabulary — the ONE list every writer and reader agrees
+ * on. `active` can sign in; `invited` was created without a credential (it cannot
+ * sign in until a password is set); `suspended` is blocked. Any status OTHER than
+ * `active` is denied at login AND at `verifyToken`, so a row in a bogus state
+ * (written before this list existed, or by a stray UPDATE) is fail-closed.
+ */
+export const USER_STATUSES = ['active', 'invited', 'suspended'] as const;
+export type UserStatus = (typeof USER_STATUSES)[number];
+
+/**
+ * Stand-in stored in `_users.password_hash` for an account created without a
+ * credential. The column is NOT NULL, so a marker is the only honest value —
+ * mirroring the Telegram path's `telegram:no-password`. It is shaped like a
+ * legacy `salt:hex` hash so no code path mistakes it for a real credential, and
+ * `verifyPassword` can never match it (the "hash" would have to be the SHA-256
+ * of a password under the salt `invited`).
+ */
+const INVITED_PASSWORD_MARKER = 'invited:no-password';
+
 export interface CreateUserInput {
 	email: string;
-	password: string;
+	/** Absent ⇒ the account is created `invited` and cannot sign in yet. */
+	password?: string;
 	full_name: string;
 	role_id?: string;
+	/** Explicit lifecycle state; defaults to `active` when a password is given, `invited` otherwise. */
+	status?: UserStatus;
 	/** The employee this account signs in as (see `UpdateUserInput.employee_id`). */
 	employee_id?: string | null;
 }
@@ -79,7 +102,7 @@ export interface UpdateUserInput {
 	password?: string;
 	full_name?: string;
 	role_id?: string;
-	status?: 'active' | 'disabled';
+	status?: UserStatus;
 	/**
 	 * The directory row a PASSWORD session acts as — the link that lets a
 	 * web sign-in act under a directory identity. Unlike `role_id`, this one is
@@ -445,9 +468,6 @@ export class AuthService {
 
 	async createUser(input: CreateUserInput, secret: string): Promise<UserRecord> {
 		assertValid(validators.email(input.email, 'email'));
-		if (!input.password || input.password.length < 6) {
-			throw new ValidationError('Password must be at least 6 characters');
-		}
 
 		// Validate required fields
 		if (!input.full_name || typeof input.full_name !== 'string' || input.full_name.trim().length === 0) {
@@ -456,8 +476,21 @@ export class AuthService {
 		if (!input.email || typeof input.email !== 'string' || input.email.trim().length === 0) {
 			throw new ValidationError('email is required');
 		}
-		if (!input.password || typeof input.password !== 'string' || input.password.length < 6) {
-			throw new ValidationError('password is required (min 6 characters)');
+		// A password is OPTIONAL — an account created without one is `invited`
+		// (the Directus shape: you can line up a user before they can sign in).
+		// When one IS given it must clear the same floor as before.
+		const password = input.password ?? '';
+		if (password && password.length < 6) {
+			throw new ValidationError('Password must be at least 6 characters');
+		}
+		const status = input.status ?? (password ? 'active' : 'invited');
+		if (!(USER_STATUSES as readonly string[]).includes(status)) {
+			throw new ValidationError(`status must be one of: ${USER_STATUSES.join(', ')}`);
+		}
+		// Poka-Yoke: an `active` account with no credential is a login that can
+		// never succeed — refuse it at write time instead of storing a dead state.
+		if (status === 'active' && !password) {
+			throw new ValidationError('An active account needs a password — create it as invited and set one when inviting is accepted');
 		}
 
 		// Check for duplicate email
@@ -468,10 +501,12 @@ export class AuthService {
 
 		const user = await this.users.create({
 			email: input.email.toLowerCase(),
-			password_hash: await this.hashPassword(input.password, secret),
+			// `password_hash` is NOT NULL, so an invited account stores a marker that
+			// can never verify (same shape as the Telegram path's marker).
+			password_hash: password ? await this.hashPassword(password, secret) : INVITED_PASSWORD_MARKER,
 			full_name: input.full_name,
 			role_id: input.role_id || null,
-			status: 'active',
+			status,
 			employee_id: input.employee_id ? await this._assertLinkableEmployee(input.employee_id) : null,
 		} as Partial<UserRecord>);
 
@@ -520,7 +555,25 @@ export class AuthService {
 		if (input.full_name) update.full_name = input.full_name;
 		if (input.password) update.password_hash = await this.hashPassword(input.password, secret);
 		if (input.role_id) update.role_id = input.role_id;
-		if (input.status) update.status = input.status;
+		if (input.status !== undefined) {
+			// Whitelisted, unlike the fields above: the previous truthiness write
+			// accepted ANY string, so a typo could strand an account in a state no
+			// reader knows — fail-closed at login, but silently stuck.
+			if (!(USER_STATUSES as readonly string[]).includes(input.status)) {
+				throw new ValidationError(`status must be one of: ${USER_STATUSES.join(', ')}`);
+			}
+			// Activating an INVITED account means it may now sign in, so it needs a
+			// real credential: either one in this request or one already stored. The
+			// invited marker means neither exists — asking for a password here is the
+			// actionable fix, and it keeps `active` ⇔ "can actually sign in" true.
+			if (input.status === 'active' && !input.password) {
+				const current = await this.users.findOne({ id }, ['password_hash']);
+				if (current?.password_hash === INVITED_PASSWORD_MARKER) {
+					throw new ValidationError('This account has no password yet — set one to activate it');
+				}
+			}
+			update.status = input.status;
+		}
 		// Null-aware, unlike the fields above: `undefined` means "leave it", while an
 		// explicit `null`/`''` UNLINKS. A truthiness test here would make an
 		// account's employee binding impossible to remove once made — the wrong
@@ -547,10 +600,11 @@ export class AuthService {
 
 	async login(email: string, password: string, passwordSecret: string, jwtSecret?: string): Promise<{ token: string; user: UserRecord }> {
 		const user = await this.users.findOne({ email: email.toLowerCase() });
-		// Same message for missing/disabled/wrong-password — no account-state enumeration.
-		// A disabled account must not be minted a token at all: `verifyToken` already
-		// rejects `status !== 'active'`, so signing one here handed the client a token
-		// that died on its very next request (a silent bounce back to the login screen).
+		// Same message for missing/invited/suspended/wrong-password — no account-state
+		// enumeration. A non-`active` account must not be minted a token at all:
+		// `verifyToken` already rejects `status !== 'active'`, so signing one here
+		// handed the client a token that died on its very next request (a silent
+		// bounce back to the login screen).
 		if (!user || user.status !== 'active') throw new UnauthorizedError('Invalid email or password');
 
 		const valid = await this.verifyPassword(password, user.password_hash, passwordSecret);

@@ -112,6 +112,19 @@ export const usersQuery = (token: string) =>
 		enabled: live(token),
 	});
 
+/** User count for a specific role — used by the roles list to show how many users have each role. */
+export const usersByRoleQuery = (token: string, roleId: string) =>
+	queryOptions({
+		queryKey: ['users-by-role', roleId],
+		queryFn: async () => {
+			const users = await api.listUsers(token);
+			const count = users.filter((u) => u.role_id === roleId).length;
+			return { count };
+		},
+		enabled: live(token) && !!roleId,
+		staleTime: 30_000, // refresh every 30s to pick up role changes
+	});
+
 // ── Admin console ────────────────────────────────────────────────────────────
 
 export const apiKeysQuery = (token: string) =>
@@ -259,13 +272,6 @@ export const idpPoliciesQuery = (token: string) =>
 		enabled: live(token),
 	});
 
-export const idpAuditQuery = (token: string, limit = 100) =>
-	queryOptions({
-		queryKey: qk.idpAudit(limit),
-		queryFn: () => api.getIdpAudit(token, limit),
-		enabled: live(token),
-	});
-
 export const idpUsageQuery = (token: string, days = 30) =>
 	queryOptions({
 		queryKey: qk.idpUsage(days),
@@ -286,13 +292,6 @@ export const idpDeploymentsQuery = (token: string) =>
 	queryOptions({
 		queryKey: qk.idpDeployments(),
 		queryFn: () => api.listIdpDeployments(token),
-		enabled: live(token),
-	});
-
-export const idpEnvironmentsQuery = (token: string) =>
-	queryOptions({
-		queryKey: qk.idpEnvironments(),
-		queryFn: () => api.listIdpEnvironments(token),
 		enabled: live(token),
 	});
 

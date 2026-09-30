@@ -4,6 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
 import { modulesQuery } from '../lib/queries';
 import { filterCommands, type PaletteCommand } from '../lib/command-palette';
+import { visibleSections } from '../lib/idp-nav';
+import { useMe } from '../lib/use-me';
+import { useLogout } from '../lib/session-actions';
 
 /* ── Command palette (⌘K / Ctrl-K) — jump to any surface without the mouse ──
  *
@@ -19,6 +22,8 @@ import { filterCommands, type PaletteCommand } from '../lib/command-palette';
 export function CommandPalette({ token }: { token: string }) {
 	const navigate = useNavigate();
 	const modulesQ = useQuery(modulesQuery(token));
+	const { isAdmin } = useMe(token);
+	const logout = useLogout();
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState('');
 	const [active, setActive] = useState(0);
@@ -32,11 +37,21 @@ export function CommandPalette({ token }: { token: string }) {
 	const commands = useMemo<PaletteCommand[]>(() => {
 		const go = (path: string) => () => navigate(path);
 		const staticCmds: PaletteCommand[] = [
-			{ id: 'home', label: 'Apps gallery', group: 'Go', run: go('/') },
 			{ id: 'studio', label: 'Studio Admin', group: 'Go', run: go('/studio') },
-			{ id: 'api-docs', label: 'API Docs', group: 'Go', run: go('/api-docs') },
-			{ id: 'idp', label: 'IDP portal', group: 'Go', run: go('/idp') },
+			// Sign-out is a row here as well: the API Docs section renders no sidebar
+			// (hence no account menu) and the App workbench has none either, so ⌘K is
+			// the one path that can never strand a session.
+			{ id: 'logout', label: 'Log out', group: 'Session', run: logout },
 		];
+		// The IDP destinations come from the nav registry, so the palette and the
+		// rail can never disagree about what exists (or who may see it).
+		const idpCmds: PaletteCommand[] = visibleSections(isAdmin).map((section) => ({
+			id: `idp:${section.id}`,
+			label: section.label,
+			group: 'IDP',
+			keywords: `idp ${section.id} ${section.path}`,
+			run: go(section.path),
+		}));
 		const moduleCmds = (modulesQ.data ?? []).map((m) => ({
 			id: `app:${m.slug}`,
 			label: m.name,
@@ -44,8 +59,8 @@ export function CommandPalette({ token }: { token: string }) {
 			keywords: m.slug,
 			run: go(`/apps/${m.slug}`),
 		}));
-		return [...staticCmds, ...moduleCmds];
-	}, [modulesQ.data, navigate]);
+		return [...staticCmds, ...idpCmds, ...moduleCmds];
+	}, [modulesQ.data, navigate, isAdmin, logout]);
 
 	const results = useMemo(() => filterCommands(commands, query), [commands, query]);
 

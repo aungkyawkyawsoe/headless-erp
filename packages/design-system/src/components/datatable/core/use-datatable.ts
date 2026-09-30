@@ -163,6 +163,10 @@ export function useDataTable<TData extends RowData>(
 		defaultPageSize = 10,
 		pageSize: pageSizeProp,
 		onPageSizeChange,
+		globalFilter: globalFilterProp,
+		onGlobalFilterChange,
+		manualFiltering: manualFilteringProp = false,
+		showPagination = true,
 		defaultSorting = null,
 		defaultColumnPinning = { start: [], end: [] },
 		isLoading: isLoadingProp,
@@ -196,7 +200,17 @@ export function useDataTable<TData extends RowData>(
 	const [sorting, setSorting] = React.useState<import('@tanstack/react-table').SortingState>(
 		defaultSorting ? [{ id: defaultSorting.id, desc: defaultSorting.direction === 'desc' }] : [],
 	);
-	const [globalFilter, setGlobalFilter] = React.useState('');
+	const [globalFilterState, setGlobalFilterState] = React.useState('');
+	// Controlled when the caller passes a value: the toolbar then only REPORTS
+	// changes, so the caller's term and the box can never hold two versions.
+	const globalFilter = globalFilterProp ?? globalFilterState;
+	const setGlobalFilter = React.useCallback(
+		(value: string) => {
+			if (globalFilterProp === undefined) setGlobalFilterState(value);
+			onGlobalFilterChange?.(value);
+		},
+		[globalFilterProp, onGlobalFilterChange],
+	);
 	const [pagination, setPagination] = React.useState<PaginationState>({
 		pageIndex: 0,
 		pageSize: pageSizeProp ?? defaultPageSize,
@@ -438,6 +452,13 @@ export function useDataTable<TData extends RowData>(
 	// ── TanStack Table ────────────────────────────────────
 	const tableData = isServerSide ? serverData : externalData;
 
+	// ── Pagination model ──────────────────────────────────
+	// With the cursor hidden, client mode is ONE page: seeding the page size to
+	// the whole row set means nothing is sliced away, so "the rows on screen" is
+	// the entire filtered set — what a bulk/master action must act on.
+	const effectivePagination: PaginationState =
+		!showPagination && !isServerSide ? { pageIndex: 0, pageSize: Math.max(externalData.length, 1) } : pagination;
+
 	// TanStack's useReactTable returns non-memoizable functions (React Compiler
 	// limitation of the library itself) — disable that specific check here.
 
@@ -448,7 +469,7 @@ export function useDataTable<TData extends RowData>(
 			sorting,
 			globalFilter,
 			columnFilters,
-			pagination,
+			pagination: effectivePagination,
 			columnVisibility,
 			columnPinning,
 			columnOrder,
@@ -456,7 +477,9 @@ export function useDataTable<TData extends RowData>(
 			grouping,
 		},
 		onSortingChange: setSorting,
-		onGlobalFilterChange: setGlobalFilter,
+		onGlobalFilterChange: ((updater: Updater<string>) => {
+			setGlobalFilter(typeof updater === 'function' ? updater(globalFilter) : updater);
+		}) as import('@tanstack/react-table').OnChangeFn<string>,
 		onColumnFiltersChange: ((updater: Updater<ColumnFiltersState>) => {
 			const next = typeof updater === 'function' ? updater(columnFilters) : updater;
 			const rich = next.filter((f) => f.value != null).map((f) => f.value as ActiveFilter);
@@ -539,7 +562,9 @@ export function useDataTable<TData extends RowData>(
 
 		globalFilterFn: globalFilterFn as TanStackColumnDef<TData>['filterFn'],
 
-		manualFiltering: isServerSide,
+		// Server mode filtered already; `manualFiltering` extends that to a client
+		// caller that filtered the rows itself (see the prop's doc).
+		manualFiltering: isServerSide || manualFilteringProp,
 		manualSorting: isServerSide,
 		manualPagination: isServerSide,
 
@@ -582,8 +607,12 @@ export function useDataTable<TData extends RowData>(
 	// ── Cursor pagination (always cursor-based) ────────────
 	const filteredCount = isServerSide ? -1 : table.getFilteredRowModel().rows.length;
 
-	const cursorFrom = isServerSide ? cursorOffset : pageIndex * pageSize;
-	const cursorTo = isServerSide ? cursorOffset + pageSize : Math.min((pageIndex + 1) * pageSize, Math.max(filteredCount, 0));
+	const cursorFrom = isServerSide ? cursorOffset : showPagination ? pageIndex * pageSize : 0;
+	const cursorTo = isServerSide
+		? cursorOffset + pageSize
+		: showPagination
+			? Math.min((pageIndex + 1) * pageSize, Math.max(filteredCount, 0))
+			: filteredCount;
 	// BOTH buttons read the SAME source — the cursors committed by the last
 	// settled fetch. Deriving one from `cursorOffset` and the other from
 	// `cursorState` let them disagree (offset 0 + a stale `nextCursor` reads as
@@ -591,8 +620,10 @@ export function useDataTable<TData extends RowData>(
 	// consistent snapshot: a page advertises a neighbour only when the server
 	// confirmed one. `loading` blocks a click from reading cursors that belong
 	// to rows no longer on screen.
-	const canGoPrevious = isServerSide ? !loading && cursorState.prevCursor != null : pageIndex > 0;
-	const canGoNext = isServerSide ? !loading && cursorState.nextCursor != null : (pageIndex + 1) * pageSize < filteredCount;
+	const canGoPrevious = isServerSide ? !loading && cursorState.prevCursor != null : showPagination && pageIndex > 0;
+	const canGoNext = isServerSide
+		? !loading && cursorState.nextCursor != null
+		: showPagination && (pageIndex + 1) * pageSize < filteredCount;
 
 	// ── Filter action creators ────────────────────────────
 	const addFilter = React.useCallback((filter: ActiveFilter) => {

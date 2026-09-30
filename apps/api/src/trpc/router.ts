@@ -130,9 +130,12 @@ const importInput = z.object({
 // User/Role/Permission schemas
 const createUserInput = z.object({
 	email: z.string().min(1),
-	password: z.string().min(6),
+	// Optional since the invited flow — an account may be created WITHOUT a
+	// credential (status `invited`), mirroring `AuthService.createUser`.
+	password: z.string().min(6).optional(),
 	full_name: z.string().min(1),
 	role_id: z.string().optional(),
+	status: z.enum(['active', 'invited', 'suspended']).optional(),
 	employee_id: z.string().nullish(),
 });
 const updateUserInput = z.object({
@@ -141,7 +144,7 @@ const updateUserInput = z.object({
 	password: z.string().optional(),
 	full_name: z.string().optional(),
 	role_id: z.string().optional(),
-	status: z.enum(['active', 'disabled']).optional(),
+	status: z.enum(['active', 'invited', 'suspended']).optional(),
 	// Nullable AND un-settable — `null` UNLINKS the account from its employee
 	// (`AuthService.updateUser`), so it cannot be expressed as `.optional()`.
 	employee_id: z.string().nullish(),

@@ -4,12 +4,14 @@ import { SYSTEM_FIELD_NAMES as ENGINE_SYSTEM_FIELD_NAMES } from '@mmbix/ui-views
 
 const BASE = '';
 
-// ─── Session expiry (401) ─────────────────────────────
+// ─── Session expiry (401) ────────────────────────────
 // Every authenticated Studio call goes through `api()` — a 401 always means
 // the token is invalid/expired, so it fires the registered handler and the
 // App drops the session (login screen returns).
 
 let unauthorizedHandler: (() => void) | null = null;
+let lastUnauthorizedTime = 0;
+const UNAUTHORIZED_COOLDOWN_MS = 2000; // Prevent rapid-fire 401 loops
 
 /** Register a callback fired when any authed request returns 401. */
 export function setUnauthorizedHandler(fn: (() => void) | null): void {
@@ -18,7 +20,15 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 
 /** Fire the registered 401 handler (session expiry). Returns true when the response is a 401. */
 export function handleUnauthorized(res: Response): boolean {
-	if (res.status === 401 && unauthorizedHandler) unauthorizedHandler();
+	if (res.status === 401 && unauthorizedHandler) {
+		const now = Date.now();
+		// Only trigger logout if we haven't seen a 401 in the last 2 seconds
+		// This prevents infinite loops when multiple requests fail simultaneously
+		if (now - lastUnauthorizedTime > UNAUTHORIZED_COOLDOWN_MS) {
+			lastUnauthorizedTime = now;
+			unauthorizedHandler();
+		}
+	}
 	return res.status === 401;
 }
 
@@ -74,8 +84,12 @@ async function apiFetch<T, M = unknown>(token: string, path: string, opts?: Requ
 	let res: Response;
 	try {
 		res = await fetch(`${BASE}${path}`, {
-			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
+			// `opts` FIRST, headers LAST: a caller's `headers` key — `undefined` counts,
+			// and `updateCollectionFields` always passes one — would otherwise replace
+			// the auth headers wholesale and send the write unauthenticated (401 →
+			// session dropped). Callers still win on any header they set themselves.
 			...opts,
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
 		});
 	} catch {
 		// fetch throws a bare TypeError("Failed to fetch") when the request never
@@ -83,6 +97,12 @@ async function apiFetch<T, M = unknown>(token: string, path: string, opts?: Requ
 		// clear, actionable message instead of the cryptic browser default.
 		throw new Error('Cannot reach the API server — is the backend running? (cd apps/api && npx wrangler dev)');
 	}
+
+	// Debug: log 401 responses to help diagnose auth issues
+	if (res.status === 401) {
+		console.warn(`[API] 401 Unauthorized on ${path}. Token preview: ${token.substring(0, 20)}...`);
+	}
+
 	handleUnauthorized(res);
 	const body = (await res.json().catch(() => null)) as ApiEnvelope<T, M> | null;
 	if (!body?.success) {
@@ -345,15 +365,6 @@ export interface IdpPolicies {
 		rules: Array<IdpPolicyRule & { passed: number; total: number; pass_pct: number }>;
 	};
 }
-export interface IdpAuditEntry {
-	id: string;
-	action: string;
-	entity: string;
-	entity_id: string | null;
-	actor_email: string | null;
-	detail_json: string | null;
-	created_at: string;
-}
 export interface IdpScorecard {
 	total: number;
 	with_owner: number;
@@ -413,10 +424,6 @@ export async function getIdpScorecard(token: string) {
 export async function getIdpPolicies(token: string) {
 	return api<IdpPolicies>(token, '/api/idp/policies');
 }
-/** Append-only IDP governance audit trail (newest first). */
-export async function getIdpAudit(token: string, limit = 100) {
-	return api<IdpAuditEntry[]>(token, `/api/idp/audit?limit=${limit}`);
-}
 export async function listIdpTemplates(token: string) {
 	return api<IdpTemplate[]>(token, '/api/idp/templates');
 }
@@ -443,61 +450,11 @@ export async function getIdpUsage(token: string, days = 30) {
 export async function listIdpDeployments(token: string) {
 	return api<IdpDeployment[]>(token, '/api/idp/deployments');
 }
-/** Create a draft deployment (GitOps) — POST /api/idp/deployments. */
-export async function createDeployment(
-	token: string,
-	body: {
-		module_id: string;
-		environment_id: string;
-		version?: string;
-		git_ref?: string | null;
-		snapshot_json?: string | null;
-		status?: string;
-	},
-) {
-	return api<IdpDeployment>(token, '/api/idp/deployments', { method: 'POST', body: JSON.stringify(body) });
-}
-
-export interface IdpPlanResult {
-	deployment_id: string;
-	git_ref: string | null;
-	summary: { totalChanges: number; breakingChanges: string[]; safeToApply: boolean };
-}
-
-export interface IdpApplyResult {
-	deployment_id: string;
-	applied: boolean;
-	already_applied?: boolean;
-	checksum?: string;
-	results?: Array<{ slug: string; status: string }>;
-	summary?: { totalChanges: number; breakingChanges: string[]; safeToApply: boolean };
-}
-
-/** Plan — diff the deployment's pinned snapshot against the live DB (read-only). */
-export async function planDeployment(token: string, id: string) {
-	return api<IdpPlanResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/plan`, { method: 'POST' });
-}
-
-/** Apply — idempotent, gated migration of the deployment's snapshot. */
-export async function applyDeployment(token: string, id: string, force = false) {
-	return api<IdpApplyResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/apply`, {
-		method: 'POST',
-		body: JSON.stringify({ force }),
-	});
-}
-
-/** Rollback — re-apply the previous live snapshot for the same module+env. */
-export async function rollbackDeployment(token: string, id: string) {
-	return api<IdpApplyResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/rollback`, { method: 'POST' });
-}
 export async function promoteDeployment(token: string, id: string) {
 	return api<PromoteResult>(token, `/api/idp/deployments/${encodeURIComponent(id)}/promote`, { method: 'POST' });
 }
 export async function getDeploymentHistory(token: string, id: string) {
 	return api<IdpHistoryEntry[]>(token, `/api/idp/deployments/${encodeURIComponent(id)}/history`);
-}
-export async function listIdpEnvironments(token: string) {
-	return api<IdpEnvironment[]>(token, '/api/idp/environments');
 }
 export async function listIdpOwnership(token: string) {
 	return api<unknown[]>(token, '/api/idp/ownership');
@@ -1143,7 +1100,9 @@ export interface RoleRecord {
 	id: string;
 	name: string;
 	description?: string | null;
-	is_system?: number;
+	/** Engine-owned (Administrator): the API coerces SQLite's 0/1 to a real boolean
+	 *  (`coercePermissionBooleans`), and such a role cannot be renamed or deleted. */
+	is_system?: boolean;
 	/** Mini-app launcher board (Design-B role→app access): app ids this role may
 	 *  open. null = every app. Parsed from the DB JSON by the backend. */
 	app_access?: string[] | null;
@@ -1296,9 +1255,11 @@ export interface StudioUser {
 	email: string;
 	full_name?: string;
 	role_id?: string | null;
-	/** `disabled` is refused at sign-in (and its live tokens 401 on the next
-	 *  request) — see `AuthService.login` / `verifyToken`. */
-	status?: 'active' | 'disabled';
+	/** Lifecycle: `active` signs in, `invited` has no credential yet,
+	 *  `suspended` is blocked. Every non-active state is refused at sign-in (and
+	 *  its live tokens 401 on the next request) — see `AuthService.login` /
+	 *  `verifyToken`. */
+	status?: 'active' | 'invited' | 'suspended';
 	/** The the directory row this account signs in AS (the web employee link).
 	 *  Null for the bootstrap admin and for Telegram accounts, whose acting
 	 *  employee comes from the token's `tg-<id>` address instead. */
@@ -1315,14 +1276,19 @@ export async function listUsers(token: string) {
 
 export interface CreateStudioUserInput {
 	email: string;
-	password: string;
+	/** Omit to create the account `invited` — it then cannot sign in until a
+	 *  password is set (the API stores a no-credential marker in its place). */
+	password?: string;
 	full_name: string;
 	role_id?: string | null;
+	/** Explicit lifecycle state; the API defaults to `active` when a password is
+	 *  present and `invited` otherwise. */
+	status?: 'active' | 'invited' | 'suspended';
 	/** Omit to create an account with no acting employee (an admin-style login). */
 	employee_id?: string | null;
 }
 
-/** Admin — create an account that signs in with email + password. */
+/** Admin — create an account. Without a password it is created `invited`. */
 export async function createUser(token: string, body: CreateStudioUserInput) {
 	return api<{ id: string; email: string; full_name: string }>(token, '/api/users', {
 		method: 'POST',
@@ -1338,7 +1304,7 @@ export interface UpdateStudioUserInput {
 	/** ⚠️ The Admin API only assigns a role when this is TRUTHY, so a role can
 	 *  never be un-assigned here — a password account always holds one. */
 	role_id?: string | null;
-	status?: 'active' | 'disabled';
+	status?: 'active' | 'invited' | 'suspended';
 	/** The employee this account signs in as. `null` UNLINKS it (the API treats
 	 *  `undefined` as "leave it alone") — the fix for a binding made to the wrong
 	 *  person, and how a former employee's account stops acting as anyone. */

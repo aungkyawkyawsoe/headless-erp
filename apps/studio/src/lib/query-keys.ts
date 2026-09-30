@@ -85,8 +85,6 @@ export const qk = {
 	idpUsage: (days: number) => [...qk.all, 'idp', 'usage', days] as const,
 	idpTemplates: () => [...qk.all, 'idp', 'templates'] as const,
 	idpDeployments: () => [...qk.all, 'idp', 'deployments'] as const,
-	idpEnvironments: () => [...qk.all, 'idp', 'environments'] as const,
 	idpHistory: (id: string) => [...qk.all, 'idp', 'history', id] as const,
 	idpPolicies: () => [...qk.all, 'idp', 'policies'] as const,
-	idpAudit: (limit: number) => [...qk.all, 'idp', 'audit', limit] as const,
 } as const;

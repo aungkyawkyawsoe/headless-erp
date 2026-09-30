@@ -84,6 +84,11 @@ export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 	noResultsMessage?: string;
 	/** Whether to show the sidebar search box. Defaults to `true`. */
 	showSearch?: boolean;
+	/**
+	 * The sidebar's body. When provided it REPLACES the nav lists (and the nav
+	 * search box) — a contextual panel whose content follows the active section.
+	 */
+	panel?: React.ReactNode;
 }
 
 export function AppSidebar({
@@ -107,6 +112,7 @@ export function AppSidebar({
 	searchAriaLabel = 'Search navigation',
 	noResultsMessage = 'No results found',
 	showSearch = true,
+	panel,
 	...props
 }: AppSidebarProps) {
 	const isControlled = controlledActiveModule !== undefined;
@@ -130,6 +136,10 @@ export function AppSidebar({
 	);
 
 	const moduleData = data.navByModule[activeModule?.name] ?? data.navByModule['default'] ?? { navMain: [], projects: [] };
+	// The header's ONLY content is the module switcher, so turning that off drops
+	// the header slot with it — the container carries `p-2` of its own padding and
+	// would otherwise leave an empty band above the panel.
+	const showModuleSwitcher = sidebarHeaderProps?.showModuleSwitcher !== false;
 
 	const [searchQuery, setSearchQuery] = React.useState('');
 	const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -152,44 +162,52 @@ export function AppSidebar({
 	const hasResults = filteredNavMain.length > 0 || filteredProjects.length > 0;
 
 	return (
-		<Sidebar collapsible="icon" {...props}>
-			<SidebarHeaderContainer>
-				<SidebarHeader {...sidebarHeaderProps} modules={data.modules} activeModule={activeModule} onModuleChange={handleModuleChange} />
-			</SidebarHeaderContainer>
+		// A panel is not an icon list: it collapses offcanvas (⌘/Ctrl+B slides it
+		// away) instead of shrinking to an icon rail. Consumers can still override.
+		<Sidebar collapsible={panel ? 'offcanvas' : 'icon'} {...props}>
+			{showModuleSwitcher && (
+				<SidebarHeaderContainer>
+					<SidebarHeader {...sidebarHeaderProps} modules={data.modules} activeModule={activeModule} onModuleChange={handleModuleChange} />
+				</SidebarHeaderContainer>
+			)}
 			<SidebarContent>
-				{/* Search box for the nav items — hidden in icon-only rail mode */}
-				{showSearch && (
-					<div className="mx-1 p-2 pb-0 group-data-[collapsible=icon]:hidden">
-						<SearchBox
-							value={searchQuery}
-							onValueChange={setSearchQuery}
-							placeholder={searchPlaceholder}
-							aria-label={searchAriaLabel}
-							inputClassName="h-7 pr-5"
-						/>
-					</div>
-				)}
-				{hasResults ? (
+				{panel ?? (
 					<>
-						{filteredNavMain.length > 0 && (
-							<NavMain
-								items={filteredNavMain}
-								groupLabel={navMainGroupLabel}
-								onNavigate={onNavMainNavigate}
-								onItemClick={onNavMainItemClick}
-							/>
+						{/* Search box for the nav items — hidden in icon-only rail mode */}
+						{showSearch && (
+							<div className="mx-1 p-2 pb-0 group-data-[collapsible=icon]:hidden">
+								<SearchBox
+									value={searchQuery}
+									onValueChange={setSearchQuery}
+									placeholder={searchPlaceholder}
+									aria-label={searchAriaLabel}
+									inputClassName="h-7 pr-5"
+								/>
+							</div>
 						)}
-						{filteredProjects.length > 0 && (
-							<NavProjects
-								{...navProjectsProps}
-								projects={filteredProjects}
-								groupLabel={navProjectsGroupLabel}
-								onNavigate={onNavProjectsNavigate}
-							/>
+						{hasResults ? (
+							<>
+								{filteredNavMain.length > 0 && (
+									<NavMain
+										items={filteredNavMain}
+										groupLabel={navMainGroupLabel}
+										onNavigate={onNavMainNavigate}
+										onItemClick={onNavMainItemClick}
+									/>
+								)}
+								{filteredProjects.length > 0 && (
+									<NavProjects
+										{...navProjectsProps}
+										projects={filteredProjects}
+										groupLabel={navProjectsGroupLabel}
+										onNavigate={onNavProjectsNavigate}
+									/>
+								)}
+							</>
+						) : (
+							<div className="px-4 py-6 text-center text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{noResultsMessage}</div>
 						)}
 					</>
-				) : (
-					<div className="px-4 py-6 text-center text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{noResultsMessage}</div>
 				)}
 			</SidebarContent>
 			<SidebarFooter>

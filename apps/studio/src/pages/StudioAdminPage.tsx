@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell, Badge, Button, confirmDialog, StatusBar, type Module, type NavMainItem } from '@mmbix/design-system';
 import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
 import {
-	BookOpen,
 	Blocks,
 	Activity,
-	Box,
 	Component,
 	Database,
 	KeyRound,
-	Layers,
 	LayoutGrid,
 	LayoutTemplate,
+	LogOut,
 	Package,
 	Paintbrush,
 	Palette,
@@ -26,11 +23,10 @@ import {
 	Zap,
 } from 'lucide-react';
 import { dsIcon, useStudioMeta, useStudioMetaRefresh, type DesignComponent } from '../lib/studioMeta';
-import { appColor, smartIconFor } from '@mmbix/ui-views';
 import { authedFetch } from '../lib/api';
 import { modulesQuery } from '../lib/queries';
 import { useMe } from '../lib/use-me';
-import { isIdpManagedModule } from '../lib/idp';
+import { useLogout } from '../lib/session-actions';
 import { TemplatesTab } from '../components/admin/templates-tab';
 import { StylesTab } from '../components/admin/styles-tab';
 import { EventsTab } from '../components/admin/events-tab';
@@ -77,12 +73,9 @@ type TabId =
 	| 'roles'
 	| 'users';
 
-/** The settings-page module grid: the REAL app modules (HRM/WMS/…) fetched from
- *  the API plus the Settings tile — nothing hardcoded. */
+/** This page's sidebar identity (its `activeModule`). The shell's module switcher
+ *  is OFF here — see `showModuleSwitcher` at the `AppShell` below. */
 const SETTINGS_MODULE: Module = { name: 'Settings', icon: Settings, iconBackground: '#64748b' };
-/** IDP + API Docs as top-level destinations in the Studio shell's module switcher. */
-const IDP_MODULE: Module = { name: 'IDP', icon: Layers, iconBackground: '#8b5cf6' };
-const API_DOCS_MODULE: Module = { name: 'API Docs', icon: BookOpen, iconBackground: '#0ea5e9' };
 
 /** Sidebar nav for the settings page — the admin tabs, one per nav item.
  *  Clicking one switches the active tab (they are not app routes). `adminOnly`
@@ -108,7 +101,6 @@ const ADMIN_ONLY_TABS = new Set<TabId>(['events', 'config', 'dsexports', 'addons
 
 /** Studio Admin — manage the local metadata DB (design components, props, templates). */
 export default function StudioAdminPage({ token, user }: { token: string; user: { email: string; full_name: string } }) {
-	const navigate = useNavigate();
 	const providerMeta = useStudioMeta();
 	const refreshMeta = useStudioMetaRefresh();
 	// ONE source of studio metadata for the whole app (`StudioMetaProvider`), which
@@ -133,11 +125,12 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 	const [editing, setEditing] = useState<DesignComponent | null>(null);
 	const [newOpen, setNewOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
+	// The ONE sign-out action, from the authed root (see `lib/session-actions`).
+	const logout = useLogout();
 
-	// Real apps (HRM/WMS…) go in the module switcher alongside the Settings tile.
-	// Settings is always in the list, so the AppShell never sees an empty module
-	// array (its sidebar reads modules[0].name) — no render gate needed. The read is
-	// the shared `qk.modules()` entry (same cache the launcher grid + workbench use).
+	// The Tokens tab lists a token set per app, so it needs the module list. The
+	// read is the shared `qk.modules()` entry (one fetch for the whole session);
+	// the shell's module switcher was the OTHER consumer of it and is gone.
 	const modules = useQuery(modulesQuery(token)).data ?? [];
 
 	async function api(path: string, init?: RequestInit) {
@@ -283,8 +276,11 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 			{tab === 'roles' && canAdminister && <RolesTab token={token} />}
 
 			{/* Accounts are session identities, so the tab needs the signed-in email to
-			    mark (and protect) the operator's OWN row. */}
-			{tab === 'users' && canAdminister && <UsersTab token={token} currentEmail={user.email} />}
+			    mark (and protect) the operator's OWN row. `viewsInToolbar`: this shell
+			    has no panel (its sidebar is the admin tab list), so the directory's
+			    saved views — the Directus sidebar the portal renders in its own panel —
+			    ride the table's toolbar here. */}
+			{tab === 'users' && canAdminister && <UsersTab token={token} currentEmail={user.email} viewsInToolbar />}
 
 			{/* Component editor dialog */}
 			{newOpen && (
@@ -301,29 +297,17 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 		</>
 	);
 
-	// The AppShell sidebar is settings-only (no app modules) — the data is
-	// static, so the shell always renders safely.
+	// The AppShell sidebar is settings-only — the data is static, so the shell
+	// always renders safely.
 	return (
 		<AppShell
 			breadcrumbs={[{ href: '#/studio', label: 'Studio Admin' }, { label: TAB_LABELS[tab] }]}
 			data={{
 				user: { name: user.full_name || user.email || 'Studio', email: user.email ?? '', avatar: '' },
-				// Real app modules (HRM/WMS/…) + Settings + IDP + API Docs, all from the API.
-				// IDP-managed business modules (HR/Vehicle/Store) live under the catalog,
-				// so they're excluded from this app-level switcher.
-				modules: [
-					...modules
-						.filter((m) => !isIdpManagedModule(m.slug))
-						.map((m) => ({
-							name: m.name,
-							icon: smartIconFor(m.icon, Box),
-							iconBackground: m.bg_color ?? appColor(m.slug),
-							iconColor: m.icon_color ?? undefined,
-						})),
-					SETTINGS_MODULE,
-					IDP_MODULE,
-					API_DOCS_MODULE,
-				],
+				// Just the sidebar's identity anchor (its `activeModule`): the switcher
+				// that would list other modules is off below, and the portal's catalog is
+				// the app list — so this shell needs no app-module read at all.
+				modules: [SETTINGS_MODULE],
 				// The sidebar nav is the settings page's own (the admin tabs) — app
 				// module menus stay off the settings page.
 				navByModule: { Settings: { navMain, projects: [] }, default: { navMain, projects: [] } },
@@ -368,19 +352,19 @@ export default function StudioAdminPage({ token, user }: { token: string; user: 
 			statusBar={<StatusBar />}
 			sidebarProps={{
 				activeModule: SETTINGS_MODULE,
-				// Picking a module in the switcher: IDP → the portal; API Docs → the
-				// standalone docs page; a real app → its workbench; Settings stays.
-				onActiveModuleChange: (mod) => {
-					if (mod.name === IDP_MODULE.name) {
-						navigate('/idp');
-						return;
-					}
-					if (mod.name === API_DOCS_MODULE.name) {
-						navigate('/api-docs');
-						return;
-					}
-					const m = modules.find((x) => x.name === mod.name);
-					if (m) navigate(`/apps/${m.slug}`);
+				// No module switcher: the portal's rail + catalog are the navigation,
+				// and the ⌘K palette jumps anywhere from here. Leaving it on would put
+				// a launcher grid one accidental ⌘K away — and steal that shortcut from
+				// the palette.
+				sidebarHeaderProps: { showModuleSwitcher: false },
+				// Sign-out rides the account menu here too (the same ONE action the
+				// portal reads) — the Settings tile it used to sit behind is gone.
+				// `showLocaleSwitcher: false` is required, not cosmetic: the locale
+				// item needs a `LocaleProvider` the Studio does not mount, and opening
+				// the menu without this flag threw and blanked the page.
+				navUserProps: {
+					showLocaleSwitcher: false,
+					userMenuItems: [{ kind: 'logout', label: 'Log out', icon: LogOut, onClick: logout }],
 				},
 			}}
 		>

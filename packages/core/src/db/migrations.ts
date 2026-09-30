@@ -713,6 +713,18 @@ const MIGRATIONS: Migration[] = [
 			QueryBuilder.raw('CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON _refresh_tokens (user_id, revoked_at)'),
 		],
 	},
+	{
+		name: '049_users_status_vocabulary',
+		up: [
+			// The account lifecycle gained `invited`/`suspended` (matching the Directus
+			// user directory's statuses); `disabled` retires into `suspended` — the
+			// SAME behavior under the vocabulary every reader now speaks. Both states
+			// were already denied at login/`verifyToken` (any status ≠ `active` is
+			// fail-closed), so this is a rename, not a gate change. Idempotent: rows
+			// already `suspended`/`active`/`invited` are untouched.
+			QueryBuilder.raw("UPDATE _users SET status = 'suspended' WHERE status = 'disabled'"),
+		],
+	},
 ];
 
 /** Source-of-truth migration names — the CLI imports these instead of keeping a stale copy. */

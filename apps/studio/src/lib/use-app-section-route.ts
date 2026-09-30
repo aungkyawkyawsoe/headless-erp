@@ -14,7 +14,7 @@ import { DEFAULT_APP_SECTION, appSectionPath, isAppSection, resolveAppSection, t
  * Two jobs:
  *   1. Derive the active mode from the `*` splat, clamping anything unknown to
  *      the default mode so a bad link renders a real pane, not a blank layout.
- *   2. Canonicalise a bare `/apps/:slug` (the apps grid + IDP catalog link here)
+ *   2. Canonicalise a bare `/apps/:slug` (the IDP catalog + module switcher link here)
  *      to the default mode with a REPLACE, so the entry never stacks a second
  *      copy of the same screen and a pasted bad link self-heals.
  */

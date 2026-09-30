@@ -1,7 +1,8 @@
 /**
  * StudioLayout — Odoo-inspired 3-pane studio workspace shell.
- * Rendered inside the app's global shell (see App.tsx — the narrow activity
- * rail was removed; navigation lives in the Apps ModuleGrid).
+ * Rendered inside the app's global shell (see App.tsx — the only authed
+ * surfaces are this workbench, Studio Admin and the portal; navigation lives in
+ * the portal's rail + panel).
  *
  *   ┌────────────────────────────────────────────────────────────────┐
  *   │  header                                                        │

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@mmbix/design-system';
+import { Badge, Button } from '@mmbix/design-system';
+import { DataTable, type ColumnDef } from '@mmbix/design-system/datatable';
 import { Blocks, Download, Trash2 } from 'lucide-react';
 import { installAddon, uninstallAddon, type AddonEntry } from '../../lib/api';
 import { addonsQuery, modulesQuery } from '../../lib/queries';
@@ -11,7 +12,8 @@ import StatusBadge from '../StatusBadge';
  *
  * Lists the compiled add-ons with their install state + dependency/capability
  * graph. Install/uninstall hit `/api/addons` (admin) and immediately flip the
- * route gate + `/api/meta`; nothing is redeployed. */
+ * route gate + `/api/meta`; nothing is redeployed. Rendered through the SHARED
+ * `DataTable` — the same table component every other Studio surface uses. */
 
 const SCOPE_COLOR: Record<AddonEntry['scope'], string> = {
 	platform: '#0ea5e9',
@@ -19,20 +21,22 @@ const SCOPE_COLOR: Record<AddonEntry['scope'], string> = {
 	ui: 'var(--mmbix-tone-warning-fg, #f59e0b)',
 };
 
-const th = { textAlign: 'left' as const, padding: '0.25rem 0.5rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', fontWeight: 600 };
-const td = { padding: '0.35rem 0.5rem', verticalAlign: 'top' as const, whiteSpace: 'normal' as const };
-
 export function AddonsTab({ token }: { token: string }) {
 	const queryClient = useQueryClient();
 	const addonsQ = useQuery(addonsQuery(token));
 	const addons = useMemo(() => addonsQ.data?.addons ?? [], [addonsQ.data]);
 	const issues = useMemo(() => addonsQ.data?.issues ?? [], [addonsQ.data]);
+	const [query, setQuery] = useState('');
 	const [busyId, setBusyId] = useState<string | null>(null);
 	const [msg, setMsg] = useState<string | null>(null);
 
-	useEffect(() => {
-		if (addonsQ.error) setMsg(addonsQ.error instanceof Error ? addonsQ.error.message : 'Failed to load add-ons');
-	}, [addonsQ.error]);
+	// The caller owns the predicate: the rows below are already the filtered set.
+	// A search term narrows on what the row SHOWS (name + id), not on hidden state.
+	const shown = useMemo(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return addons;
+		return addons.filter((a) => `${a.name} ${a.id}`.toLowerCase().includes(q));
+	}, [addons, query]);
 
 	const refresh = async () => {
 		await queryClient.invalidateQueries({ queryKey: qk.addons() });
@@ -55,6 +59,70 @@ export function AddonsTab({ token }: { token: string }) {
 		}
 	};
 
+	const columns: ColumnDef<AddonEntry>[] = [
+		{
+			id: 'addon',
+			header: 'Add-on',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row: { original: a } }) => (
+				<div>
+					<strong>{a.name}</strong>
+					<div style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
+						{a.id} · v{a.version}
+					</div>
+				</div>
+			),
+		},
+		{
+			id: 'scope',
+			header: 'Scope',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row: { original: a } }) => <Badge style={{ background: SCOPE_COLOR[a.scope], color: '#fff' }}>{a.scope}</Badge>,
+		},
+		{
+			id: 'graph',
+			header: 'Depends / Capabilities',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row: { original: a } }) => (
+				<div style={{ color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
+					{a.depends.length > 0 && <div>needs: {a.depends.join(', ')}</div>}
+					{a.provides.length > 0 && <div>provides: {a.provides.join(', ')}</div>}
+					{a.requires.length > 0 && <div>requires: {a.requires.join(', ')}</div>}
+					{a.depends.length + a.provides.length + a.requires.length === 0 && <span>—</span>}
+				</div>
+			),
+		},
+		{
+			id: 'state',
+			header: 'State',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			cell: ({ row: { original: a } }) => <StatusBadge status={a.installed ? 'installed' : 'not installed'} />,
+		},
+		{
+			id: 'actions',
+			header: '',
+			enableSorting: false,
+			enableHeaderMenu: false,
+			align: 'right',
+			cell: ({ row: { original: a } }) => (
+				<Button
+					variant={a.installed ? 'outline' : 'default'}
+					size="sm"
+					disabled={busyId === a.id || !a.available}
+					onClick={() => void toggle(a)}
+					title={a.installed ? 'Uninstall' : 'Install'}
+				>
+					{a.installed ? <Trash2 size={13} /> : <Download size={13} />}
+					{a.installed ? 'Remove' : 'Install'}
+				</Button>
+			),
+		},
+	];
+
 	return (
 		<div style={{ padding: '0.5rem 0.75rem' }}>
 			<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)', margin: '0 0 0.6rem' }}>
@@ -68,59 +136,25 @@ export function AddonsTab({ token }: { token: string }) {
 				</p>
 			)}
 
-			{addonsQ.isLoading ? (
-				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>Loading add-ons…</p>
-			) : addons.length === 0 ? (
-				<p style={{ fontSize: '0.72rem', color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>No add-ons in this build.</p>
-			) : (
-				<Table style={{ width: '100%', fontSize: '0.74rem' }}>
-					<TableHeader>
-						<TableRow>
-							<TableHead style={th}>Add-on</TableHead>
-							<TableHead style={th}>Scope</TableHead>
-							<TableHead style={th}>Depends / Capabilities</TableHead>
-							<TableHead style={th}>State</TableHead>
-							<TableHead style={th} />
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{addons.map((a) => (
-							<TableRow key={a.id}>
-								<TableCell style={td}>
-									<strong>{a.name}</strong>
-									<div style={{ color: 'var(--mmbix-muted-foreground, #9ca3af)' }}>
-										{a.id} · v{a.version}
-									</div>
-								</TableCell>
-								<TableCell style={td}>
-									<Badge style={{ background: SCOPE_COLOR[a.scope], color: '#fff' }}>{a.scope}</Badge>
-								</TableCell>
-								<TableCell style={{ ...td, color: 'var(--mmbix-muted-foreground, #6b7280)' }}>
-									{a.depends.length > 0 && <div>needs: {a.depends.join(', ')}</div>}
-									{a.provides.length > 0 && <div>provides: {a.provides.join(', ')}</div>}
-									{a.requires.length > 0 && <div>requires: {a.requires.join(', ')}</div>}
-									{a.depends.length + a.provides.length + a.requires.length === 0 && <span>—</span>}
-								</TableCell>
-								<TableCell style={td}>
-									<StatusBadge status={a.installed ? 'installed' : 'not installed'} />
-								</TableCell>
-								<TableCell style={{ ...td, textAlign: 'right' as const }}>
-									<Button
-										variant={a.installed ? 'outline' : 'default'}
-										size="sm"
-										disabled={busyId === a.id || !a.available}
-										onClick={() => void toggle(a)}
-										title={a.installed ? 'Uninstall' : 'Install'}
-									>
-										{a.installed ? <Trash2 size={13} /> : <Download size={13} />}
-										{a.installed ? 'Remove' : 'Install'}
-									</Button>
-								</TableCell>
-							</TableRow>
-						))}
-					</TableBody>
-				</Table>
-			)}
+			<DataTable<AddonEntry>
+				columns={columns}
+				data={shown}
+				rowKey="id"
+				globalFilter={query}
+				onGlobalFilterChange={setQuery}
+				manualFiltering
+				density="compact"
+				stickyHeader
+				showFilters={false}
+				showPagination={false}
+				isLoading={addonsQ.isLoading}
+				error={addonsQ.error ? (addonsQ.error instanceof Error ? addonsQ.error.message : 'Failed to load add-ons') : null}
+				labels={{
+					searchPlaceholder: 'Search add-ons',
+					searchLabel: 'Search add-ons',
+					empty: addons.length === 0 ? 'No add-ons in this build.' : `No add-on matches “${query}”.`,
+				}}
+			/>
 
 			{issues.length > 0 && (
 				<div style={{ marginTop: '0.75rem' }}>

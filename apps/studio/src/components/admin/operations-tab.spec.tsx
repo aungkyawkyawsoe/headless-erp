@@ -101,6 +101,16 @@ describe('OperationsTab jobs', () => {
 		renderTab();
 		await screen.findByText(/No jobs declared/);
 	});
+
+	it('narrows the jobs through the shared table’s search box', async () => {
+		renderTab();
+		await screen.findByText('nightly-rollup');
+
+		fireEvent.change(screen.getByLabelText('Search jobs'), { target: { value: 'zzz' } });
+
+		await waitFor(() => expect(screen.queryByText('nightly-rollup')).toBeNull());
+		expect(screen.getByText('No job matches “zzz”.')).toBeTruthy();
+	});
 });
 
 describe('OperationsTab integrity', () => {

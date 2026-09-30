@@ -6,8 +6,8 @@ import { loginApi } from '../lib/api';
 // The DS components' default `h-7` (28px) sizing reads as a compact dev tool.
 // Enterprise sign-in forms use roomier controls — matching this page's lighter
 // touch by bumping the control height and full-width fields here via inline
-// style (the studio styles everything inline, see AppsPage etc.), overriding
-// the inherited utility height.
+// style (the studio styles its own chrome, e.g. IdpShell), overriding the
+// inherited utility height.
 const controlHeight: CSSProperties = { height: 42, borderRadius: 10 };
 
 type FieldProps = {
@@ -52,10 +52,22 @@ export default function LoginPage({ onLogin }: { onLogin: (token: string, user: 
 		setLoading(true);
 		setError(null);
 		try {
-			const { token, user } = await loginApi(email, password);
-			onLogin(token, user);
+			const result = await loginApi(email, password);
+			// Validate the token before proceeding
+			if (!result.token || typeof result.token !== 'string') {
+				throw new Error('Invalid response from server — no authentication token received');
+			}
+			onLogin(result.token, result.user);
 		} catch (err) {
-			setError(err instanceof Error ? err.message : 'Login failed');
+			const message = err instanceof Error ? err.message : 'Login failed';
+			// Provide clearer error messages for common issues
+			if (message.includes('401') || message.toLowerCase().includes('unauthorized')) {
+				setError('Invalid email or password. Please check your credentials and try again.');
+			} else if (message.includes('network') || message.includes('fetch')) {
+				setError('Cannot connect to the server. Please check your network connection.');
+			} else {
+				setError(message);
+			}
 		} finally {
 			setLoading(false);
 		}

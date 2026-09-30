@@ -25,6 +25,8 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 		columns,
 		showToolbar = true,
 		showFilterBar = true,
+		showFilters = true,
+		showPagination = true,
 		showFooter = false,
 		density = 'comfortable',
 		className,
@@ -128,7 +130,7 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 
 	// Cursor pagination — rendered top-right before the custom actions, level with the search bar
 	const pagination =
-		viewMode === 'kanban' ? null : (
+		viewMode === 'kanban' || !showPagination ? null : (
 			<PaginationCursor
 				from={table.cursorFrom}
 				to={table.cursorTo}
@@ -296,11 +298,14 @@ function DataTableRoot<TData extends RowData>(props: DataTableProps<TData>) {
 										createLabel={labels?.create}
 										pagination={pagination}
 										viewModeToggle={viewModeToggle}
+										showFilters={showFilters}
 									/>
 								) : (
-									<div data-slot="datatable-pagination" className="flex w-full justify-end">
-										{pagination}
-									</div>
+									pagination && (
+										<div data-slot="datatable-pagination" className="flex w-full justify-end">
+											{pagination}
+										</div>
+									)
 								)}
 								{showFilterBar && table.filters.length > 0 && (
 									<DataTableFilterBar

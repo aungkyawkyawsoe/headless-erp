@@ -34,6 +34,12 @@ type SidebarContextProps = {
 	setOpenMobile: (open: boolean) => void;
 	isMobile: boolean;
 	toggleSidebar: () => void;
+	/**
+	 * Whether the sidebar can be collapsed on desktop. `false` pins it open:
+	 * `toggleSidebar` and the ⌘/Ctrl+B shortcut do nothing there (the mobile
+	 * Sheet below `md` is unaffected).
+	 */
+	collapsible: boolean;
 	/** Whether the sidebar width can be changed by dragging its edge. */
 	resizable: boolean;
 	/** True while a resize drag is in progress. */
@@ -53,11 +59,28 @@ function useSidebar() {
 	return context;
 }
 
+/**
+ * The persisted sidebar state lives in a cookie. A consumer that mounts a fresh
+ * provider per route (e.g. a per-page shell) must SEED from it on mount, or the
+ * user's Ctrl/Cmd+B is undone by the next navigation.
+ */
+function persistedSidebarOpen(fallback: boolean): boolean {
+	if (typeof document === 'undefined') return fallback;
+	try {
+		const match = document.cookie.match(/(?:^|;\s*)sidebar_state=(true|false)(?:;|$)/);
+		return match ? match[1] === 'true' : fallback;
+	} catch {
+		return fallback;
+	}
+}
+
 function SidebarProvider({
 	defaultOpen = true,
 	open: openProp,
 	onOpenChange: setOpenProp,
+	collapsible = true,
 	resizable = false,
+	railWidth = '0rem',
 	className,
 	style,
 	children,
@@ -66,8 +89,22 @@ function SidebarProvider({
 	defaultOpen?: boolean;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
+	/**
+	 * Whether the sidebar can be collapsed on desktop. Defaults to `true`.
+	 * `false` pins it open: a stale `sidebar_state=false` cookie, `defaultOpen`
+	 * and a controlled `open` are all overridden, the ⌘/Ctrl+B shortcut is left
+	 * to the app, and the edge strip stops offering a collapse. The Sheet below
+	 * `md` still opens and closes.
+	 */
+	collapsible?: boolean;
 	/** Allow resizing the sidebar width by dragging its edge. Defaults to `false`. */
 	resizable?: boolean;
+	/**
+	 * Width reserved to the LEFT of the sidebar for a fixed activity bar / icon
+	 * rail (e.g. `3rem`). The sidebar container and its offcanvas transform are
+	 * offset by it; `0rem` (the default) keeps the plain layout.
+	 */
+	railWidth?: string;
 }) {
 	const isMobile = useIsMobile();
 	const [openMobile, setOpenMobile] = React.useState(false);
@@ -158,8 +195,11 @@ function SidebarProvider({
 
 	// This is the internal state of the sidebar.
 	// We use openProp and setOpenProp for control from outside the component.
-	const [_open, _setOpen] = React.useState(defaultOpen);
-	const open = openProp ?? _open;
+	const [_open, _setOpen] = React.useState(() => persistedSidebarOpen(defaultOpen));
+	// A pinned sidebar (`collapsible: false`) has NO collapsed state: the cookie,
+	// `defaultOpen` and any controlled `open` are overridden, so a stale
+	// `sidebar_state=false` cannot render a panel with no way back.
+	const open = collapsible ? (openProp ?? _open) : true;
 	const setOpen = React.useCallback(
 		(value: boolean | ((value: boolean) => boolean)) => {
 			const openState = typeof value === 'function' ? value(open) : value;
@@ -175,23 +215,28 @@ function SidebarProvider({
 		[setOpenProp, open],
 	);
 
-	// Helper to toggle the sidebar.
+	// Helper to toggle the sidebar. A pinned desktop sidebar has nothing to
+	// toggle; below `md` the Sheet still opens and closes.
 	const toggleSidebar = React.useCallback(() => {
-		return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
-	}, [isMobile, setOpen, setOpenMobile]);
+		if (isMobile) return setOpenMobile((open) => !open);
+		if (!collapsible) return;
+		setOpen((open) => !open);
+	}, [isMobile, collapsible, setOpen, setOpenMobile]);
 
 	// Adds a keyboard shortcut to toggle the sidebar.
 	React.useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
-				event.preventDefault();
-				toggleSidebar();
-			}
+			if (event.key !== SIDEBAR_KEYBOARD_SHORTCUT || !(event.metaKey || event.ctrlKey)) return;
+			// Nothing to collapse on a pinned desktop sidebar — leave the combo to
+			// the app rather than swallowing it.
+			if (!isMobile && !collapsible) return;
+			event.preventDefault();
+			toggleSidebar();
 		};
 
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [toggleSidebar]);
+	}, [toggleSidebar, isMobile, collapsible]);
 
 	// We add a state so that we can do data-state="expanded" or "collapsed".
 	// This makes it easier to style the sidebar with Tailwind classes.
@@ -206,11 +251,12 @@ function SidebarProvider({
 			openMobile,
 			setOpenMobile,
 			toggleSidebar,
+			collapsible,
 			resizable,
 			isResizing,
 			startSidebarResize,
 		}),
-		[state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, resizable, isResizing, startSidebarResize],
+		[state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, collapsible, resizable, isResizing, startSidebarResize],
 	);
 
 	return (
@@ -222,6 +268,7 @@ function SidebarProvider({
 					{
 						'--sidebar-width': SIDEBAR_WIDTH,
 						'--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
+						'--rail-width': railWidth,
 						...style,
 						...(resizable ? { '--sidebar-width': sidebarWidth } : {}),
 					} as React.CSSProperties
@@ -319,7 +366,7 @@ function Sidebar({
 				data-slot="sidebar-container"
 				data-side={side}
 				className={cn(
-					'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear data-[side=left]:left-0 data-[side=left]:group-data-[collapsible=offcanvas]:-left-(--sidebar-width) data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:-right-(--sidebar-width) md:flex',
+					'fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear data-[side=left]:left-(--rail-width) data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--rail-width)-var(--sidebar-width))] data-[side=right]:right-0 data-[side=right]:group-data-[collapsible=offcanvas]:-right-(--sidebar-width) md:flex',
 					// Adjust the padding for floating and inset variants.
 					variant === 'floating' || variant === 'inset'
 						? 'p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]'
@@ -363,23 +410,29 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
-	const { toggleSidebar, resizable, isResizing, startSidebarResize } = useSidebar();
+	const { toggleSidebar, collapsible, resizable, isResizing, startSidebarResize } = useSidebar();
 	// A drag that moved past the threshold suppresses the toggle click that
 	// follows the pointer-up.
 	const didDrag = React.useRef(false);
+
+	// Nothing left to offer: a pinned sidebar with no resize feature has no
+	// strip at all (a dead hover target would promise a collapse that cannot
+	// happen).
+	if (!collapsible && !resizable) return null;
 
 	return (
 		<button
 			data-sidebar="rail"
 			data-slot="sidebar-rail"
 			data-resizing={isResizing ? 'true' : undefined}
-			aria-label="Toggle Sidebar"
+			aria-label={collapsible ? 'Toggle Sidebar' : 'Resize sidebar'}
 			tabIndex={-1}
 			onClick={() => {
 				if (didDrag.current) {
 					didDrag.current = false;
 					return;
 				}
+				if (!collapsible) return;
 				toggleSidebar();
 			}}
 			onPointerDown={(event) => {
@@ -401,7 +454,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
 				};
 				window.addEventListener('pointerup', onUp);
 			}}
-			title={resizable ? 'Drag to resize, click to collapse' : 'Toggle Sidebar'}
+			title={!collapsible ? 'Drag to resize' : resizable ? 'Drag to resize, click to collapse' : 'Toggle Sidebar'}
 			className={cn(
 				'absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:inset-s-1/2 after:w-0.5 hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2',
 				'in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize',
