@@ -1,30 +1,27 @@
 /**
  * Schema view — the focused collection's fields as a card grid (each card opens
- * the field "⋯" menu), with the "No fields yet" hint when the collection has
- * none. Extracted out of the Collections workbench; behaviour unchanged.
+ * the field "⋯" menu via FieldRowMenu), with the "No fields yet" hint when the
+ * collection has none. Extracted out of the Collections workbench; behaviour
+ * unchanged.
  */
-import {
-	Badge,
-	Card,
-	CardContent,
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '@mmbix/design-system';
-import { MoreVertical, Settings2, Trash2 } from 'lucide-react';
+import { Badge, Card, CardContent } from '@mmbix/design-system';
 import { FieldTypeIcon } from '../formlayout';
+import { FieldRowMenu, type FieldLayoutBinding } from './FieldRowMenu';
 import type { FieldDefinition } from '../../lib/api';
 
 export function SchemaFieldGrid({
 	fields,
 	onEditField,
+	onDuplicateField,
 	onRemoveField,
+	layoutOf,
 }: {
 	fields: FieldDefinition[];
 	onEditField: (field: FieldDefinition) => void;
+	onDuplicateField: (field: FieldDefinition) => void;
 	onRemoveField: (name: string) => void;
+	/** Each field's place on the detail form — omit on a surface that holds no layout. */
+	layoutOf?: (field: FieldDefinition) => FieldLayoutBinding;
 }) {
 	if (fields.length === 0) {
 		return (
@@ -80,34 +77,13 @@ export function SchemaFieldGrid({
 						<Badge variant="outline" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'capitalize' }}>
 							{f.type}
 						</Badge>
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								title="Field options"
-								style={{
-									display: 'inline-flex',
-									alignItems: 'center',
-									justifyContent: 'center',
-									width: 24,
-									height: 24,
-									borderRadius: 5,
-									border: 'none',
-									background: 'transparent',
-									color: 'var(--mmbix-muted-foreground, #9ca3af)',
-									cursor: 'pointer',
-								}}
-							>
-								<MoreVertical size={13} />
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end" style={{ minWidth: 180 }}>
-								<DropdownMenuItem onClick={() => onEditField(f)}>
-									<Settings2 size={13} /> Edit properties
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem onClick={() => onRemoveField(f.name)} style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
-									<Trash2 size={13} /> Delete field
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
+						<FieldRowMenu
+							field={f}
+							onEdit={onEditField}
+							onDuplicate={onDuplicateField}
+							onRemove={onRemoveField}
+							layout={layoutOf?.(f)}
+						/>
 					</CardContent>
 				</Card>
 			))}

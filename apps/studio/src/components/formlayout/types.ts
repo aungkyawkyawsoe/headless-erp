@@ -1,3 +1,4 @@
+import type { FieldSpan } from '@mmbix/ui-views';
 import type { FieldCondition } from '../../lib/api';
 
 /** Shared state shapes for the form layout engine (tabs → groups → fields). */
@@ -9,8 +10,8 @@ export interface FormGroup {
 	fieldNames: string[];
 	/** Per-field grid width inside the group's columns — 'full' spans all columns (half = default). */
 	fieldWidths?: Record<string, 'half' | 'full'>;
-	/** Per-field grid span (1..group.columns) — how many columns this field occupies (Studio 1/2/3/4 shortcut). */
-	fieldSpans?: Record<string, number>;
+	/** Per-field grid width — a column count (1..group.columns) or 'fill' (rest of the row). */
+	fieldSpans?: Record<string, FieldSpan>;
 	/** Optional Lucide icon name shown next to the group label (see GROUP_ICONS in @mmbix/ui-views). */
 	icon?: string;
 	/** Conditional visibility (linkage rule) — the whole group renders only when the condition holds. */
@@ -25,13 +26,16 @@ export interface FormTab {
 	groups: FormGroup[];
 }
 
+/** The three named widths the schema field menu offers (Directus's vocabulary). */
+export type FieldWidth = 'half' | 'full' | 'fill';
+
 /** The persisted (serialized) shape — ids are runtime-only, never written to the schema. */
 export interface SerializedFormGroup {
 	title: string;
 	columns: number;
 	fieldNames: string[];
 	fieldWidths?: Record<string, 'half' | 'full'>;
-	fieldSpans?: Record<string, number>;
+	fieldSpans?: Record<string, FieldSpan>;
 	icon?: string;
 	visible_when?: FieldCondition;
 	groups?: SerializedFormGroup[];

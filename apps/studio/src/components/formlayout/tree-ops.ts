@@ -1,4 +1,6 @@
-import type { FormGroup, FormTab } from './types';
+import type { FieldSpan } from '@mmbix/ui-views';
+import { halfSpanOf } from '@mmbix/ui-views';
+import type { FieldWidth, FormGroup, FormTab } from './types';
 import { mapGroups, flattenGroups } from './serialize';
 
 /**
@@ -152,6 +154,25 @@ export function setFieldSpan(tabs: FormTab[], name: string, span: number): FormT
 			if (!g.fieldNames.includes(name)) return g;
 			const sp = { ...(g.fieldSpans ?? {}) };
 			sp[name] = Math.max(1, Math.round(span));
+			const fw = { ...(g.fieldWidths ?? {}) };
+			delete fw[name];
+			return { ...g, fieldSpans: sp, fieldWidths: Object.keys(fw).length ? fw : undefined };
+		}),
+	}));
+}
+
+/** Apply a NAMED width (the schema field menu's Half / Full / Fill) to every group
+ *  the field is placed in. 'half' and 'full' resolve against each group's OWN column
+ *  count, so one field sitting in two differently-sized groups is half of both. */
+export function applyFieldWidth(tabs: FormTab[], name: string, width: FieldWidth): FormTab[] {
+	return tabs.map((t) => ({
+		...t,
+		groups: mapGroups(t.groups, (g) => {
+			if (!g.fieldNames.includes(name)) return g;
+			const cols = Math.max(1, g.columns || 2);
+			const value: FieldSpan = width === 'fill' ? 'fill' : width === 'full' ? cols : halfSpanOf(cols);
+			const sp = { ...(g.fieldSpans ?? {}) };
+			sp[name] = value;
 			const fw = { ...(g.fieldWidths ?? {}) };
 			delete fw[name];
 			return { ...g, fieldSpans: sp, fieldWidths: Object.keys(fw).length ? fw : undefined };

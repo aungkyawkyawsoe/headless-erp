@@ -8,6 +8,7 @@ import {
 	addFieldToGroup,
 	setFieldWidth,
 	setFieldSpan,
+	applyFieldWidth,
 	swapFields,
 	moveField,
 	removeFieldFromLayout,
@@ -136,6 +137,48 @@ describe('setFieldWidth / setFieldSpan', () => {
 	it('clamps spans to >= 1', () => {
 		const next = setFieldSpan(sample(), 'a', 0);
 		expect(next[0].groups.find((g) => g.id === 'g1')!.fieldSpans).toEqual({ a: 1 });
+	});
+});
+
+describe('applyFieldWidth', () => {
+	/** 'a' sits in a 6-column group AND in a nested 2-column group; 'c' is elsewhere. */
+	function grids(): FormTab[] {
+		return [
+			{
+				id: 't1',
+				label: 'General',
+				groups: [
+					{ id: 'g1', title: 'A', columns: 6, fieldNames: ['a', 'b'], fieldWidths: { a: 'full' } },
+					{ id: 'g2', title: 'B', columns: 2, fieldNames: ['c'], groups: [{ id: 'g2a', title: 'B1', columns: 2, fieldNames: ['a'] }] },
+				],
+			},
+		];
+	}
+
+	it("resolves each named width against EACH group's own columns, legacy width cleared", () => {
+		const half = applyFieldWidth(grids(), 'a', 'half');
+		const g1 = half[0].groups.find((g) => g.id === 'g1')!;
+		const g2a = half[0].groups.find((g) => g.id === 'g2')!.groups![0];
+		expect(g1.fieldSpans).toEqual({ a: 3 });
+		expect(g1.fieldWidths).toBeUndefined();
+		expect(g2a.fieldSpans).toEqual({ a: 1 });
+
+		const full = applyFieldWidth(grids(), 'a', 'full');
+		expect(full[0].groups.find((g) => g.id === 'g1')!.fieldSpans).toEqual({ a: 6 });
+		expect(full[0].groups.find((g) => g.id === 'g2')!.groups![0].fieldSpans).toEqual({ a: 2 });
+	});
+
+	it("stores 'fill' verbatim — the rest of the row is resolved at render time", () => {
+		const next = applyFieldWidth(grids(), 'a', 'fill');
+		expect(next[0].groups.find((g) => g.id === 'g1')!.fieldSpans).toEqual({ a: 'fill' });
+	});
+
+	it('leaves groups the field is not placed in untouched, and the input immutable', () => {
+		const input = grids();
+		const next = applyFieldWidth(input, 'a', 'full');
+		expect(next[0].groups.find((g) => g.id === 'g2')!.fieldSpans).toBeUndefined();
+		expect(input[0].groups.find((g) => g.id === 'g1')!.fieldWidths).toEqual({ a: 'full' });
+		expect(input[0].groups.find((g) => g.id === 'g1')!.fieldSpans).toBeUndefined();
 	});
 });
 

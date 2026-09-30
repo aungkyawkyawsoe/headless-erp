@@ -19,7 +19,7 @@ import {
 	Input,
 } from '@mmbix/design-system';
 import { ChevronDown, Copy, CornerDownRight, MoreVertical, MoveUp, Plus, Trash2 } from 'lucide-react';
-import { GroupIcon, fieldSpanOf, isTextareaField } from '@mmbix/ui-views';
+import { GroupIcon, flowSpans } from '@mmbix/ui-views';
 import type { FieldDefinition } from '../../lib/api';
 import type { FormGroup, FormTab } from './types';
 import { FieldTypeIcon } from './FieldTypeIcon';
@@ -117,6 +117,9 @@ export function CanvasGroup({
 	const { setNodeRef, isOver } = useDroppable({ id: `group-${group.id}`, data: { kind: 'group', gid: group.id } });
 	const [open, setOpen] = useState(true);
 	const groupFields = group.fieldNames.map((n) => fields.find((f) => f.name === n)).filter(Boolean) as FieldDefinition[];
+	// One pass over the group: a 'fill' field's width depends on the row it lands in,
+	// so spans are resolved together (ui-views/field-span) rather than per field.
+	const spans = flowSpans(group, groupFields);
 	const nested = group.groups ?? [];
 	const activeHere = isActive ?? group.id === activeGroupId;
 	// Candidate parents for "Move into group" — everything in the tab except this group and its own subtree.
@@ -301,12 +304,12 @@ export function CanvasGroup({
 							}}
 							style={{ display: 'grid', gridTemplateColumns: `repeat(${group.columns}, 1fr)`, gap: 8 }}
 						>
-							{groupFields.map((f) => (
+							{groupFields.map((f, i) => (
 								<FieldChip
 									key={f.name}
 									field={f}
 									selected={selected === f.name}
-									span={fieldSpanOf(group, f.name, isTextareaField(f.type))}
+									span={spans[i]}
 									columns={group.columns}
 									groupId={group.id}
 									groupOptions={groupOptions}
@@ -469,14 +472,16 @@ export function FieldChip({
 }) {
 	const { setNodeRef, isOver } = useDroppable({ id: `field-${field.name}`, data: { kind: 'field', name: field.name } });
 	const cols = Math.max(1, columns || 2);
-	const full = (span ?? 1) >= cols;
 	const isDropTarget = dropBefore !== null && dropBefore !== undefined;
 	const moveTargets = (groupOptions ?? []).filter((g) => g.id !== groupId);
 	// Required fields keep a darker label; optional ones a medium gray — both regular weight.
 	const requiredStyle = field.required
 		? { color: 'var(--mmbix-foreground, #111827)', fontWeight: 500 }
 		: { color: '#6b7280', fontWeight: 500 };
-	const cell = { gridColumn: full ? '1 / -1' : `span ${Math.min(Math.max(1, span ?? 1), cols)}`, minWidth: 0 };
+	// Every chip is an auto-placed `span n` — the caller hands us the width the field
+	// was positioned with (flowSpans), so the grid never re-derives it: a full-width
+	// field spans every column and, like the others, wraps when it no longer fits.
+	const cell = { gridColumn: `span ${Math.min(Math.max(1, span ?? 1), cols)}`, minWidth: 0 };
 	return (
 		<div style={cell}>
 			<ContextMenu>

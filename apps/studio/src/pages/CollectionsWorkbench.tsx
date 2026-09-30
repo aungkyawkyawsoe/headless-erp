@@ -19,6 +19,9 @@ import { writeLockOf, isRowFrozen, partitionFrozenRows, frozenRowsReason } from 
 import { useStore } from '@tanstack/react-store';
 import { studioUiStore } from '../lib/studio-store';
 import { messageOf } from '../lib/errors';
+import { duplicatedFields } from '../lib/field-ops';
+import { fieldLayoutStates, withFieldPlaced, withFieldWidth } from '../lib/field-layout';
+import type { StoredFormLayout } from '../components/formlayout/serialize';
 import { useFieldTypes } from '../lib/use-field-types';
 import { isHiddenCollection } from '../lib/idp';
 import { useViewState } from '../lib/view-state';
@@ -30,6 +33,8 @@ import { DocNoDialog } from '../components/collections/DocNoDialog';
 import { PanelDialog } from '../components/collections/PanelDialog';
 import { FieldPropertiesDrawer } from '../components/collections/FieldPropertiesDrawer';
 import { SchemaFieldGrid } from '../components/collections/SchemaFieldGrid';
+import type { FieldLayoutBinding } from '../components/collections/FieldRowMenu';
+import type { FieldWidth, SerializedFormLayout } from '../components/formlayout/types';
 
 /**
  * CollectionsWorkbench — the schema registry as a full app-workbench, reusing
@@ -248,6 +253,38 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 
 	// ── handlers ────────────────────────────────────────────────────────────
 
+	// The form layout's view of every field in the schema grid (lib/field-layout).
+	// The LAYOUT, not the schema, decides what the detail form renders, so the menu's
+	// "Hide / Show field on detail" and width entries are resolved from it — through
+	// the same materializer the layout canvas uses, so the two surfaces agree about a
+	// field that an uncurated collection seeds onto the form by default.
+	const storedLayout = (selectedSchema?.schema_json as { form_layout?: StoredFormLayout } | undefined)?.form_layout;
+	const userNames = useMemo(() => visibleFields.map((f) => f.name), [visibleFields]);
+	const layoutStates = useMemo(() => fieldLayoutStates(storedLayout, userNames, visibleFields), [storedLayout, userNames, visibleFields]);
+
+	/** Persist a form-layout edit from the field menu. The whole (local) field list
+	 *  rides along, exactly like the other schema writers; no row invalidation — a
+	 *  layout edit changes how the form renders, not the table's columns. */
+	async function writeFieldLayout(next: SerializedFormLayout) {
+		if (!selected || !selectedSchema) return;
+		try {
+			const updated = await updateCollectionFields(token, selected, fields, next);
+			queryClient.setQueryData(qk.collection(selected), updated);
+			persistedVersionRef.current = editVersionRef.current;
+			setActionError(null);
+		} catch (e) {
+			setActionError(e instanceof Error ? e.message : 'Layout update failed');
+		}
+	}
+
+	function fieldLayoutOf(field: FieldDefinition): FieldLayoutBinding {
+		return {
+			...(layoutStates.get(field.name) ?? { placed: false, width: null }),
+			onSetWidth: (width: FieldWidth) => void writeFieldLayout(withFieldWidth(storedLayout, userNames, field, width)),
+			onSetPlaced: (placed: boolean) => void writeFieldLayout(withFieldPlaced(storedLayout, userNames, field, placed)),
+		};
+	}
+
 	// Doc No. (naming series) — live preview for the per-collection editor.
 	const docNoExample = namingSeriesExample(docNoValue);
 
@@ -298,6 +335,29 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 			setReloadTick((v) => v + 1);
 		} catch (e) {
 			setActionError(e instanceof Error ? e.message : 'Create failed');
+		}
+	}
+
+	// Directus's "Duplicate Field": append a copy of the field's properties under
+	// a fresh `<name>_copy` name. The copy is taken from the CURRENT local field
+	// list — which already carries optimistic property edits — so duplicating a
+	// field mid-edit copies what is on screen, not the last-persisted shape.
+	// Nothing is focused afterwards: the new card simply appears (Directus-like).
+	async function duplicateField(field: FieldDefinition) {
+		if (!selected || !selectedSchema) return;
+		const next = duplicatedFields(fields, field.name);
+		if (!next) return;
+		try {
+			const updated = await updateCollectionFields(token, selected, next);
+			queryClient.setQueryData(qk.collection(selected), updated);
+			// The whole field list was just written — nothing pending to flush.
+			persistedVersionRef.current = editVersionRef.current;
+			setActionError(null);
+			// A new column changes the row shape — refetch the visible page.
+			await invalidateRows(queryClient, selected);
+			setReloadTick((v) => v + 1);
+		} catch (e) {
+			setActionError(e instanceof Error ? e.message : 'Duplicate failed');
 		}
 	}
 
@@ -738,7 +798,13 @@ export default function CollectionsWorkbench({ token, user }: { token: string; u
 						</Button>
 					</div>
 				</div>
-				<SchemaFieldGrid fields={visibleFields} onEditField={(f) => setEditField(f)} onRemoveField={(name) => void removeField(name)} />
+				<SchemaFieldGrid
+					fields={visibleFields}
+					onEditField={(f) => setEditField(f)}
+					onDuplicateField={(f) => void duplicateField(f)}
+					onRemoveField={(name) => void removeField(name)}
+					layoutOf={fieldLayoutOf}
+				/>
 			</div>
 		);
 

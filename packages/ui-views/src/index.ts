@@ -1,7 +1,7 @@
 /**
  * Shared view/block logic — the single source of truth for how records are
  * labelled/formatted and how page blocks render. Used by the Studio builder
- * (apps/studio) and the runtime page renderer (the client app) so both produce
+ * (apps/studio) and the runtime page renderer (apps/tgapp) so both produce
  * identical output (preview == runtime, no raw UUID dumps).
  */
 
@@ -75,8 +75,9 @@ export { GroupIcon } from './group-icons';
 /** Lucide icon glyph helpers (no runtime CDN fetch — curated set + Box fallback). */
 export { useLucideNodes, LucideGlyph } from './lucide-cdn';
 
-/** Per-field grid span resolution (Studio 1/2/3/4 layout — preview == runtime). */
-export { fieldSpanOf, isTextareaField } from './field-span';
+/** Per-field grid width resolution (Studio layout — preview == runtime). */
+export { fieldSpanOf, flowSpans, halfSpanOf, isTextareaField } from './field-span';
+export type { FieldSpan } from './field-span';
 
 /** Linkage-rule condition evaluation (visible_when etc. — preview == runtime). */
 export { evalFieldCondition } from './field-conditions';

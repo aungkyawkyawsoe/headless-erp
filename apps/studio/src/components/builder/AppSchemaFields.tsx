@@ -1,19 +1,12 @@
 /**
  * Schema view — the focused model's fields as a card grid (each card opens the
- * field "⋯" menu). Extracted out of the AppDetailPage; behaviour unchanged.
+ * field "⋯" menu via FieldRowMenu). Extracted out of the AppDetailPage;
+ * behaviour unchanged. This surface carries no field-editing flow, so its menu
+ * is delete-only and FieldRowMenu omits the entries it cannot run.
  */
-import {
-	Badge,
-	Card,
-	CardContent,
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '@mmbix/design-system';
-import { MoreVertical } from 'lucide-react';
+import { Badge, Card, CardContent } from '@mmbix/design-system';
 import { FieldTypeIcon } from '../formlayout';
+import { FieldRowMenu } from '../collections/FieldRowMenu';
 import type { FieldDefinition } from '../../lib/api';
 
 export function AppSchemaFields({ fields, onRemoveField }: { fields: FieldDefinition[]; onRemoveField: (name: string) => void }) {
@@ -39,32 +32,7 @@ export function AppSchemaFields({ fields, onRemoveField }: { fields: FieldDefini
 						<Badge variant="outline" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'capitalize' }}>
 							{f.type}
 						</Badge>
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								title="Field options"
-								style={{
-									display: 'inline-flex',
-									alignItems: 'center',
-									justifyContent: 'center',
-									width: 24,
-									height: 24,
-									borderRadius: 5,
-									border: 'none',
-									background: 'transparent',
-									color: 'var(--mmbix-muted-foreground, #9ca3af)',
-									cursor: 'pointer',
-								}}
-							>
-								<MoreVertical size={13} />
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align="end">
-								<DropdownMenuSeparator />
-								<DropdownMenuItem onClick={() => onRemoveField(f.name)} style={{ color: 'var(--mmbix-tone-danger-fg, #dc2626)' }}>
-									<span style={{ width: 13, display: 'inline-flex' }} />
-									Delete field
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
+						<FieldRowMenu field={f} onRemove={onRemoveField} />
 					</CardContent>
 				</Card>
 			))}
