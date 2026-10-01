@@ -1,20 +1,35 @@
 /**
  * Schema view — the focused collection's fields as a card grid (each card opens
  * the field "⋯" menu via FieldRowMenu), with the "No fields yet" hint when the
- * collection has none. Extracted out of the Collections workbench; behaviour
- * unchanged.
+ * collection has none. Extracted out of the Collections workbench.
  *
- * The card STATES the field's place on the detail form — the width chip and the
- * dimmed eye-off card — because the "⋯" menu's Hide/width entries change a state
- * this grid is exactly where an operator looks for their effect. Without it a
- * click was silent: the entry wrote, nothing on the surface moved, and the
- * feature read as dead.
+ * The grid STATES each field's place on the detail form SPATIALLY, because the
+ * "⋯" menu's Hide/width entries change a state this grid is exactly where an
+ * operator looks for their effect — without it a click was silent: the entry
+ * wrote, nothing on the surface moved, and the feature read as dead. The width
+ * is a card SPAN, not a label: the named wide widths (full / fill) take both
+ * grid columns, half (and a custom span) takes one — the same 2-column shape
+ * the form gives them. A hidden field keeps its stored span and renders dimmed
+ * with an eye-off mark, so hiding neither reflows the grid nor loses the
+ * placement showing it again will restore.
  */
 import { Badge, Card, CardContent } from '@mmbix/design-system';
 import { EyeOff } from 'lucide-react';
 import { FieldTypeIcon } from '../formlayout';
 import { FieldRowMenu, WIDTH_LABELS, type FieldLayoutBinding } from './FieldRowMenu';
 import type { FieldDefinition } from '../../lib/api';
+
+/** Grid columns a card spans — the widths the form renders full-bleed take both. */
+function spanOf(layout: FieldLayoutBinding | undefined): number {
+	return layout && (layout.width === 'full' || layout.width === 'fill') ? 2 : 1;
+}
+
+/** The card's hover tooltip: the ONE fact the card cannot state spatially. */
+function cardTitle(layout: FieldLayoutBinding | undefined): string | undefined {
+	if (!layout) return undefined;
+	if (layout.hidden) return 'Hidden on the detail form';
+	return layout.width ? `${WIDTH_LABELS[layout.width]} width on the detail form` : undefined;
+}
 
 export function SchemaFieldGrid({
 	fields,
@@ -58,7 +73,13 @@ export function SchemaFieldGrid({
 				return (
 				<Card
 					key={f.name}
-					style={{ padding: 0, ...(f.required ? { borderColor: 'var(--mmbix-primary, #0f766e)' } : {}), ...(layout?.hidden ? { opacity: 0.55 } : {}) }}
+					title={cardTitle(layout)}
+					style={{
+						padding: 0,
+						gridColumn: `span ${spanOf(layout)}`,
+						...(f.required ? { borderColor: 'var(--mmbix-primary, #0f766e)' } : {}),
+						...(layout?.hidden ? { opacity: 0.55 } : {}),
+					}}
 				>
 					<CardContent style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.38rem 0.6rem' }}>
 						<FieldTypeIcon type={f.type} />
@@ -97,14 +118,6 @@ export function SchemaFieldGrid({
 						<Badge variant="outline" style={{ fontSize: '0.6rem', fontWeight: 600, textTransform: 'capitalize' }}>
 							{f.type}
 						</Badge>
-						{/* The width the detail form renders it with — the chip the width entries
-						 *  visibly flip. A hidden field states only that fact (dimmed + eye-off);
-						 *  its width is latent until it is shown again. */}
-						{layout && !layout.hidden && layout.width && (
-							<Badge variant="outline" title="Width on the detail form" style={{ fontSize: '0.6rem', fontWeight: 600 }}>
-								{WIDTH_LABELS[layout.width]}
-							</Badge>
-						)}
 						<FieldRowMenu
 							field={f}
 							onEdit={onEditField}

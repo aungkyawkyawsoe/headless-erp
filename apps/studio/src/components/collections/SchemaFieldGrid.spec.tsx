@@ -5,9 +5,10 @@
  * Hide/width entries change a fact this surface otherwise never showed — which
  * made every click look like a no-op:
  *
- *   - a hidden field renders dimmed with an eye-off mark and no width chip,
- *   - a visible field states its named width as a chip (Half / Full / Fill),
- *   - a custom span (no named width) states no width — there is no name for it,
+ *   - the width is the card's SPAN, not a label: the wide widths (Full / Fill)
+ *     take both grid columns, Half (and a custom span) takes one,
+ *   - a hidden field renders dimmed with an eye-off mark and KEEPS its span —
+ *     hiding neither reflows the grid nor loses the placement,
  *   - a surface that holds no layout (the app workbench) gets no invented state.
  *
  * The menu keeps its own spec (FieldRowMenu.spec.tsx); here the point is that
@@ -40,6 +41,11 @@ function card(label: string): HTMLElement {
 	return labelEl.closest('[data-slot="card"]') as HTMLElement;
 }
 
+/** The span jsdom recorded — `grid-column` shorthand via either readback. */
+function span(el: HTMLElement): string {
+	return el.style.gridColumn || el.style.getPropertyValue('grid-column');
+}
+
 function mount(layoutOf?: (f: FieldDefinition) => FieldLayoutBinding) {
 	return render(
 		<SchemaFieldGrid fields={fields} onEditField={vi.fn()} onDuplicateField={vi.fn()} onRemoveField={vi.fn()} layoutOf={layoutOf} />,
@@ -49,45 +55,56 @@ function mount(layoutOf?: (f: FieldDefinition) => FieldLayoutBinding) {
 afterEach(() => cleanup());
 
 describe('SchemaFieldGrid — the detail-form state on each card', () => {
-	it('states a named width as a chip — Half / Full / Fill', () => {
+	it('spans BOTH grid columns for the wide widths — Full and Fill take two, Half one', () => {
 		mount((f) => binding({ width: f.name === 'title' ? 'full' : f.name === 'body' ? 'fill' : 'half' }));
-		expect(within(card('Title')).getByText('Full')).toBeTruthy();
-		expect(within(card('Body')).getByText('Fill')).toBeTruthy();
-		expect(within(card('Tags')).getByText('Half')).toBeTruthy();
+		expect(span(card('Title'))).toBe('span 2');
+		expect(span(card('Body'))).toBe('span 2');
+		expect(span(card('Tags'))).toBe('span 1');
+		// No width LABEL survives on the card — the span is the statement.
+		expect(within(card('Title')).queryByText('Full')).toBeNull();
+		expect(within(card('Tags')).queryByText('Half')).toBeNull();
 	});
 
-	it('states a custom span as nothing — there is no name for it', () => {
+	it('takes one column for a custom span — there is no name for it, and no tooltip', () => {
 		mount((f) => binding({ width: f.name === 'title' ? null : 'half' }));
-		expect(within(card('Title')).queryByTitle('Width on the detail form')).toBeNull();
+		expect(span(card('Title'))).toBe('span 1');
+		expect(card('Title').title).toBe('');
+		// A named width does state itself in the tooltip — the fact a span cannot say is which width.
+		expect(card('Body').title).toBe('Half width on the detail form');
 	});
 
-	it('dims a hidden field, marks it with an eye-off, and states no width', () => {
+	it('dims a hidden field, marks it with an eye-off, and KEEPS its span', () => {
 		mount((f) => binding({ hidden: f.name === 'body', width: 'full' }));
 		const hiddenCard = card('Body');
 		expect(hiddenCard.style.opacity).toBe('0.55');
 		expect(within(hiddenCard).getByRole('img', { name: 'Hidden on the detail form' })).toBeTruthy();
-		expect(within(hiddenCard).queryByTitle('Width on the detail form')).toBeNull();
-		// A visible neighbour keeps its chip and its full opacity.
+		// Hiding does not reflow the grid — the placement showing it again restores is still there.
+		expect(span(hiddenCard)).toBe('span 2');
+		expect(hiddenCard.title).toBe('Hidden on the detail form');
+		// A visible neighbour keeps its span and its full opacity.
 		expect(card('Title').style.opacity).not.toBe('0.55');
-		expect(within(card('Title')).getByText('Full')).toBeTruthy();
+		expect(span(card('Title'))).toBe('span 2');
 	});
 
 	it('invents no state on a surface that holds no layout', () => {
 		mount(undefined);
 		expect(screen.queryByRole('img', { name: 'Hidden on the detail form' })).toBeNull();
-		expect(screen.queryByTitle('Width on the detail form')).toBeNull();
+		for (const label of ['Title', 'Body', 'Tags']) {
+			expect(span(card(label))).toBe('span 1');
+			expect(card(label).title).toBe('');
+		}
 		// The menu still renders from the remaining capabilities.
 		expect(screen.getAllByTitle('Field options')).toHaveLength(3);
 	});
 
-	it('holds the SAME binding the menu acts on — a width pick is the one the card shows', () => {
+	it('holds the SAME binding the menu acts on — a width pick is the span the card shows', () => {
 		const layouts = new Map([
 			['title', binding({ hidden: false, width: 'half' })],
 			['body', binding({ hidden: false, width: 'half' })],
 			['tags', binding({ hidden: false, width: 'half' })],
 		]);
 		mount((f) => layouts.get(f.name)!);
-		expect(within(card('Title')).getByText('Half')).toBeTruthy();
+		expect(span(card('Title'))).toBe('span 1');
 		fireEvent.click(within(card('Title')).getByTitle('Field options'));
 		fireEvent.click(screen.getByRole('menuitem', { name: 'Fill width' }));
 		expect(layouts.get('title')!.onSetWidth).toHaveBeenCalledWith('fill');

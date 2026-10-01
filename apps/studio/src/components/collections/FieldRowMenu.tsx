@@ -40,7 +40,7 @@ export interface FieldLayoutBinding {
 }
 
 /** The three named widths, short — the ONE vocabulary the menu's entries and the
- *  schema card's width chip both read, so a width can never read two ways. */
+ *  schema card's tooltip both read, so a width can never read two ways. */
 export const WIDTH_LABELS: Record<FieldWidth, string> = { half: 'Half', full: 'Full', fill: 'Fill' };
 
 /** The three named widths, in the order Directus lists them. */
